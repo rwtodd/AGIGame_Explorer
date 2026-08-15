@@ -1,25 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
-
-AgiView _createMultiCelView({int viewNumber = 0, int celCount = 3}) {
-  final cels = List.generate(
-    celCount,
-    (index) => AgiViewCel.forward(
-      width: 8,
-      height: 12,
-      transparentColor: 0,
-      rawPixels: Uint8List(8 * 12),
-    ),
-  );
-  return AgiView(
-    viewNumber: viewNumber,
-    loops: [AgiViewLoop(loopNumber: 0, cels: cels)],
-  );
-}
 
 void main() {
   group('Ego Animation Cycling Tests', () {
