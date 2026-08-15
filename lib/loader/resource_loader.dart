@@ -3,8 +3,10 @@ import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/game_info.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
+import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/loader/game_metadata.dart';
 import 'package:flutter_agigame/loader/parsers/objects_parser.dart';
+import 'package:flutter_agigame/loader/parsers/sound_parser.dart';
 import 'package:flutter_agigame/loader/parsers/words_parser.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
@@ -100,6 +102,12 @@ class AgiResourceLoader {
       throw ResourceNotPresentException('Sound resource $number is not present.');
     }
     return vmgr.getResource(de);
+  }
+
+  /// Loads and parses a SOUND resource into an [AgiSound].
+  AgiSound loadSound(int number) {
+    final rawData = loadRawSound(number);
+    return SoundParser.parse(rawData);
   }
 
   /// Loads raw uncompressed bytes for a PICTURE resource.
