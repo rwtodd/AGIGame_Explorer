@@ -21,6 +21,7 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
   String _searchQuery = '';
   int _selectedObjectIndex = 0;
   int? _customViewNumberOverride;
+  bool _hideDummyObjects = true;
 
   @override
   void dispose() {
@@ -37,6 +38,9 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
     final filteredIndices = <int>[];
     for (var i = 0; i < objects.length; i++) {
       final obj = objects[i];
+      if (_hideDummyObjects && (obj.name.trim().startsWith('?') || obj.name.trim().isEmpty)) {
+        continue;
+      }
       if (_searchQuery.isEmpty ||
           obj.name.toLowerCase().contains(_searchQuery) ||
           obj.startingRoom.toString() == _searchQuery ||
@@ -45,17 +49,21 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
       }
     }
 
-    final selectedObj = (objects.isNotEmpty && _selectedObjectIndex < objects.length)
-        ? objects[_selectedObjectIndex]
+    final effectiveSelectedIdx = (filteredIndices.contains(_selectedObjectIndex))
+        ? _selectedObjectIndex
+        : (filteredIndices.isNotEmpty ? filteredIndices.first : 0);
+
+    final selectedObj = (objects.isNotEmpty && effectiveSelectedIdx < objects.length)
+        ? objects[effectiveSelectedIdx]
         : null;
 
     final resolvedViewNum = selectedObj != null && loader != null
         ? ObjectViewResolver.resolveViewNumber(
-            objectIndex: _selectedObjectIndex,
+            objectIndex: effectiveSelectedIdx,
             object: selectedObj,
             loader: loader,
           )
-        : _selectedObjectIndex;
+        : effectiveSelectedIdx;
 
     final effectiveViewNum = _customViewNumberOverride ?? resolvedViewNum;
     AgiView? associatedView;
@@ -112,29 +120,59 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
             child: Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: const BoxDecoration(
                     color: AgiTheme.egaDarkSurface,
                     border: Border(bottom: BorderSide(color: AgiTheme.egaBorder)),
                   ),
-                  child: TextField(
-                    controller: _searchController,
-                    style: const TextStyle(fontSize: 13, color: AgiTheme.egaWhite),
-                    decoration: InputDecoration(
-                      hintText: 'Search items by name, index (#0), or room number...',
-                      prefixIcon: const Icon(Icons.search, size: 16, color: AgiTheme.egaMuted),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 14),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _searchQuery = '');
-                              },
-                            )
-                          : null,
-                    ),
-                    onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _searchController,
+                        style: const TextStyle(fontSize: 13, color: AgiTheme.egaWhite),
+                        decoration: InputDecoration(
+                          hintText: 'Search items by name, index (#0), or room number...',
+                          prefixIcon: const Icon(Icons.search, size: 16, color: AgiTheme.egaMuted),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 14),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                )
+                              : null,
+                        ),
+                        onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          FilterChip(
+                            label: const Text('Hide Dummy Objects (?)', style: TextStyle(fontSize: 11)),
+                            selected: _hideDummyObjects,
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            onSelected: (val) {
+                              setState(() {
+                                _hideDummyObjects = val;
+                              });
+                            },
+                            avatar: Icon(
+                              _hideDummyObjects ? Icons.visibility_off : Icons.visibility,
+                              size: 13,
+                              color: _hideDummyObjects ? AgiTheme.egaCyan : AgiTheme.egaMuted,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'Showing ${filteredIndices.length} of ${objects.length}',
+                            style: const TextStyle(fontSize: 11, color: AgiTheme.egaMuted),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 Expanded(

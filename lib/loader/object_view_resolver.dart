@@ -14,6 +14,54 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 class ObjectViewResolver {
   const ObjectViewResolver._();
 
+  /// Attempts to determine the inventory object view base offset from LOGIC 0 bytecode.
+  ///
+  /// In Sierra AGI games:
+  /// - The inventory viewer routine executes `status()` (opcode 124).
+  /// - It calculates the corresponding VIEW number using `addn(%v, baseOffset)` (opcode 5).
+  /// - It then displays the inventory view using `show.obj.v(%v)` (opcode 162).
+  /// - In games without a base offset (KQ1, KQ2, SQ1, etc.), `show.obj.v` is called directly without `addn` (offset = 0).
+  static int? findBaseOffsetFromBytecode(AgiResourceLoader loader) {
+    final candidateLogics = [0, 1, 2, 3, 4, 5];
+    for (final logicNum in candidateLogics) {
+      if (!loader.presentLogicNumbers.contains(logicNum)) continue;
+      try {
+        final logic = loader.loadLogic(logicNum);
+        final code = logic.bytecodes;
+        int? zeroCandidate;
+
+        // Scan for show.obj.v (opcode 162 / 0xA2)
+        for (int i = 0; i < code.length - 1; i++) {
+          if (code[i] == 162) {
+            final targetVar = code[i + 1];
+
+            // Scan backwards up to 60 bytes for `addn(%v, N)` (opcode 5) operating on targetVar
+            final scanBackStart = (i - 60 >= 0) ? i - 60 : 0;
+            for (int j = i - 1; j >= scanBackStart; j--) {
+              if (code[j] == 5 && j + 2 < code.length && code[j + 1] == targetVar) {
+                final offset = code[j + 2];
+                return offset;
+              }
+            }
+
+            // Also check if status() [124] was called before show.obj.v without addn on targetVar -> base offset is 0
+            for (int j = i - 1; j >= scanBackStart; j--) {
+              if (code[j] == 124) {
+                zeroCandidate = 0;
+                break;
+              }
+            }
+          }
+        }
+
+        if (zeroCandidate != null) {
+          return zeroCandidate;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
   /// Resolves the most accurate VIEW resource number for the given [object] at [objectIndex].
   static int resolveViewNumber({
     required int objectIndex,
@@ -23,7 +71,16 @@ class ObjectViewResolver {
     final presentViews = loader.presentViewNumbers;
     if (presentViews.isEmpty) return 0;
 
-    // 1. Scan and collect all views that have an embedded text description
+    // 1. Primary Heuristic: Scan LOGIC 0 bytecode for status -> addn -> show.obj.v
+    final logicBaseOffset = findBaseOffsetFromBytecode(loader);
+    if (logicBaseOffset != null) {
+      final expectedView = logicBaseOffset + objectIndex;
+      if (presentViews.contains(expectedView)) {
+        return expectedView;
+      }
+    }
+
+    // 2. Secondary Heuristic: Scan and collect all views that have an embedded text description
     final viewsWithDesc = <int, String>{};
     for (final vNum in presentViews) {
       try {
@@ -34,7 +91,7 @@ class ObjectViewResolver {
       } catch (_) {}
     }
 
-    // 2. If there are views with descriptions, determine the base view offset.
+    // 3. If there are views with descriptions, determine the base view offset.
     if (viewsWithDesc.isNotEmpty) {
       final sortedDescViews = viewsWithDesc.keys.toList()..sort();
       final minDescView = sortedDescViews.first;
@@ -61,13 +118,13 @@ class ObjectViewResolver {
       }
     }
 
-    // 3. Fallback to 1-based index (e.g. Object #1 -> VIEW 1)
+    // 4. Fallback to 1-based index (e.g. Object #1 -> VIEW 1)
     final oneBasedIndex = objectIndex + 1;
     if (presentViews.contains(oneBasedIndex)) {
       return oneBasedIndex;
     }
 
-    // 4. Fallback to 0-based index
+    // 5. Fallback to 0-based index
     if (presentViews.contains(objectIndex)) {
       return objectIndex;
     }

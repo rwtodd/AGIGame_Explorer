@@ -231,4 +231,49 @@ void main() {
     );
     expect(knifeView, equals(133));
   });
+
+  test('ObjectViewResolver correctly resolves KQ2 objects with base offset 151', () async {
+    final loader = await AgiResourceLoader.fromDirectory('reference_games/kings-quest-2');
+    final objects = loader.initialObjects;
+
+    expect(ObjectViewResolver.findBaseOffsetFromBytecode(loader), equals(151));
+
+    // Object #50: Sword -> VIEW 201 (151 + 50)
+    expect(objects[50].name, equals('Sword'));
+    final swordView = ObjectViewResolver.resolveViewNumber(
+      objectIndex: 50,
+      object: objects[50],
+      loader: loader,
+    );
+    expect(swordView, equals(201));
+
+    // Object #51: Trident -> VIEW 202 (151 + 51)
+    expect(objects[51].name, equals('Trident'));
+    final tridentView = ObjectViewResolver.resolveViewNumber(
+      objectIndex: 51,
+      object: objects[51],
+      loader: loader,
+    );
+    expect(tridentView, equals(202));
+
+    // Object #83: Silver Key -> VIEW 234 (151 + 83)
+    expect(objects[83].name, equals('Silver Key'));
+    final keyView = ObjectViewResolver.resolveViewNumber(
+      objectIndex: 83,
+      object: objects[83],
+      loader: loader,
+    );
+    expect(keyView, equals(234));
+  });
+
+  test('ObjectViewResolver.findBaseOffsetFromBytecode extracts exact offsets from Logic 0', () async {
+    final kq2Loader = await AgiResourceLoader.fromDirectory('reference_games/kings-quest-2');
+    expect(ObjectViewResolver.findBaseOffsetFromBytecode(kq2Loader), equals(151));
+
+    final kq3Loader = await AgiResourceLoader.fromDirectory('reference_games/kings-quest-3');
+    expect(ObjectViewResolver.findBaseOffsetFromBytecode(kq3Loader), equals(100));
+
+    final kq4Loader = await AgiResourceLoader.fromDirectory('reference_games/kings-quest-4-agi');
+    expect(ObjectViewResolver.findBaseOffsetFromBytecode(kq4Loader), equals(213));
+  });
 }
