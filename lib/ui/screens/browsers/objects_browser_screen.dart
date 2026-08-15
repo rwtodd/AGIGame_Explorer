@@ -10,7 +10,9 @@ import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
 
 class ObjectsBrowserScreen extends ConsumerStatefulWidget {
-  const ObjectsBrowserScreen({super.key});
+  final int? initialObjectIndex;
+
+  const ObjectsBrowserScreen({super.key, this.initialObjectIndex});
 
   @override
   ConsumerState<ObjectsBrowserScreen> createState() => _ObjectsBrowserScreenState();
@@ -22,6 +24,14 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
   int _selectedObjectIndex = 0;
   int? _customViewNumberOverride;
   bool _hideDummyObjects = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialObjectIndex != null) {
+      _selectedObjectIndex = widget.initialObjectIndex!;
+    }
+  }
 
   @override
   void dispose() {

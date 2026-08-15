@@ -17,7 +17,7 @@ class CryptoUtils {
     int start = 0,
     int? end,
   }) {
-    final k = key ?? avisDurganKey;
+    final k = (key != null && key.isNotEmpty) ? key : avisDurganKey;
     final stop = end ?? src.length;
     var kIdx = 0;
     for (var i = start; i < stop; i++) {
