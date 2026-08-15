@@ -9,7 +9,6 @@ import 'package:flutter_agigame/ui/screens/browsers/sound_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/words_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
-import 'package:flutter_agigame/ui/screens/workbench_screen.dart';
 
 class LauncherScreen extends ConsumerStatefulWidget {
   const LauncherScreen({super.key});
@@ -377,67 +376,38 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                 ),
                 const SizedBox(height: 18),
 
-                // Main Gameplay & Workbench Actions
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => GameScreen(
-                                resourceLoader: state.loader,
-                              ),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF059669), // Emerald EGA Green
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6),
-                            side: const BorderSide(color: Color(0xFF34D399), width: 1.5),
+                // Main Gameplay Action
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => GameScreen(
+                            resourceLoader: state.loader,
                           ),
                         ),
-                        icon: const Icon(Icons.play_circle_filled, size: 20),
-                        label: const Text(
-                          'PLAY GAME',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF059669), // Emerald EGA Green
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        side: const BorderSide(color: Color(0xFF34D399), width: 1.5),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const WorkbenchScreen(),
-                            ),
-                          );
-                        },
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          side: const BorderSide(color: AgiTheme.egaCyan, width: 1.5),
-                        ),
-                        icon: const Icon(Icons.build, size: 18, color: AgiTheme.egaCyan),
-                        label: const Text(
-                          'OPEN WORKBENCH',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                            color: AgiTheme.egaCyan,
-                          ),
-                        ),
+                    icon: const Icon(Icons.play_circle_filled, size: 20),
+                    label: const Text(
+                      'PLAY GAME',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
                       ),
                     ),
-                  ],
+                  ),
                 ),
 
                 const SizedBox(height: 20),
