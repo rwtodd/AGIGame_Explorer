@@ -96,6 +96,34 @@ class EgaColors {
     [0x00, 0x00, 0xAA, 0xFF], // 3: Water (Blue)
   ];
 
+  /// Names of the 16 EGA colors.
+  static const List<String> colorNames = [
+    'Black',
+    'Blue',
+    'Green',
+    'Cyan',
+    'Red',
+    'Magenta',
+    'Brown',
+    'Light Gray',
+    'Dark Gray',
+    'Light Blue',
+    'Light Green',
+    'Light Cyan',
+    'Light Red',
+    'Light Magenta',
+    'Yellow',
+    'White',
+  ];
+
+  /// Names of the 4 AGI control lines (priorities 0 to 3).
+  static const List<String> controlNames = [
+    'Trigger',
+    'Conditional Barrier',
+    'Unconditional Barrier',
+    'Water',
+  ];
+
   /// Gets a [Color] by EGA palette index (0..15).
   static Color getColor(int index) {
     if (index >= 0 && index < palette.length) {

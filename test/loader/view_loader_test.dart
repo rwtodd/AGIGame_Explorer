@@ -35,7 +35,7 @@ class MockVolumeManager implements VolumeManager {
   void close() {}
 }
 
-class MockResourceDirectory implements ResourceDirectory {
+class MockResourceDirectory extends ResourceDirectory {
   final Map<int, DirEntry> views = {};
 
   @override

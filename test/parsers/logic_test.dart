@@ -37,10 +37,10 @@ void main() {
       builder.add([0x02]); // 2 messages
       builder.add([0x14, 0x00]); // end offset
       // Pointer table (2 * 2 bytes = 4 bytes)
-      // Message 1 at textOffset + 7
-      builder.add([0x07, 0x00]);
-      // Message 2 at textOffset + 13
-      builder.add([0x0D, 0x00]);
+      // Message 1 at textOffset + 6 + 1
+      builder.add([0x06, 0x00]);
+      // Message 2 at textOffset + 12 + 1
+      builder.add([0x0C, 0x00]);
       // String 1 at textOffset + 7: "Hello\0" (6 bytes)
       builder.add(ascii.encode('Hello\x00'));
       // String 2 at textOffset + 13: "World\0" (6 bytes)
@@ -66,8 +66,8 @@ void main() {
       // Message section at index 4:
       builder.add([0x01]); // 1 message
       builder.add([0x14, 0x00]); // end offset (5 bytes header + table + 15 bytes string)
-      // Pointer for msg 1 at textOffset + 5
-      builder.add([0x05, 0x00]);
+      // Pointer for msg 1 at textOffset + 4 + 1
+      builder.add([0x04, 0x00]);
 
       // Message string: "Secret Message\0"
       final plainMsg = ascii.encode('Secret Message\x00');

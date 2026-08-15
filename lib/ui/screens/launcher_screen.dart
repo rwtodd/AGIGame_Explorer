@@ -3,6 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/domain/game_info.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
+import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
+import 'package:flutter_agigame/ui/screens/browsers/objects_browser_screen.dart';
+import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
+import 'package:flutter_agigame/ui/screens/browsers/sound_browser_screen.dart';
+import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
+import 'package:flutter_agigame/ui/screens/browsers/words_browser_screen.dart';
 
 class LauncherScreen extends ConsumerStatefulWidget {
   const LauncherScreen({super.key});
@@ -370,14 +376,20 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                 const SizedBox(height: 20),
                 const Divider(color: AgiTheme.egaBorder),
                 const SizedBox(height: 16),
-                const Text(
-                  'EXTRACTED RESOURCES',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AgiTheme.egaAmber,
-                    letterSpacing: 1.0,
-                  ),
+                Row(
+                  children: const [
+                    Icon(Icons.folder_open, size: 16, color: AgiTheme.egaAmber),
+                    SizedBox(width: 8),
+                    Text(
+                      'GAME RESOURCES (CLICK TO EXPLORE)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AgiTheme.egaAmber,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 GridView.count(
@@ -393,36 +405,78 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                       info.logicCount.toString(),
                       Icons.code,
                       AgiTheme.egaGreen,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const LogicBrowserScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMetricTile(
                       'PICTURE Rooms',
                       info.picCount.toString(),
                       Icons.image,
                       AgiTheme.egaCyan,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const PicBrowserScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMetricTile(
                       'VIEW Sprites',
                       info.viewCount.toString(),
                       Icons.animation,
                       AgiTheme.egaMagenta,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ViewBrowserScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMetricTile(
                       'SOUND Tracks',
                       info.soundCount.toString(),
                       Icons.music_note,
                       AgiTheme.egaAmber,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const SoundBrowserScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMetricTile(
                       'Inventory Objects',
                       info.objectCount.toString(),
                       Icons.inventory_2,
                       AgiTheme.egaWhite,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ObjectsBrowserScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMetricTile(
                       'WORDS.TOK Vocab',
                       info.wordCount.toString(),
                       Icons.menu_book,
                       AgiTheme.egaCyan,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const WordsBrowserScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMetricTile(
                       'Max Animated',
@@ -446,40 +500,67 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
     );
   }
 
-  Widget _buildMetricTile(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AgiTheme.egaDarkSurface,
+  Widget _buildMetricTile(
+    String label,
+    String value,
+    IconData icon,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    final isClickable = onTap != null;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AgiTheme.egaBorder),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+        hoverColor: color.withValues(alpha: 0.08),
+        splashColor: color.withValues(alpha: 0.15),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AgiTheme.egaDarkSurface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: isClickable ? color.withValues(alpha: 0.4) : AgiTheme.egaBorder,
             ),
           ),
-        ],
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          value,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                        if (isClickable) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.open_in_new, size: 10, color: color.withValues(alpha: 0.7)),
+                        ],
+                      ],
+                    ),
+                    Text(
+                      label,
+                      style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

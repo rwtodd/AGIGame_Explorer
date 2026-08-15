@@ -17,6 +17,26 @@ abstract class ResourceDirectory {
   DirEntry findView(int number);
   DirEntry findSound(int number);
 
+  List<int> get presentLogicNumbers => [
+        for (int i = 0; i < logicCount; i++)
+          if (findLogic(i).isPresent) i,
+      ];
+
+  List<int> get presentPicNumbers => [
+        for (int i = 0; i < picCount; i++)
+          if (findPic(i).isPresent) i,
+      ];
+
+  List<int> get presentViewNumbers => [
+        for (int i = 0; i < viewCount; i++)
+          if (findView(i).isPresent) i,
+      ];
+
+  List<int> get presentSoundNumbers => [
+        for (int i = 0; i < soundCount; i++)
+          if (findSound(i).isPresent) i,
+      ];
+
   static ResourceDirectory create(GameMetaData meta) {
     if (meta.isV3) {
       return V3ResourceDirectory.fromGamePath(meta.gamePath, meta.prefix ?? '');
@@ -60,7 +80,7 @@ DirEntry _lookupItem(Uint8List dir, int byteOffset) {
 }
 
 /// Resource directory for AGI v1 / v2 games (separate DIR files).
-class V2ResourceDirectory implements ResourceDirectory {
+class V2ResourceDirectory extends ResourceDirectory {
   final Uint8List logics;
   final Uint8List pics;
   final Uint8List views;
@@ -117,7 +137,7 @@ class V2ResourceDirectory implements ResourceDirectory {
 }
 
 /// Resource directory for AGI v3 games (unified `<prefix>DIR` file).
-class V3ResourceDirectory implements ResourceDirectory {
+class V3ResourceDirectory extends ResourceDirectory {
   final Uint8List dir;
   final int logicOffs;
   final int picOffs;

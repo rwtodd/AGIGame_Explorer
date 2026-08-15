@@ -7,7 +7,7 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
 import 'package:test/test.dart';
 
-class _FakeResourceDirectory implements ResourceDirectory {
+class _FakeResourceDirectory extends ResourceDirectory {
   final DirEntry soundEntry;
   _FakeResourceDirectory(this.soundEntry);
 

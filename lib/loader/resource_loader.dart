@@ -103,6 +103,11 @@ class AgiResourceLoader {
   int get objectCount => initialObjects.length;
   int get wordCount => dictionary.wordCount;
 
+  List<int> get presentPicNumbers => rdir.presentPicNumbers;
+  List<int> get presentViewNumbers => rdir.presentViewNumbers;
+  List<int> get presentLogicNumbers => rdir.presentLogicNumbers;
+  List<int> get presentSoundNumbers => rdir.presentSoundNumbers;
+
   /// Loads raw uncompressed bytes for a SOUND resource.
   Uint8List loadRawSound(int number) {
     final de = rdir.findSound(number);

@@ -74,7 +74,7 @@ class LogicParser {
       if (relOffset == 0) {
         messages.add('');
       } else {
-        final strPos = textOffset + relOffset;
+        final strPos = textOffset + relOffset + 1;
         final msg = CryptoUtils.asciizString(buffer, strPos);
         messages.add(msg);
       }
