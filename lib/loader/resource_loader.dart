@@ -1,11 +1,13 @@
 import 'dart:typed_data';
 import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
+import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/game_info.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/loader/game_metadata.dart';
 import 'package:flutter_agigame/loader/parsers/objects_parser.dart';
+import 'package:flutter_agigame/loader/parsers/view_parser.dart';
 import 'package:flutter_agigame/loader/parsers/words_parser.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
@@ -19,6 +21,7 @@ class AgiResourceLoader {
   final AgiDictionary dictionary;
   final List<AgiObject> initialObjects;
   final int maxAnimated;
+  final LruCache<int, AgiView> _viewCache;
 
   AgiResourceLoader._({
     required this.meta,
@@ -27,7 +30,8 @@ class AgiResourceLoader {
     required this.dictionary,
     required this.initialObjects,
     required this.maxAnimated,
-  });
+    int viewCacheCapacity = 64,
+  }) : _viewCache = LruCache<int, AgiView>(viewCacheCapacity);
 
   /// Creates an [AgiResourceLoader] with explicit [ResourceDirectory] and [VolumeManager] (useful for testing).
   factory AgiResourceLoader.custom({
@@ -127,6 +131,34 @@ class AgiResourceLoader {
       throw ResourceNotPresentException('View resource $number is not present.');
     }
     return vmgr.getResource(de);
+  }
+
+  /// Loads and parses a VIEW resource into an [AgiView], with memory caching.
+  AgiView loadView(int number) {
+    final cached = _viewCache.get(number);
+    if (cached != null) {
+      return cached;
+    }
+    final raw = loadRawView(number);
+    final view = ViewParser.parse(raw, viewNumber: number);
+    _viewCache.put(number, view);
+    return view;
+  }
+
+  /// Asynchronously loads and parses a VIEW resource into an [AgiView], with memory caching.
+  Future<AgiView> loadViewAsync(int number) async {
+    final cached = _viewCache.get(number);
+    if (cached != null) {
+      return cached;
+    }
+    final de = rdir.findView(number);
+    if (!de.isPresent) {
+      throw ResourceNotPresentException('View resource $number is not present.');
+    }
+    final raw = await vmgr.getResourceAsync(de);
+    final view = ViewParser.parse(raw, viewNumber: number);
+    _viewCache.put(number, view);
+    return view;
   }
 
   /// Loads raw uncompressed bytes for a LOGIC resource.
