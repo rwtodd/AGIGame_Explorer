@@ -226,6 +226,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void setEgoDirection(int direction) {
     ego.direction = direction.clamp(0, 8);
     memory.setVar(6, ego.direction);
+    if (ego.direction != 0) {
+      ego.isCycling = true;
+      ego.isAnimated = true;
+    }
     notifyListeners();
   }
 
@@ -344,6 +348,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
       // Cel Animation Timer & Cycling
       if (obj.isCycling) {
+        // Normal cycle mode for object 0 (Ego) only advances when moving
+        if (obj.number == 0 && obj.cycleMode == 0 && obj.direction == 0) {
+          continue;
+        }
+
         obj.cycleTimer--;
         if (obj.cycleTimer <= 0) {
           obj.cycleTimer = obj.cycleTime > 0 ? obj.cycleTime : 1;
@@ -358,6 +367,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     final viewRes = (resourceLoader != null) ? resourceLoader!.loadView(obj.view) : null;
     final loopCount = viewRes?.loopCount ?? 4;
+    final oldLoop = obj.loop;
 
     switch (obj.direction) {
       case 1: // North
@@ -376,6 +386,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       case 8: // North-West
         if (loopCount >= 2) obj.loop = 1;
         break;
+    }
+
+    if (obj.loop != oldLoop && viewRes != null) {
+      final loopRes = viewRes.getLoop(obj.loop);
+      if (loopRes != null && loopRes.celCount > 0 && obj.cel >= loopRes.celCount) {
+        obj.cel = 0;
+      }
     }
   }
 

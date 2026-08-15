@@ -501,6 +501,8 @@ class AgiLogicInterpreter {
         final obj = getObj(code[frame.ip + 1]);
         obj.isAnimated = true;
         obj.isUpdating = true;
+        obj.isCycling = true;
+        obj.motionType = 0;
         frame.ip += 2;
         break;
 
@@ -513,7 +515,9 @@ class AgiLogicInterpreter {
         break;
 
       case 35: // draw(o)
-        getObj(code[frame.ip + 1]).isDrawn = true;
+        final obj = getObj(code[frame.ip + 1]);
+        obj.isDrawn = true;
+        obj.isAnimated = true;
         frame.ip += 2;
         break;
 
@@ -555,12 +559,24 @@ class AgiLogicInterpreter {
         break;
 
       case 41: // set.view(o, v)
-        getObj(code[frame.ip + 1]).view = code[frame.ip + 2];
+        final objV41 = getObj(code[frame.ip + 1]);
+        final newV41 = code[frame.ip + 2];
+        if (objV41.view != newV41) {
+          objV41.view = newV41;
+          objV41.loop = 0;
+          objV41.cel = 0;
+        }
         frame.ip += 3;
         break;
 
       case 42: // set.view.v(o, %v)
-        getObj(code[frame.ip + 1]).view = memory.getVar(code[frame.ip + 2]);
+        final objV42 = getObj(code[frame.ip + 1]);
+        final newV42 = memory.getVar(code[frame.ip + 2]);
+        if (objV42.view != newV42) {
+          objV42.view = newV42;
+          objV42.loop = 0;
+          objV42.cel = 0;
+        }
         frame.ip += 3;
         break;
 
@@ -1040,6 +1056,11 @@ class AgiLogicInterpreter {
         break;
 
       case 132: // player.control()
+        final egoObj = getObj(0);
+        egoObj.motionType = 0;
+        egoObj.isCycling = true;
+        egoObj.isUpdating = true;
+        egoObj.isAnimated = true;
         frame.ip++;
         break;
 
