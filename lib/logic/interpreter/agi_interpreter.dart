@@ -37,6 +37,7 @@ class AgiLogicInterpreter {
 
   final List<AgiCallFrame> callStack = [];
   bool isHalted = false;
+  bool _newRoomRequested = false;
 
   AgiLogicInterpreter({
     AgiMemory? memory,
@@ -93,18 +94,37 @@ class AgiLogicInterpreter {
   }
 
   /// Executes a single interpreter scan cycle (from scan start until root script returns or halts).
+  ///
+  /// Implements Sierra's rescan loop: when `new.room()` executes, `LOGIC 0` is
+  /// automatically rescanned in the same tick cycle with the new room active.
   InterpreterStatus executeCycle() {
     if (currentFrame == null) return InterpreterStatus.completed;
 
-    // Reset scan start for current cycle
-    ip = memory.scanStartIp;
-    isHalted = false;
+    int rescanCount = 0;
+    const maxRescans = 10;
 
-    while (!isHalted && callStack.isNotEmpty) {
-      final status = stepInstruction();
-      if (status != InterpreterStatus.running) {
-        return status;
+    while (rescanCount < maxRescans) {
+      // Reset scan start for current cycle
+      ip = memory.scanStartIp;
+      isHalted = false;
+      _newRoomRequested = false;
+
+      while (!isHalted && callStack.isNotEmpty && !_newRoomRequested) {
+        final status = stepInstruction();
+        if (status != InterpreterStatus.running && !_newRoomRequested) {
+          return status;
+        }
       }
+
+      if (_newRoomRequested) {
+        rescanCount++;
+        // If delegate.onNewRoom reloaded root script into callStack, rescan LOGIC 0
+        if (callStack.isNotEmpty) {
+          continue;
+        }
+      }
+
+      break;
     }
 
     return InterpreterStatus.completed;
@@ -1263,6 +1283,7 @@ class AgiLogicInterpreter {
     memory.setVar(0, room); // %v0 = new room
     memory.setFlag(5); // %f5 = new room first execution
     callStack.clear(); // unroll call stack
+    _newRoomRequested = true;
     delegate.onNewRoom(room);
   }
 

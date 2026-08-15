@@ -154,10 +154,24 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     );
   }
 
-  /// Initializes game by loading room 0 (and LOGIC 0) or starting room.
+  /// Initializes game with authentic Sierra AGI opening registers, loading root LOGIC 0
+  /// and running the initial bootstrap scan.
   void initializeGame({int startingRoom = 0}) {
     memory.reset();
-    memory.setFlag(9); // sound on
+
+    // Authentic Sierra AGI system variable defaults
+    memory.setVar(0, 0); // %v0 = current.room (0 on boot)
+    memory.setVar(1, 0); // %v1 = previous.room (0 on boot)
+    memory.setVar(8, 10); // %v8 = free heap space in 4KB pages
+    memory.setVar(20, 0); // %v20 = machine.type: 0 = IBM PC / compatibles
+    memory.setVar(22, 1); // %v22 = sound voices: 1 = PC speaker
+    memory.setVar(24, 41); // %v24 = max input length: MAXINPUT + 1 (40 + 1)
+    memory.setVar(26, 0); // %v26 = monitor.type: 0 = EGA / RGB
+
+    // Authentic Sierra AGI system flag defaults
+    memory.setFlag(5); // %f5 = init.log / new_room (signals first room execution)
+    memory.setFlag(9); // %f9 = sound.on (sound enabled by default)
+
     for (final obj in animatedObjects) {
       obj.reset();
     }
@@ -169,14 +183,35 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         memory.itemRooms[i] = item.startingRoom;
       }
 
-      // Load root logic script
+      // Load root logic script (LOGIC 0)
       if (resourceLoader!.presentLogicNumbers.contains(0)) {
         final logic0 = resourceLoader!.loadLogic(0);
         interpreter.loadRootScript(logic0, scriptNumber: 0);
       }
     }
 
-    changeRoom(startingRoom);
+    if (startingRoom != 0) {
+      changeRoom(startingRoom);
+    }
+
+    // Run initial bootstrap scan (LOGIC 0 room 0 startup which calls new.room(introRoom))
+    if (interpreter.currentFrame != null) {
+      try {
+        interpreter.executeCycle();
+      } catch (e) {
+        _lastError = 'Interpreter error during game initialization: $e';
+        if (kDebugMode) {
+          print(_lastError);
+        }
+      }
+    }
+
+    // Post-Scan: clear first-cycle room init flags
+    memory.resetFlag(5); // init.log reset after startup scan
+    memory.resetFlag(6); // restart.in.progress reset
+    memory.resetFlag(12); // restore.in.progress reset
+
+    notifyListeners();
   }
 
   /// Executes exactly one full 20 Hz AGI cycle.
@@ -217,7 +252,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.resetFlag(1); // Ego completely obscured reset
     memory.resetFlag(2); // have.input reset
     memory.resetFlag(4); // said.accepted reset
+    memory.resetFlag(5); // init.log / new_room first execution reset
+    memory.resetFlag(6); // restart.in.progress reset
+    memory.resetFlag(12); // restore.in.progress reset
     memory.resetControllers();
+
+    // Reset transient edge hit variables
+    memory.setVar(4, 0);
+    memory.setVar(5, 0);
 
     notifyListeners();
   }
@@ -615,11 +657,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   // Room Transition Manager
   // ---------------------------------------------------------------------------
 
-  /// Transitions engine to [roomNumber], adjusting Ego position and executing room scripts.
+  /// Transitions engine to [roomNumber], adjusting Ego position and loading room scripts.
   void changeRoom(int roomNumber) {
-    final prevRoom = memory.getVar(0);
-    memory.setVar(1, prevRoom); // %v1 = previous room
-    memory.setVar(0, roomNumber); // %v0 = current room
+    final currentRoom = memory.getVar(0);
+    if (currentRoom != roomNumber) {
+      memory.setVar(1, currentRoom); // %v1 = previous room
+      memory.setVar(0, roomNumber); // %v0 = current room
+    }
     memory.setFlag(5); // %f5 = new room first execution
 
     // Reposition Ego based on border crossed (%v2)
@@ -642,22 +686,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       currentPic?.preloadGpuTextures();
     }
 
-    // Load room logic
+    // Load root room logic (LOGIC 0) for rescan
     if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
       final logic0 = resourceLoader!.loadLogic(0);
       interpreter.loadRootScript(logic0, scriptNumber: 0);
-    }
-
-    // Run initial scan of LOGIC 0 with Flag 5 set to initialize room and add.to.pic
-    if (interpreter.currentFrame != null) {
-      try {
-        interpreter.executeCycle();
-      } catch (e) {
-        _lastError = 'Error during new.room initialization: $e';
-        if (kDebugMode) {
-          print(_lastError);
-        }
-      }
     }
 
     notifyListeners();
