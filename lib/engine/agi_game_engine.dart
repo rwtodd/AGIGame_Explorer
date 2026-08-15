@@ -1,0 +1,950 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
+import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/domain/animated_object.dart';
+import 'package:flutter_agigame/domain/dictionary.dart';
+import 'package:flutter_agigame/domain/engine_memory.dart';
+import 'package:flutter_agigame/domain/logic_script.dart';
+import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/priority_buffer.dart';
+import 'package:flutter_agigame/loader/resource_loader.dart';
+import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
+import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import 'package:flutter_agigame/picture/picture_slicer.dart';
+
+/// Represents active modal or positional dialog box state.
+class AgiDialogState {
+  final String message;
+  final int? row;
+  final int? col;
+  final int? x;
+  final int? y;
+  final int? width;
+  final bool isModal;
+  final Completer<void>? dismissCompleter;
+
+  const AgiDialogState({
+    required this.message,
+    this.row,
+    this.col,
+    this.x,
+    this.y,
+    this.width,
+    this.isModal = true,
+    this.dismissCompleter,
+  });
+}
+
+/// Core Sierra AGI Game Engine and Cycle Coordinator.
+///
+/// Drives the classic 20 Hz (configurable) execution loop:
+/// - Phase 1: Accepts player inputs (keyboard direction & parsed text command line)
+/// - Phase 2: Updates animated sprite motion & cel animations with barrier collision detection
+/// - Phase 3: Executes `LOGIC 0` scan cycle with [AgiLogicInterpreter]
+/// - Phase 4: Prepares rendered frame for Impeller priority slicing compositor
+/// - Post-Scan: Resets transient flags (Flag 1, Flag 2, Flag 4) and updates game clocks
+class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
+  final AgiResourceLoader? resourceLoader;
+  final AgiSoundPlayer? soundPlayer;
+  final AgiMemory memory;
+  final List<AnimatedObject> animatedObjects;
+  late final AgiLogicInterpreter interpreter;
+
+  AgiPic? currentPic;
+  AgiDialogState? activeDialog;
+
+  bool _isRunning = false;
+  bool _isPaused = false;
+  double _speedHz;
+  Timer? _gameLoopTimer;
+
+  int _cycleCount = 0;
+  int _clockTicks = 0;
+  List<int> _parsedWordIds = [];
+  String? _lastSubmittedCommand;
+  String? _lastError;
+  final math.Random _rng;
+
+  AgiGameEngine({
+    this.resourceLoader,
+    this.soundPlayer,
+    AgiMemory? memory,
+    List<AnimatedObject>? animatedObjects,
+    this._speedHz = 20.0,
+    int? randomSeed,
+    int maxAnimatedObjects = 64,
+  })  : memory = memory ?? AgiMemory(),
+        animatedObjects = animatedObjects ??
+            List.generate(maxAnimatedObjects, (i) => AnimatedObject(number: i)),
+        _rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
+    interpreter = AgiLogicInterpreter(
+      memory: this.memory,
+      animatedObjects: this.animatedObjects,
+      delegate: this,
+      randomSeed: randomSeed,
+      maxAnimatedObjects: maxAnimatedObjects,
+    );
+
+    // Initial default state: Sound ON by default
+    this.memory.setFlag(9);
+  }
+
+  bool get isRunning => _isRunning;
+  bool get isPaused => _isPaused;
+  double get speedHz => _speedHz;
+  int get cycleCount => _cycleCount;
+  List<int> get parsedWordIds => List.unmodifiable(_parsedWordIds);
+  String? get lastSubmittedCommand => _lastSubmittedCommand;
+  String? get lastError => _lastError;
+
+  AnimatedObject get ego => animatedObjects[0];
+
+  /// Starts the game loop timer.
+  void start() {
+    if (_isRunning) return;
+    _isRunning = true;
+    _isPaused = false;
+    _scheduleLoop();
+    notifyListeners();
+  }
+
+  /// Pauses the game loop.
+  void pause() {
+    _isPaused = true;
+    notifyListeners();
+  }
+
+  /// Resumes a paused game loop.
+  void resume() {
+    _isPaused = false;
+    notifyListeners();
+  }
+
+  /// Updates execution loop frequency in Hertz (default 20 Hz = 50ms per tick).
+  void setSpeedHz(double hz) {
+    if (hz <= 0) return;
+    _speedHz = hz;
+    if (_isRunning) {
+      _gameLoopTimer?.cancel();
+      _scheduleLoop();
+    }
+    notifyListeners();
+  }
+
+  /// Stops game loop.
+  void stop() {
+    _isRunning = false;
+    _isPaused = false;
+    _gameLoopTimer?.cancel();
+    _gameLoopTimer = null;
+    notifyListeners();
+  }
+
+  void _scheduleLoop() {
+    _gameLoopTimer?.cancel();
+    final intervalMs = (_speedHz > 0) ? (1000.0 / _speedHz).round() : 50;
+    _gameLoopTimer = Timer.periodic(
+      Duration(milliseconds: intervalMs.clamp(1, 1000)),
+      (_) {
+        if (_isRunning && !_isPaused && activeDialog == null) {
+          tick();
+        }
+      },
+    );
+  }
+
+  /// Initializes game by loading room 0 (and LOGIC 0) or starting room.
+  void initializeGame({int startingRoom = 0}) {
+    memory.reset();
+    memory.setFlag(9); // sound on
+    for (final obj in animatedObjects) {
+      obj.reset();
+    }
+
+    if (resourceLoader != null) {
+      // Load initial inventory item locations
+      for (int i = 0; i < resourceLoader!.initialObjects.length; i++) {
+        final item = resourceLoader!.initialObjects[i];
+        memory.itemRooms[i] = item.startingRoom;
+      }
+
+      // Load root logic script
+      if (resourceLoader!.presentLogicNumbers.contains(0)) {
+        final logic0 = resourceLoader!.loadLogic(0);
+        interpreter.loadRootScript(logic0, scriptNumber: 0);
+      }
+    }
+
+    changeRoom(startingRoom);
+  }
+
+  /// Executes exactly one full 20 Hz AGI cycle.
+  void tick() {
+    _cycleCount++;
+
+    // ----------------------------------------------------
+    // Phase 1: Input handling
+    // ----------------------------------------------------
+    // Update Ego direction variable (%v6)
+    memory.setVar(6, ego.direction);
+
+    // ----------------------------------------------------
+    // Phase 2: Motion & Cel Animation Physics
+    // ----------------------------------------------------
+    _updateMotionAndAnimation();
+
+    // ----------------------------------------------------
+    // Phase 3: LOGIC 0 Scan Cycle Execution
+    // ----------------------------------------------------
+    if (interpreter.currentFrame != null) {
+      try {
+        interpreter.executeCycle();
+      } catch (e) {
+        _lastError = 'Interpreter error in cycle $_cycleCount: $e';
+        if (kDebugMode) {
+          print(_lastError);
+        }
+      }
+    }
+
+    // ----------------------------------------------------
+    // Post-Scan: Clock update & transient flags cleanup
+    // ----------------------------------------------------
+    _updateClock();
+
+    // Reset transient per-cycle flags
+    memory.resetFlag(1); // Ego completely obscured reset
+    memory.resetFlag(2); // have.input reset
+    memory.resetFlag(4); // said.accepted reset
+    memory.resetControllers();
+
+    notifyListeners();
+  }
+
+  /// Sets Ego's motion direction (0..8) and synchronizes Variable 6.
+  void setEgoDirection(int direction) {
+    ego.direction = direction.clamp(0, 8);
+    memory.setVar(6, ego.direction);
+    notifyListeners();
+  }
+
+  /// Toggles game audio sound on/off (%f9) and notifies UI listeners.
+  void toggleSound() {
+    memory.toggleFlag(9);
+    notifyListeners();
+  }
+
+  /// Sets parsed word group IDs directly for testing matching rules.
+  @visibleForTesting
+  void setParsedWordIdsForTesting(List<int> wordIds) {
+    _parsedWordIds = List.from(wordIds);
+    memory.setFlag(2);
+    memory.resetFlag(4);
+    notifyListeners();
+  }
+
+  /// Submits player text command, tokenizes against dictionary, and raises Flag 2 (`have.input`).
+  void submitCommand(String input) {
+    final cleanInput = input.trim();
+    if (cleanInput.isEmpty) return;
+
+    _lastSubmittedCommand = cleanInput;
+    _parsedWordIds = tokenizeCommand(cleanInput);
+
+    // Flag 2: have.input = 1
+    memory.setFlag(2);
+    // Flag 4: said.accepted = 0
+    memory.resetFlag(4);
+
+    notifyListeners();
+  }
+
+  /// Tokenizes a user string into recognized word group IDs using [AgiDictionary].
+  List<int> tokenizeCommand(String rawText) {
+    if (resourceLoader == null) {
+      return const [];
+    }
+
+    final dict = resourceLoader!.dictionary;
+    var text = rawText.toLowerCase();
+
+    // Expand common contractions
+    text = text
+        .replaceAll("don't", 'dont')
+        .replaceAll("can't", 'cant')
+        .replaceAll("it's", 'its')
+        .replaceAll("i'm", 'im')
+        .replaceAll("you're", 'youre')
+        .replaceAll("they're", 'theyre')
+        .replaceAll("we're", 'were')
+        .replaceAll("that's", 'thats')
+        .replaceAll("what's", 'whats')
+        .replaceAll("let's", 'lets');
+
+    // Replace punctuation with spaces
+    text = text.replaceAll(RegExp(r'[.,;:!?\"()\[\]{}]'), ' ');
+
+    final rawTokens = text.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+    final wordIds = <int>[];
+
+    for (final token in rawTokens) {
+      final wordId = dict.wordToId(token);
+      if (wordId == -1) {
+        // Unknown word encountered
+        _lastError = "I don't understand '$token'.";
+        // Sierra AGI sets var 9 to unrecognized word number if applicable
+        memory.setVar(9, 1);
+        return const [];
+      } else if (wordId == 0) {
+        // Ignore noise words (group 0: "a", "the", "in", "to", "at", etc.)
+        continue;
+      } else {
+        wordIds.add(wordId);
+      }
+    }
+
+    return wordIds;
+  }
+
+  /// Dismisses active modal dialog box and resumes gameplay.
+  void dismissDialog() {
+    final dialog = activeDialog;
+    if (dialog != null) {
+      dialog.dismissCompleter?.complete();
+      activeDialog = null;
+      notifyListeners();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Motion & Animation Updates
+  // ---------------------------------------------------------------------------
+
+  void _updateMotionAndAnimation() {
+    final pic = currentPic;
+    final priBuf = pic?.priorityBuffer;
+
+    for (final obj in animatedObjects) {
+      if (!obj.isAnimated || !obj.isDrawn || !obj.isUpdating) {
+        continue;
+      }
+
+      // Auto-assign loop based on motion direction if loop is not fixed
+      if (!obj.fixedLoop) {
+        _updateLoopForDirection(obj);
+      }
+
+      // Step Timer & Position Update
+      obj.stepTimer--;
+      if (obj.stepTimer <= 0) {
+        obj.stepTimer = obj.stepTime > 0 ? obj.stepTime : 1;
+        _updateObjectPosition(obj, priBuf);
+      }
+
+      // Cel Animation Timer & Cycling
+      if (obj.isCycling) {
+        obj.cycleTimer--;
+        if (obj.cycleTimer <= 0) {
+          obj.cycleTimer = obj.cycleTime > 0 ? obj.cycleTime : 1;
+          _advanceObjectCel(obj);
+        }
+      }
+    }
+  }
+
+  void _updateLoopForDirection(AnimatedObject obj) {
+    if (obj.direction == 0) return;
+
+    final viewRes = (resourceLoader != null) ? resourceLoader!.loadView(obj.view) : null;
+    final loopCount = viewRes?.loopCount ?? 4;
+
+    switch (obj.direction) {
+      case 1: // North
+        if (loopCount >= 4) obj.loop = 3;
+        break;
+      case 2: // North-East
+      case 3: // East
+      case 4: // South-East
+        if (loopCount >= 1) obj.loop = 0;
+        break;
+      case 5: // South
+        if (loopCount >= 3) obj.loop = 2;
+        break;
+      case 6: // South-West
+      case 7: // West
+      case 8: // North-West
+        if (loopCount >= 2) obj.loop = 1;
+        break;
+    }
+  }
+
+  void _updateObjectPosition(AnimatedObject obj, PriorityBuffer? priBuf) {
+    var dx = 0;
+    var dy = 0;
+
+    switch (obj.motionType) {
+      case 1: // wander
+        if (obj.direction == 0 || _rng.nextInt(10) == 0) {
+          obj.direction = _rng.nextInt(9);
+        }
+        break;
+
+      case 2: // follow_ego
+        final egoObj = animatedObjects[0];
+        final diffX = egoObj.x - obj.x;
+        final diffY = egoObj.y - obj.y;
+        if (diffX.abs() > obj.stepSize || diffY.abs() > obj.stepSize) {
+          final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
+          final dirY = diffY > 0 ? 1 : (diffY < 0 ? -1 : 0);
+          obj.direction = _vectorToDirection(dirX, dirY);
+        } else {
+          obj.direction = 0;
+        }
+        break;
+
+      case 3: // move_to
+        final diffX = obj.targetX - obj.x;
+        final diffY = obj.targetY - obj.y;
+        final dist = math.sqrt(diffX * diffX + diffY * diffY);
+        if (dist <= obj.stepSize) {
+          obj.x = obj.targetX;
+          obj.y = obj.targetY;
+          obj.direction = 0;
+          obj.motionType = 0;
+          if (obj.targetFlag != null) {
+            memory.setFlag(obj.targetFlag!);
+            obj.targetFlag = null;
+          }
+          return;
+        } else {
+          final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
+          final dirY = diffY > 0 ? 1 : (diffY < 0 ? -1 : 0);
+          obj.direction = _vectorToDirection(dirX, dirY);
+        }
+        break;
+
+      default: // normal
+        break;
+    }
+
+    final delta = _directionToVector(obj.direction);
+    dx = delta.$1 * obj.stepSize;
+    dy = delta.$2 * obj.stepSize;
+
+    if (dx == 0 && dy == 0) return;
+
+    final targetX = obj.x + dx;
+    final targetY = obj.y + dy;
+
+    // Determine cel dimensions for bounds & barrier checks
+    int objWidth = 4;
+    if (resourceLoader != null) {
+      try {
+        final v = resourceLoader!.loadView(obj.view);
+        final cel = v.getCel(obj.loop, obj.cel);
+        if (cel != null) {
+          objWidth = cel.width;
+        }
+      } catch (_) {}
+    }
+
+    // Screen boundary clamping
+    const minX = 0;
+    final maxX = (160 - objWidth).clamp(0, 159);
+    final minY = obj.ignoreHorizon ? 0 : 36;
+    const maxY = 167;
+
+    var clampedX = targetX.clamp(minX, maxX);
+    var clampedY = targetY.clamp(minY, maxY);
+
+    // Border collision triggers for variables %v2 (Ego) and %v4/%v5 (other objects)
+    if (obj.number == 0) {
+      if (targetY <= minY) {
+        memory.setVar(2, 1); // Top
+      } else if (targetX >= maxX) {
+        memory.setVar(2, 2); // Right
+      } else if (targetY >= maxY) {
+        memory.setVar(2, 3); // Bottom
+      } else if (targetX <= minX) {
+        memory.setVar(2, 4); // Left
+      }
+    } else {
+      if (targetY <= minY) {
+        memory.setVar(4, obj.number);
+        memory.setVar(5, 1);
+      } else if (targetX >= maxX) {
+        memory.setVar(4, obj.number);
+        memory.setVar(5, 2);
+      } else if (targetY >= maxY) {
+        memory.setVar(4, obj.number);
+        memory.setVar(5, 3);
+      } else if (targetX <= minX) {
+        memory.setVar(4, obj.number);
+        memory.setVar(5, 4);
+      }
+    }
+
+    // Priority buffer collision check
+    if (priBuf != null && !obj.ignoreBlocks) {
+      var isBlocked = false;
+      for (int bx = clampedX; bx < clampedX + objWidth; bx++) {
+        if (!priBuf.isWalkable(bx, clampedY, allowConditional: false)) {
+          isBlocked = true;
+          break;
+        }
+      }
+
+      if (isBlocked) {
+        if (obj.motionType == 1) {
+          obj.direction = _rng.nextInt(9);
+        }
+        return;
+      }
+    }
+
+    obj.prevX = obj.x;
+    obj.prevY = obj.y;
+    obj.x = clampedX;
+    obj.y = clampedY;
+  }
+
+  void _advanceObjectCel(AnimatedObject obj) {
+    int celCount = 1;
+    if (resourceLoader != null) {
+      try {
+        final v = resourceLoader!.loadView(obj.view);
+        final loop = v.getLoop(obj.loop);
+        if (loop != null && loop.celCount > 0) {
+          celCount = loop.celCount;
+        }
+      } catch (_) {}
+    }
+
+    if (celCount <= 1) return;
+
+    switch (obj.cycleMode) {
+      case 0: // normal
+        obj.cel = (obj.cel + 1) % celCount;
+        break;
+      case 1: // reverse
+        obj.cel = (obj.cel - 1 + celCount) % celCount;
+        break;
+      case 2: // end_of_loop
+        if (obj.cel < celCount - 1) {
+          obj.cel++;
+        } else {
+          obj.isCycling = false;
+          if (obj.endOfLoopFlag != null) {
+            memory.setFlag(obj.endOfLoopFlag!);
+          }
+        }
+        break;
+      case 3: // reverse_loop
+        if (obj.cel > 0) {
+          obj.cel--;
+        } else {
+          obj.isCycling = false;
+          if (obj.endOfLoopFlag != null) {
+            memory.setFlag(obj.endOfLoopFlag!);
+          }
+        }
+        break;
+    }
+  }
+
+  static (int, int) _directionToVector(int dir) {
+    switch (dir) {
+      case 1:
+        return (0, -1);
+      case 2:
+        return (1, -1);
+      case 3:
+        return (1, 0);
+      case 4:
+        return (1, 1);
+      case 5:
+        return (0, 1);
+      case 6:
+        return (-1, 1);
+      case 7:
+        return (-1, 0);
+      case 8:
+        return (-1, -1);
+      default:
+        return (0, 0);
+    }
+  }
+
+  static int _vectorToDirection(int dx, int dy) {
+    if (dx == 0 && dy < 0) return 1;
+    if (dx > 0 && dy < 0) return 2;
+    if (dx > 0 && dy == 0) return 3;
+    if (dx > 0 && dy > 0) return 4;
+    if (dx == 0 && dy > 0) return 5;
+    if (dx < 0 && dy > 0) return 6;
+    if (dx < 0 && dy == 0) return 7;
+    if (dx < 0 && dy < 0) return 8;
+    return 0;
+  }
+
+  void _updateClock() {
+    _clockTicks++;
+    if (_clockTicks >= _speedHz.round().clamp(1, 100)) {
+      _clockTicks = 0;
+      final sec = (memory.getVar(11) + 1) & 0xFF;
+      memory.setVar(11, sec);
+      if (sec >= 60) {
+        memory.setVar(11, 0);
+        final min = (memory.getVar(12) + 1) & 0xFF;
+        memory.setVar(12, min);
+        if (min >= 60) {
+          memory.setVar(12, 0);
+          final hr = (memory.getVar(13) + 1) & 0xFF;
+          memory.setVar(13, hr);
+          if (hr >= 24) {
+            memory.setVar(13, 0);
+            memory.incrementVar(14); // days
+          }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Room Transition Manager
+  // ---------------------------------------------------------------------------
+
+  /// Transitions engine to [roomNumber], adjusting Ego position and executing room scripts.
+  void changeRoom(int roomNumber) {
+    final prevRoom = memory.getVar(0);
+    memory.setVar(1, prevRoom); // %v1 = previous room
+    memory.setVar(0, roomNumber); // %v0 = current room
+    memory.setFlag(5); // %f5 = new room first execution
+
+    // Reposition Ego based on border crossed (%v2)
+    final borderHit = memory.getVar(2);
+    _repositionEgoForBorder(borderHit);
+
+    // Reset edge hit variables
+    memory.setVar(2, 0);
+    memory.setVar(4, 0);
+    memory.setVar(5, 0);
+
+    // Unload non-Ego animated objects
+    for (int i = 1; i < animatedObjects.length; i++) {
+      animatedObjects[i].reset();
+    }
+
+    // Load new room picture if available
+    if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(roomNumber)) {
+      currentPic = resourceLoader!.loadPic(roomNumber);
+      currentPic?.preloadGpuTextures();
+    }
+
+    // Load room logic
+    if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
+      final logic0 = resourceLoader!.loadLogic(0);
+      interpreter.loadRootScript(logic0, scriptNumber: 0);
+    }
+
+    // Run initial scan of LOGIC 0 with Flag 5 set to initialize room and add.to.pic
+    if (interpreter.currentFrame != null) {
+      try {
+        interpreter.executeCycle();
+      } catch (e) {
+        _lastError = 'Error during new.room initialization: $e';
+        if (kDebugMode) {
+          print(_lastError);
+        }
+      }
+    }
+
+    notifyListeners();
+  }
+
+  void _repositionEgoForBorder(int border) {
+    int egoWidth = 4;
+    if (resourceLoader != null) {
+      try {
+        final v = resourceLoader!.loadView(ego.view);
+        final cel = v.getCel(ego.loop, ego.cel);
+        if (cel != null) {
+          egoWidth = cel.width;
+        }
+      } catch (_) {}
+    }
+
+    switch (border) {
+      case 1: // Top (Horizon) -> place at bottom
+        ego.y = 167 - ego.stepSize;
+        break;
+      case 2: // Right -> place at left
+        ego.x = 0;
+        break;
+      case 3: // Bottom -> place at top (Horizon + 1)
+        ego.y = (ego.ignoreHorizon ? 0 : 36) + 1;
+        break;
+      case 4: // Left -> place at right
+        ego.x = (160 - egoWidth).clamp(0, 159);
+        break;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // AgiInterpreterDelegate Implementation
+  // ---------------------------------------------------------------------------
+
+  @override
+  void onNewRoom(int roomNumber) {
+    changeRoom(roomNumber);
+  }
+
+  @override
+  AgiLogicScript? loadLogic(int logicNumber) {
+    if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(logicNumber)) {
+      return resourceLoader!.loadLogic(logicNumber);
+    }
+    return null;
+  }
+
+  @override
+  void onPrint(String message) {
+    activeDialog = AgiDialogState(
+      message: message,
+      isModal: true,
+      dismissCompleter: Completer<void>(),
+    );
+    notifyListeners();
+  }
+
+  @override
+  void onPrintAt(String message, int x, int y, int width) {
+    activeDialog = AgiDialogState(
+      message: message,
+      x: x,
+      y: y,
+      width: width,
+      isModal: true,
+      dismissCompleter: Completer<void>(),
+    );
+    notifyListeners();
+  }
+
+  @override
+  void onDisplay(int row, int col, String message) {
+    activeDialog = AgiDialogState(
+      message: message,
+      row: row,
+      col: col,
+      isModal: false,
+    );
+    notifyListeners();
+  }
+
+  @override
+  void onClearLines(int top, int bottom, int color) {}
+
+  @override
+  void onClearTextRect(int top, int left, int bottom, int right, int color) {}
+
+  @override
+  void onTextScreen() {}
+
+  @override
+  void onGraphics() {}
+
+  @override
+  void onShakeScreen(int count) {}
+
+  @override
+  void onSound(int soundNumber, int completionFlag) {
+    if (soundPlayer != null && resourceLoader != null) {
+      if (resourceLoader!.presentSoundNumbers.contains(soundNumber)) {
+        final snd = resourceLoader!.loadSound(soundNumber);
+        soundPlayer!.play(snd).then((_) {
+          memory.setFlag(completionFlag);
+        }).catchError((_) {
+          memory.setFlag(completionFlag);
+        });
+        return;
+      }
+    }
+    memory.setFlag(completionFlag);
+  }
+
+  @override
+  void onStopSound() {
+    soundPlayer?.stop();
+  }
+
+  @override
+  void onLoadPic(int picNumber) {
+    if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
+      resourceLoader!.loadRawPic(picNumber);
+    }
+  }
+
+  @override
+  void onDrawPic(int picNumber) {
+    if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
+      currentPic = resourceLoader!.loadPic(picNumber);
+      currentPic?.preloadGpuTextures();
+      notifyListeners();
+    }
+  }
+
+  @override
+  void onShowPic() {
+    currentPic?.preloadGpuTextures();
+    notifyListeners();
+  }
+
+  @override
+  void onOverlayPic(int picNumber) {}
+
+  @override
+  void onShowPriScreen() {}
+
+  @override
+  void onDiscardPic(int picNumber) {
+    // Picture caches can be purged if needed
+  }
+
+  @override
+  void onLoadView(int viewNumber) {
+    if (resourceLoader != null && resourceLoader!.presentViewNumbers.contains(viewNumber)) {
+      resourceLoader!.loadView(viewNumber);
+    }
+  }
+
+  @override
+  void onDiscardView(int viewNumber) {
+    // View caches can be purged if needed
+  }
+
+  @override
+  void onAddToPic(int view, int loop, int cel, int x, int y, int pri, int boxPri) {
+    if (resourceLoader == null || currentPic == null) return;
+
+    try {
+      final viewRes = resourceLoader!.loadView(view);
+      final celRes = viewRes.getCel(loop, cel);
+      if (celRes == null) return;
+
+      final pixels = celRes.getPixels(parentView: viewRes, celIndex: cel);
+      final cw = celRes.width;
+      final ch = celRes.height;
+      final startY = y - ch + 1;
+
+      // Burn pixels into visual buffer and priority buffer
+      for (int cy = 0; cy < ch; cy++) {
+        final py = startY + cy;
+        if (py < 0 || py >= AgiPic.nativeHeight) continue;
+
+        for (int cx = 0; cx < cw; cx++) {
+          final px = x + cx;
+          if (px < 0 || px >= AgiPic.nativeWidth) continue;
+
+          final colorIndex = pixels[cy * cw + cx] & 0x0F;
+          if (colorIndex != celRes.transparentColor) {
+            currentPic!.visualPixels[py * AgiPic.nativeWidth + px] = colorIndex;
+            if (pri > 0) {
+              currentPic!.priorityBuffer.setPriorityAt(px, py, pri);
+            }
+          }
+        }
+      }
+
+      // If boxPri > 0, burn solid priority bar at base
+      if (boxPri > 0 && y >= 0 && y < AgiPic.nativeHeight) {
+        for (int bx = x; bx < x + cw; bx++) {
+          if (bx >= 0 && bx < AgiPic.nativeWidth) {
+            currentPic!.priorityBuffer.setPriorityAt(bx, y, boxPri);
+          }
+        }
+      }
+
+      // Re-slice picture with updated buffers
+      final newSlices = PictureSlicer.slice(
+        visualPixels: currentPic!.visualPixels,
+        priorityBuffer: currentPic!.priorityBuffer,
+      );
+      currentPic!.slices.clear();
+      currentPic!.slices.addAll(newSlices);
+      currentPic!.preloadGpuTextures();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error executing add.to.pic: $e');
+      }
+    }
+  }
+
+  @override
+  void onShowObj(int objNumber) {}
+
+  @override
+  void onQuit() {
+    stop();
+  }
+
+  @override
+  void onPause() {
+    pause();
+  }
+
+  @override
+  void onLog(String message) {
+    if (kDebugMode) {
+      print('[AGI LOG] $message');
+    }
+  }
+
+  @override
+  bool checkSaid(List<int> wordGroupIds) {
+    if (_parsedWordIds.isEmpty && wordGroupIds.isNotEmpty) {
+      return false;
+    }
+
+    int inputIdx = 0;
+    int expectedIdx = 0;
+
+    while (expectedIdx < wordGroupIds.length) {
+      final expected = wordGroupIds[expectedIdx];
+
+      // 9998 = Rest of Line (_ROL) wildcard: matches all remaining tokens
+      if (expected == 9998) {
+        memory.setFlag(4); // said.accepted = 1
+        return true;
+      }
+
+      if (inputIdx >= _parsedWordIds.length) {
+        return false;
+      }
+
+      final actual = _parsedWordIds[inputIdx];
+
+      // 9999 = Any Word (_ANY) wildcard: matches any single token
+      if (expected == 9999 || expected == actual) {
+        inputIdx++;
+        expectedIdx++;
+      } else {
+        return false;
+      }
+    }
+
+    // Must match all tokens exactly unless ROL was specified
+    if (inputIdx == _parsedWordIds.length) {
+      memory.setFlag(4); // said.accepted = 1
+      return true;
+    }
+
+    return false;
+  }
+
+  @override
+  void dispose() {
+    stop();
+    super.dispose();
+  }
+}
