@@ -27,8 +27,13 @@ class DisassemblyFormatter {
 
   const DisassemblyFormatter({this.context = const DisassemblyContext()});
 
-  /// Formats the complete script (including message table) into a string.
-  String formatScript(AgiLogicScript script, {double version = 2.917}) {
+  /// Formats the complete script into a string.
+  /// If [includeMessages] is true, the message table is prepended at the top.
+  String formatScript(
+    AgiLogicScript script, {
+    double version = 2.917,
+    bool includeMessages = true,
+  }) {
     final sb = StringBuffer();
     final effectiveCtx = DisassemblyContext(
       script: script,
@@ -37,7 +42,7 @@ class DisassemblyFormatter {
       memory: context.memory,
     );
 
-    if (script.messageCount > 0) {
+    if (includeMessages && script.messageCount > 0) {
       sb.writeln('[ MESSAGES: ~~~~~~~~~~~~~~~~~~~~~~~~~~');
       for (var i = 1; i <= script.messageCount; i++) {
         sb.writeln('  %m$i: "${script.getMessage(i)}"');

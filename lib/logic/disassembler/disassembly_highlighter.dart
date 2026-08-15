@@ -416,7 +416,8 @@ class DisassemblyHighlighter {
     return tokens.map((token) {
       final color = colors[token.type] ?? const Color(0xFFF8F8F2);
       final isItalic = token.type == DisassemblyTokenType.comment;
-      final isBold = token.type == DisassemblyTokenType.keyword;
+      final isBold = token.type == DisassemblyTokenType.keyword ||
+          token.type == DisassemblyTokenType.opcode;
 
       return TextSpan(
         text: token.text,
@@ -430,4 +431,198 @@ class DisassemblyHighlighter {
       );
     }).toList();
   }
+
+  /// Tokenizes the decoded instruction AST into structured lines for UI rendering and navigation.
+  static List<DisassemblyLine> tokenizeToLines(
+    LogicInstruction ast, {
+    DisassemblyContext context = const DisassemblyContext(),
+    int baseAddress = 0,
+    String indent = '',
+  }) {
+    final tokens = tokenize(
+      ast,
+      context: context,
+      baseAddress: baseAddress,
+      indent: indent,
+    );
+
+    final lines = <DisassemblyLine>[];
+    var currentTokens = <DisassemblyToken>[];
+    final currentSb = StringBuffer();
+    int? currentAddress;
+    int? currentTargetAddress;
+    int? currentTargetMsg;
+    int? currentTargetLogic;
+    int? currentTargetView;
+    int? currentTargetPic;
+    int? currentTargetSound;
+    int? currentTargetInventory;
+
+    void finishLine() {
+      final raw = currentSb.toString();
+      var tgtAddr = currentTargetAddress;
+      var tgtMsg = currentTargetMsg;
+      var tgtLogic = currentTargetLogic;
+      var tgtView = currentTargetView;
+      var tgtPic = currentTargetPic;
+      var tgtSound = currentTargetSound;
+      var tgtInv = currentTargetInventory;
+
+      if (tgtAddr == null) {
+        final gotoMatch = RegExp(r'GOTO\(0x([0-9A-Fa-f]+)\)').firstMatch(raw);
+        if (gotoMatch != null) {
+          tgtAddr = int.tryParse(gotoMatch.group(1)!, radix: 16);
+        }
+      }
+      if (tgtMsg == null) {
+        final msgMatch = RegExp(r'%m(\d+)').firstMatch(raw);
+        if (msgMatch != null) {
+          tgtMsg = int.tryParse(msgMatch.group(1)!);
+        }
+      }
+      if (tgtLogic == null) {
+        final logicMatch = RegExp(r'(?:call|load\.logics|new\.room|jump\.to\.room)\((\d+)\)').firstMatch(raw);
+        if (logicMatch != null) {
+          tgtLogic = int.tryParse(logicMatch.group(1)!);
+        }
+      }
+      if (tgtView == null) {
+        final loadViewMatch = RegExp(r'(?:load\.view|discard\.view)\((?:%v)?(\d+)\)').firstMatch(raw);
+        if (loadViewMatch != null) {
+          tgtView = int.tryParse(loadViewMatch.group(1)!);
+        } else {
+          final setViewMatch = RegExp(r'set\.view\([^,]+,\s*(?:%v)?(\d+)\)').firstMatch(raw);
+          if (setViewMatch != null) {
+            tgtView = int.tryParse(setViewMatch.group(1)!);
+          }
+        }
+      }
+      if (tgtPic == null) {
+        final picMatch = RegExp(r'(?:load\.pic|draw\.pic|overlay\.pic|discard\.pic)\((?:%v)?(\d+)\)').firstMatch(raw);
+        if (picMatch != null) {
+          tgtPic = int.tryParse(picMatch.group(1)!);
+        }
+      }
+      if (tgtSound == null) {
+        final soundMatch = RegExp(r'(?:load\.sound\((?:%v)?(\d+)\)|sound\((?:%v)?(\d+),)').firstMatch(raw);
+        if (soundMatch != null) {
+          tgtSound = int.tryParse(soundMatch.group(1) ?? soundMatch.group(2)!);
+        }
+      }
+      if (tgtInv == null) {
+        final invMatch = RegExp(r'%i(\d+)').firstMatch(raw);
+        if (invMatch != null) {
+          tgtInv = int.tryParse(invMatch.group(1)!);
+        }
+      }
+
+      final isCommentLine = currentAddress == null &&
+          (raw.trimLeft().startsWith('[') || raw.trimLeft().startsWith('//'));
+      if (isCommentLine) {
+        tgtAddr = null;
+        tgtMsg = null;
+        tgtLogic = null;
+        tgtView = null;
+        tgtPic = null;
+        tgtSound = null;
+        tgtInv = null;
+      }
+
+      lines.add(
+        DisassemblyLine(
+          lineNumber: lines.length + 1,
+          rawText: raw,
+          tokens: List.unmodifiable(currentTokens),
+          address: currentAddress,
+          targetAddress: tgtAddr,
+          targetMessageNum: tgtMsg,
+          targetLogicNum: tgtLogic,
+          targetViewNum: tgtView,
+          targetPicNum: tgtPic,
+          targetSoundNum: tgtSound,
+          targetInventoryNum: tgtInv,
+        ),
+      );
+      currentTokens = <DisassemblyToken>[];
+      currentSb.clear();
+      currentAddress = null;
+      currentTargetAddress = null;
+      currentTargetMsg = null;
+      currentTargetLogic = null;
+      currentTargetView = null;
+      currentTargetPic = null;
+      currentTargetSound = null;
+      currentTargetInventory = null;
+    }
+
+    for (final token in tokens) {
+      if (token.type == DisassemblyTokenType.address && currentAddress == null && currentTokens.isEmpty) {
+        currentAddress = int.tryParse(token.text, radix: 16);
+      }
+      if (token.type == DisassemblyTokenType.address && token.text.startsWith('0x')) {
+        currentTargetAddress = int.tryParse(token.text.substring(2), radix: 16);
+      }
+      if (token.type == DisassemblyTokenType.message && token.text.startsWith('%m')) {
+        currentTargetMsg = int.tryParse(token.text.substring(2));
+      }
+      if (token.type == DisassemblyTokenType.inventory && token.text.startsWith('%i')) {
+        currentTargetInventory = int.tryParse(token.text.substring(2));
+      }
+
+      if (token.text.contains('\n')) {
+        final parts = token.text.split('\n');
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].isNotEmpty) {
+            final subToken = DisassemblyToken(token.type, parts[i]);
+            currentTokens.add(subToken);
+            currentSb.write(parts[i]);
+          }
+          if (i < parts.length - 1) {
+            finishLine();
+          }
+        }
+      } else {
+        currentTokens.add(token);
+        currentSb.write(token.text);
+      }
+    }
+
+    if (currentTokens.isNotEmpty || currentSb.isNotEmpty) {
+      finishLine();
+    }
+
+    return lines;
+  }
+}
+
+/// Represents a structured, highlighted line of disassembly for UI rendering and navigation.
+class DisassemblyLine {
+  final int lineNumber;
+  final String rawText;
+  final List<DisassemblyToken> tokens;
+  final int? address;
+  final int? targetAddress;
+  final int? targetMessageNum;
+  final int? targetLogicNum;
+  final int? targetViewNum;
+  final int? targetPicNum;
+  final int? targetSoundNum;
+  final int? targetInventoryNum;
+
+  const DisassemblyLine({
+    required this.lineNumber,
+    required this.rawText,
+    required this.tokens,
+    this.address,
+    this.targetAddress,
+    this.targetMessageNum,
+    this.targetLogicNum,
+    this.targetViewNum,
+    this.targetPicNum,
+    this.targetSoundNum,
+    this.targetInventoryNum,
+  });
+
+  @override
+  String toString() => rawText;
 }

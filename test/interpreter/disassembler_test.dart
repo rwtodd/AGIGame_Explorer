@@ -153,13 +153,19 @@ void main() {
       final formatter = DisassemblyFormatter(
         context: DisassemblyContext(memory: memory, objects: objects),
       );
-      final formatted = formatter.formatScript(script);
+      final formattedWithMessages = formatter.formatScript(script, includeMessages: true);
 
-      expect(formatted, contains('[ MESSAGES:'));
-      expect(formatted, contains('%m1: "Welcome to the kingdom!"'));
-      expect(formatted, contains('[ SCRIPT:'));
-      expect(formatted, contains('print(%m1)'));
-      expect(formatted, contains('[ MSG %m1: "Welcome to the kingdom!"'));
+      expect(formattedWithMessages, contains('[ MESSAGES:'));
+      expect(formattedWithMessages, contains('%m1: "Welcome to the kingdom!"'));
+      expect(formattedWithMessages, contains('[ SCRIPT:'));
+      expect(formattedWithMessages, contains('print(%m1)'));
+      expect(formattedWithMessages, contains('[ MSG %m1: "Welcome to the kingdom!"'));
+
+      final formattedWithoutMessages = formatter.formatScript(script, includeMessages: false);
+      expect(formattedWithoutMessages, isNot(contains('[ MESSAGES:')));
+      expect(formattedWithoutMessages, contains('[ SCRIPT:'));
+      expect(formattedWithoutMessages, contains('print(%m1)'));
+      expect(formattedWithoutMessages, contains('[ MSG %m1: "Welcome to the kingdom!"'));
     });
   });
 }
