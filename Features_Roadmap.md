@@ -1,5 +1,9 @@
 # **Sierra AGI Engine & Interactive Debug Workbench Specification**
 
+Note: reference AGI engines are in ./reference\_docs
+
+Note: reference AGI games are in ./reference\_games
+
 **Target Technology:** Dart / Flutter (Cross-platform: Desktop, Web, Mobile)  
 **Target Architecture:** Sierra On-Line Adventure Game Interpreter (AGI) v2/v3
 
