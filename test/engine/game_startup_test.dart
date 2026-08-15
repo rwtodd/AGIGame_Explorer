@@ -141,6 +141,25 @@ void main() {
       kq3Engine.dispose();
     });
 
+    test('add.to.pic respects background priority and masks "III" behind ribbon', () {
+      final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
+      final kq3Engine = AgiGameEngine(resourceLoader: loader);
+      kq3Engine.initializeGame();
+
+      // In room 45, PIC 45 has the red/gold banner at y=80..100 with Priority 15.
+      // add.to.pic with pri=4 should not overwrite the priority 15 ribbon banner.
+      final pic = kq3Engine.currentPic!;
+      
+      // Check that ribbon center remains red (12) or gold (14) with priority 15
+      expect(pic.priorityBuffer.priorityAt(75, 85), 15, reason: 'Ribbon banner must maintain priority 15');
+      expect(pic.visualPixels[85 * 160 + 75], isIn([12, 14]), reason: 'Ribbon color must remain intact behind III');
+
+      // Check that top of III is drawn at priority 4
+      expect(pic.priorityBuffer.priorityAt(75, 60), 4, reason: 'Top of III must be stamped with priority 4');
+
+      kq3Engine.dispose();
+    });
+
     test('boots King\'s Quest II reference game to opening room', () {
       final kq2Dir = Directory('reference_games/kings-quest-2');
       if (!kq2Dir.existsSync()) return;

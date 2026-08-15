@@ -925,7 +925,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       final ch = celRes.height;
       final startY = y - ch + 1;
 
-      // Burn pixels into visual buffer and priority buffer
+      final effectivePri = pri > 0 ? pri : 4;
+
+      // Burn pixels into visual buffer and priority buffer respecting background priority
       for (int cy = 0; cy < ch; cy++) {
         final py = startY + cy;
         if (py < 0 || py >= AgiPic.nativeHeight) continue;
@@ -936,9 +938,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
           final colorIndex = pixels[cy * cw + cx] & 0x0F;
           if (colorIndex != celRes.transparentColor) {
-            currentPic!.visualPixels[py * AgiPic.nativeWidth + px] = colorIndex;
-            if (pri > 0) {
-              currentPic!.priorityBuffer.setPriorityAt(px, py, pri);
+            final bgPri = currentPic!.priorityBuffer.priorityAt(px, py);
+            // In Sierra AGI: sprite pixels are only drawn if sprite priority >= background priority.
+            // If background priority > sprite priority, the background is in front of the sprite!
+            if (effectivePri >= bgPri) {
+              currentPic!.visualPixels[py * AgiPic.nativeWidth + px] = colorIndex;
+              if (pri > 0) {
+                currentPic!.priorityBuffer.setPriorityAt(px, py, pri);
+              }
             }
           }
         }
