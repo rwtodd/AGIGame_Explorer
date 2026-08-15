@@ -36,6 +36,19 @@ class AgiDialogState {
   });
 }
 
+/// Represents non-modal text displayed on the 40x25 character grid (e.g. from display/display.v).
+class AgiDisplayText {
+  final int row;
+  final int col;
+  final String message;
+
+  const AgiDisplayText({
+    required this.row,
+    required this.col,
+    required this.message,
+  });
+}
+
 /// Core Sierra AGI Game Engine and Cycle Coordinator.
 ///
 /// Drives the classic 20 Hz (configurable) execution loop:
@@ -65,6 +78,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   String? _lastSubmittedCommand;
   String? _lastError;
   bool _keyPressedThisCycle = false;
+  bool _isStatusLineEnabled = true;
+  bool _isInputEnabled = true;
+  final List<AgiDisplayText> _displayedTexts = [];
   final math.Random _rng;
 
   AgiGameEngine({
@@ -98,6 +114,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   List<int> get parsedWordIds => List.unmodifiable(_parsedWordIds);
   String? get lastSubmittedCommand => _lastSubmittedCommand;
   String? get lastError => _lastError;
+  bool get isStatusLineEnabled => _isStatusLineEnabled;
+  bool get isInputEnabled => _isInputEnabled;
+  List<AgiDisplayText> get displayedTexts => List.unmodifiable(_displayedTexts);
 
   AnimatedObject get ego => animatedObjects[0];
 
@@ -148,7 +167,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _gameLoopTimer = Timer.periodic(
       Duration(milliseconds: intervalMs.clamp(1, 1000)),
       (_) {
-        if (_isRunning && !_isPaused && activeDialog == null) {
+        if (_isRunning && !_isPaused && !(activeDialog?.isModal ?? false)) {
           tick();
         }
       },
@@ -690,10 +709,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final borderHit = memory.getVar(2);
     _repositionEgoForBorder(borderHit);
 
-    // Reset edge hit variables
+    // Reset transient edge hit variables and displayed text
     memory.setVar(2, 0);
     memory.setVar(4, 0);
     memory.setVar(5, 0);
+    _displayedTexts.clear();
 
     // Unload non-Ego animated objects
     for (int i = 1; i < animatedObjects.length; i++) {
@@ -785,20 +805,36 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void onDisplay(int row, int col, String message) {
-    activeDialog = AgiDialogState(
-      message: message,
-      row: row,
-      col: col,
-      isModal: false,
+    _displayedTexts.removeWhere((t) => t.row == row && t.col == col);
+    _displayedTexts.add(AgiDisplayText(row: row, col: col, message: message));
+    notifyListeners();
+  }
+
+  @override
+  void onClearLines(int top, int bottom, int color) {
+    _displayedTexts.removeWhere((t) => t.row >= top && t.row <= bottom);
+    notifyListeners();
+  }
+
+  @override
+  void onClearTextRect(int top, int left, int bottom, int right, int color) {
+    _displayedTexts.removeWhere(
+      (t) => t.row >= top && t.row <= bottom && t.col >= left && t.col <= right,
     );
     notifyListeners();
   }
 
   @override
-  void onClearLines(int top, int bottom, int color) {}
+  void onStatusLine(bool enabled) {
+    _isStatusLineEnabled = enabled;
+    notifyListeners();
+  }
 
   @override
-  void onClearTextRect(int top, int left, int bottom, int right, int color) {}
+  void onInputMode(bool enabled) {
+    _isInputEnabled = enabled;
+    notifyListeners();
+  }
 
   @override
   void onTextScreen() {}

@@ -971,10 +971,12 @@ class AgiLogicInterpreter {
         break;
 
       case 112: // status.line.on()
+        delegate.onStatusLine(true);
         frame.ip++;
         break;
 
       case 113: // status.line.off()
+        delegate.onStatusLine(false);
         frame.ip++;
         break;
 
@@ -1000,10 +1002,12 @@ class AgiLogicInterpreter {
         break;
 
       case 119: // prevent.input()
+        delegate.onInputMode(false);
         frame.ip++;
         break;
 
       case 120: // accept.input()
+        delegate.onInputMode(true);
         frame.ip++;
         break;
 

@@ -107,7 +107,7 @@ void main() {
       expect(engine.memory.getVar(3), 100); // logic 45 was called and executed
     });
 
-    test('boots King\'s Quest III reference game and sets opening picture', () {
+    test('boots King\'s Quest III reference game and simulates opening sequence', () {
       final kq3Dir = Directory('reference_games/kings-quest-3');
       if (!kq3Dir.existsSync()) return;
 
@@ -116,9 +116,18 @@ void main() {
 
       kq3Engine.initializeGame();
 
-      // KQ3 boots to room 45 (the opening title sequence)
       expect(kq3Engine.memory.getVar(0), 45, reason: 'KQ3 bootstrap should transition to intro room 45');
       expect(kq3Engine.currentPic, isNotNull, reason: 'Opening room picture should be loaded');
+      expect(kq3Engine.isStatusLineEnabled, isFalse, reason: 'Status line should be disabled during intro');
+      expect(kq3Engine.isInputEnabled, isFalse, reason: 'Input prompt should be disabled during intro');
+
+      // Simulate 10 seconds of intro (200 cycles at 20 Hz)
+      for (int t = 1; t <= 200; t++) {
+        kq3Engine.tick();
+      }
+
+      expect(kq3Engine.memory.getVar(0), 45);
+      expect(kq3Engine.lastError, isNull);
 
       kq3Engine.dispose();
     });

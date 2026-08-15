@@ -75,6 +75,12 @@ abstract class AgiInterpreterDelegate {
   /// Called when `pause` is executed.
   void onPause() {}
 
+  /// Called when `status.line.on` / `status.line.off` is executed.
+  void onStatusLine(bool enabled) {}
+
+  /// Called when `prevent.input` / `accept.input` is executed.
+  void onInputMode(bool enabled) {}
+
   /// Called when `log` is executed.
   void onLog(String message) {}
 

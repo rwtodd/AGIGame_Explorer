@@ -74,6 +74,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                       painter: AgiPicturePainter(
                         picture: currentPic,
                         actors: _buildActorSprites(),
+                        displayedTexts: widget.engine.displayedTexts,
                         renderMode: widget.renderMode,
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,
                         showPixelGrid: widget.showPixelGrid,
@@ -114,7 +115,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     if (loader == null) return actors;
 
     for (final obj in widget.engine.animatedObjects) {
-      if (!obj.isDrawn && !obj.isAnimated) continue;
+      if (!obj.isDrawn) continue;
       if (obj.view == 0 && obj.number != 0) continue;
 
       try {

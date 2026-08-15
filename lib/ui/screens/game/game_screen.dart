@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
@@ -51,7 +52,11 @@ class _GameScreenState extends State<GameScreen> {
     if (widget.engine != null) {
       _engine = widget.engine!;
     } else {
-      _engine = AgiGameEngine(resourceLoader: widget.resourceLoader);
+      final soundPlayer = AgiSoundPlayer();
+      _engine = AgiGameEngine(
+        resourceLoader: widget.resourceLoader,
+        soundPlayer: soundPlayer,
+      );
       _engine.initializeGame(startingRoom: widget.startingRoom);
       _engine.start();
     }
@@ -63,6 +68,7 @@ class _GameScreenState extends State<GameScreen> {
   void dispose() {
     _engine.removeListener(_onEngineUpdated);
     if (widget.engine == null) {
+      _engine.soundPlayer?.dispose();
       _engine.dispose();
     }
     _promptController.dispose();
@@ -184,7 +190,7 @@ class _GameScreenState extends State<GameScreen> {
           child: Column(
             children: [
               _buildTopToolbar(),
-              _buildStatusBar(),
+              if (_engine.isStatusLineEnabled) _buildStatusBar(),
               Expanded(
                 child: Center(
                   child: Stack(
@@ -198,7 +204,7 @@ class _GameScreenState extends State<GameScreen> {
                       ),
 
                       // Modal Dialog Popup Overlay
-                      if (_engine.activeDialog != null)
+                      if (_engine.activeDialog != null && _engine.activeDialog!.isModal)
                         Positioned.fill(
                           child: DialogBoxWidget(
                             dialogState: _engine.activeDialog!,
@@ -209,7 +215,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
               ),
-              _buildCommandPromptBar(),
+              if (_engine.isInputEnabled) _buildCommandPromptBar(),
             ],
           ),
         ),

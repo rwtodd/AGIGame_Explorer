@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/engine/agi_game_engine.dart';
 
 /// Render modes for visualizing AGI pictures in game and diagnostic views.
 enum AgiPictureRenderMode {
@@ -40,6 +41,7 @@ class AgiActorSprite {
 class AgiPicturePainter extends CustomPainter {
   final AgiPic picture;
   final List<AgiActorSprite> actors;
+  final List<AgiDisplayText> displayedTexts;
   final AgiPictureRenderMode renderMode;
   final ui.Image? flatVisualImage;
   final ui.Image? priorityMapImage;
@@ -50,6 +52,7 @@ class AgiPicturePainter extends CustomPainter {
   AgiPicturePainter({
     required this.picture,
     this.actors = const [],
+    this.displayedTexts = const [],
     this.renderMode = AgiPictureRenderMode.compositedSlices,
     this.flatVisualImage,
     this.priorityMapImage,
@@ -98,11 +101,36 @@ class AgiPicturePainter extends CustomPainter {
       }
     }
 
+    if (displayedTexts.isNotEmpty) {
+      _paintDisplayedTexts(canvas);
+    }
+
     if (showPixelGrid) {
       _paintGrid(canvas);
     }
 
     canvas.restore();
+  }
+
+  void _paintDisplayedTexts(Canvas canvas) {
+    for (final item in displayedTexts) {
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: item.message,
+          style: const TextStyle(
+            color: Color(0xFFFFFFFF),
+            fontSize: 7.0,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Courier',
+            height: 1.0,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      // Each character cell is 8x8 in 320x200 resolution
+      textPainter.paint(canvas, Offset(item.col * 8.0, item.row * 8.0));
+    }
   }
 
   void _paintCompositedSlices(Canvas canvas, Paint paint) {
