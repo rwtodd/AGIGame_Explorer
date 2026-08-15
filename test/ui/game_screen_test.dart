@@ -1,5 +1,8 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
@@ -102,6 +105,79 @@ void main() {
 
       expect(engine.memory.getFlag(9), isFalse);
       expect(find.text('Sound: OFF'), findsOneWidget);
+    });
+
+    testWidgets('switches render modes in game toolbar and loads textures', (tester) async {
+      final visualPixels = Uint8List(160 * 168);
+      final priorityBuffer = PriorityBuffer();
+      final slices = <int, PictureSlice>{
+        15: PictureSlice(
+          priority: 15,
+          width: 320,
+          height: 200,
+          rgbaBytes: Uint8List(320 * 200 * 4),
+          hasVisiblePixels: true,
+        ),
+      };
+      final pic = AgiPic(
+        visualPixels: visualPixels,
+        priorityBuffer: priorityBuffer,
+        slices: slices,
+      );
+      engine.currentPic = pic;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Open Render Mode popup menu
+      expect(find.byIcon(Icons.layers), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.layers));
+      await tester.pumpAndSettle();
+
+      // Select Priority Depth Map
+      expect(find.text('Priority Depth Map'), findsOneWidget);
+      await tester.tap(find.text('Priority Depth Map'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      expect(pic.cachedPriorityMapImage, isNotNull);
+
+      // Open Render Mode popup menu again
+      await tester.tap(find.byIcon(Icons.layers));
+      await tester.pumpAndSettle();
+
+      // Select Control Barrier Map
+      expect(find.text('Control Barrier Map'), findsOneWidget);
+      await tester.tap(find.text('Control Barrier Map'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      expect(pic.cachedControlMapImage, isNotNull);
+
+      // Open Render Mode popup menu again
+      await tester.tap(find.byIcon(Icons.layers));
+      await tester.pumpAndSettle();
+
+      // Select Flat Visual Background
+      expect(find.text('Flat Visual Background'), findsOneWidget);
+      await tester.tap(find.text('Flat Visual Background'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      expect(pic.cachedFlatVisualImage, isNotNull);
     });
   });
 }

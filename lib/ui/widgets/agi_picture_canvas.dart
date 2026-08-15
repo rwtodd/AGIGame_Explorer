@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
@@ -70,6 +69,10 @@ class AgiPicturePainter extends CustomPainter {
     canvas.save();
     canvas.scale(scaleX, scaleY);
 
+    final effectiveFlat = flatVisualImage ?? picture.cachedFlatVisualImage;
+    final effectivePri = priorityMapImage ?? picture.cachedPriorityMapImage;
+    final effectiveCtrl = controlMapImage ?? picture.cachedControlMapImage;
+
     if (isolatedPrioritySlice != null) {
       final slice = picture.getSlice(isolatedPrioritySlice!);
       if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
@@ -78,24 +81,35 @@ class AgiPicturePainter extends CustomPainter {
     } else {
       switch (renderMode) {
         case AgiPictureRenderMode.compositedSlices:
-          _paintCompositedSlices(canvas, paint);
+          _paintCompositedSlices(canvas, paint, effectiveFlat);
           break;
 
         case AgiPictureRenderMode.flatVisual:
-          if (flatVisualImage != null) {
-            canvas.drawImage(flatVisualImage!, Offset.zero, paint);
+          if (effectiveFlat != null) {
+            canvas.drawImage(effectiveFlat, Offset.zero, paint);
+          }
+          if (actors.isNotEmpty) {
+            for (final actor in actors) {
+              canvas.drawImage(actor.image, actor.position, paint);
+            }
           }
           break;
 
         case AgiPictureRenderMode.priorityMap:
-          if (priorityMapImage != null) {
-            canvas.drawImage(priorityMapImage!, Offset.zero, paint);
+          if (effectivePri != null) {
+            canvas.drawImage(effectivePri, Offset.zero, paint);
           }
           break;
 
         case AgiPictureRenderMode.controlMap:
-          if (controlMapImage != null) {
-            canvas.drawImage(controlMapImage!, Offset.zero, paint);
+          if (effectiveFlat != null) {
+            final dimPaint = Paint()
+              ..filterQuality = FilterQuality.none
+              ..color = Colors.white.withValues(alpha: 0.25);
+            canvas.drawImage(effectiveFlat, Offset.zero, dimPaint);
+          }
+          if (effectiveCtrl != null) {
+            canvas.drawImage(effectiveCtrl, Offset.zero, paint);
           }
           break;
       }
@@ -133,7 +147,7 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
-  void _paintCompositedSlices(Canvas canvas, Paint paint) {
+  void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat) {
     bool drawnAny = false;
 
     // 1. Draw Base Priority 15 (Sky / Unconditional background drawn behind all bands)
@@ -172,8 +186,8 @@ class AgiPicturePainter extends CustomPainter {
     }
 
     // 4. Seamless fallback to flat visual background if slices are still loading
-    if (!drawnAny && flatVisualImage != null) {
-      canvas.drawImage(flatVisualImage!, Offset.zero, paint);
+    if (!drawnAny && fallbackFlat != null) {
+      canvas.drawImage(fallbackFlat, Offset.zero, paint);
     }
   }
 
@@ -199,6 +213,9 @@ class AgiPicturePainter extends CustomPainter {
         oldDelegate.flatVisualImage != flatVisualImage ||
         oldDelegate.priorityMapImage != priorityMapImage ||
         oldDelegate.controlMapImage != controlMapImage ||
+        oldDelegate.picture.cachedFlatVisualImage != picture.cachedFlatVisualImage ||
+        oldDelegate.picture.cachedPriorityMapImage != picture.cachedPriorityMapImage ||
+        oldDelegate.picture.cachedControlMapImage != picture.cachedControlMapImage ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||
         oldDelegate.showPixelGrid != showPixelGrid;
   }
@@ -336,8 +353,8 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
   Future<void> _loadAllTexturesFor(AgiPic pic) async {
     final token = ++_loadToken;
     final flatFuture = pic.toFlatVisualUiImage();
-    final priFuture = _decodeRgba(pic.renderPriorityMapRgba());
-    final ctrlFuture = _decodeRgba(pic.renderControlMapRgba());
+    final priFuture = pic.toPriorityMapUiImage();
+    final ctrlFuture = pic.toControlMapUiImage();
     final slicesFuture = pic.preloadGpuTextures();
 
     final results = await Future.wait([slicesFuture, flatFuture, priFuture, ctrlFuture]);
@@ -362,27 +379,15 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
         _flatImage ??= await targetPic.toFlatVisualUiImage();
         break;
       case AgiPictureRenderMode.priorityMap:
-        _priImage ??= await _decodeRgba(targetPic.renderPriorityMapRgba());
+        _priImage ??= await targetPic.toPriorityMapUiImage();
         break;
       case AgiPictureRenderMode.controlMap:
-        _ctrlImage ??= await _decodeRgba(targetPic.renderControlMapRgba());
+        _ctrlImage ??= await targetPic.toControlMapUiImage();
         break;
     }
     if (mounted) {
       setState(() {});
     }
-  }
-
-  Future<ui.Image> _decodeRgba(Uint8List rgba) {
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      rgba,
-      AgiDisplay.renderedWidth,
-      AgiDisplay.renderedHeight,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    return completer.future;
   }
 
   void _handlePointerHover(PointerEvent event, Size canvasSize) {
