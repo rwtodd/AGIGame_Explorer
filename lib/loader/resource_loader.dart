@@ -3,7 +3,9 @@ import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/game_info.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
+import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/loader/game_metadata.dart';
+import 'package:flutter_agigame/loader/parsers/logic_parser.dart';
 import 'package:flutter_agigame/loader/parsers/objects_parser.dart';
 import 'package:flutter_agigame/loader/parsers/words_parser.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
@@ -127,6 +129,18 @@ class AgiResourceLoader {
       throw ResourceNotPresentException('Logic resource $number is not present.');
     }
     return vmgr.getResource(de);
+  }
+
+  /// Loads and parses a [AgiLogicScript] for LOGIC resource [number].
+  AgiLogicScript loadLogic(int number) {
+    final raw = loadRawLogic(number);
+    final isEncrypted = meta.version < 3.0;
+    return LogicParser.parse(
+      raw,
+      isEncrypted: isEncrypted,
+      key: meta.decryptionKey,
+      logicNumber: number,
+    );
   }
 
   /// Summarizes current loaded game into a [GameInfo] snapshot.

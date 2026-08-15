@@ -1,0 +1,86 @@
+import 'package:flutter_agigame/domain/logic_script.dart';
+
+/// Delegate interface allowing the AGI logic interpreter to interact with
+/// the surrounding engine subsystems (rendering, sound synthesizer, text console, resource manager).
+abstract class AgiInterpreterDelegate {
+  /// Called when the script requests a room change via `new.room` or `new.room.v`.
+  void onNewRoom(int roomNumber) {}
+
+  /// Loads a referenced logic script for `call` / `call.v`.
+  AgiLogicScript? loadLogic(int logicNumber) => null;
+
+  /// Called when `print` or `print.v` is executed.
+  void onPrint(String message) {}
+
+  /// Called when `display` or `display.v` is executed.
+  void onDisplay(int row, int col, String message) {}
+
+  /// Called when `print.at` or `print.at.v` is executed.
+  void onPrintAt(String message, int x, int y, int width) {}
+
+  /// Called when `clear.lines` is executed.
+  void onClearLines(int top, int bottom, int color) {}
+
+  /// Called when `clear.text.rect` is executed.
+  void onClearTextRect(int top, int left, int bottom, int right, int color) {}
+
+  /// Called when `text.screen` is executed.
+  void onTextScreen() {}
+
+  /// Called when `graphics` is executed.
+  void onGraphics() {}
+
+  /// Called when `shake.screen` is executed.
+  void onShakeScreen(int count) {}
+
+  /// Called when `sound` action begins playing a sound resource.
+  void onSound(int soundNumber, int completionFlag) {}
+
+  /// Called when `stop.sound` is executed.
+  void onStopSound() {}
+
+  /// Called when `load.pic` is executed.
+  void onLoadPic(int picNumber) {}
+
+  /// Called when `draw.pic` is executed.
+  void onDrawPic(int picNumber) {}
+
+  /// Called when `show.pic` is executed.
+  void onShowPic() {}
+
+  /// Called when `overlay.pic` is executed.
+  void onOverlayPic(int picNumber) {}
+
+  /// Called when `show.pri.screen` is executed.
+  void onShowPriScreen() {}
+
+  /// Called when `discard.pic` is executed.
+  void onDiscardPic(int picNumber) {}
+
+  /// Called when `load.view` is executed.
+  void onLoadView(int viewNumber) {}
+
+  /// Called when `discard.view` is executed.
+  void onDiscardView(int viewNumber) {}
+
+  /// Called when `add.to.pic` or `add.to.pic.v` is executed.
+  void onAddToPic(int view, int loop, int cel, int x, int y, int pri, int boxPri) {}
+
+  /// Called when `show.obj` or `show.obj.v` is executed.
+  void onShowObj(int objNumber) {}
+
+  /// Called when `quit` is executed.
+  void onQuit() {}
+
+  /// Called when `pause` is executed.
+  void onPause() {}
+
+  /// Called when `log` is executed.
+  void onLog(String message) {}
+
+  /// Evaluates whether the current parsed user input matches [wordGroupIds] for `said(...)`.
+  bool checkSaid(List<int> wordGroupIds) => false;
+}
+
+/// Default no-op delegate implementation (useful for tests and headless execution).
+class DefaultAgiInterpreterDelegate extends AgiInterpreterDelegate {}
