@@ -1,0 +1,152 @@
+import 'dart:typed_data';
+import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
+import 'package:flutter_agigame/domain/dictionary.dart';
+import 'package:flutter_agigame/domain/game_info.dart';
+import 'package:flutter_agigame/domain/inventory_object.dart';
+import 'package:flutter_agigame/loader/game_metadata.dart';
+import 'package:flutter_agigame/loader/parsers/objects_parser.dart';
+import 'package:flutter_agigame/loader/parsers/words_parser.dart';
+import 'package:flutter_agigame/loader/resource_directory.dart';
+import 'package:flutter_agigame/loader/volume_manager.dart';
+
+/// Central resource loader for Sierra AGI games (v2 and v3).
+class AgiResourceLoader {
+  final GameMetaData meta;
+  final ResourceDirectory rdir;
+  final VolumeManager vmgr;
+  final AgiDictionary dictionary;
+  final List<AgiObject> initialObjects;
+  final int maxAnimated;
+
+  AgiResourceLoader._({
+    required this.meta,
+    required this.rdir,
+    required this.vmgr,
+    required this.dictionary,
+    required this.initialObjects,
+    required this.maxAnimated,
+  });
+
+  /// Creates an [AgiResourceLoader] with explicit [ResourceDirectory] and [VolumeManager] (useful for testing).
+  factory AgiResourceLoader.custom({
+    required GameMetaData meta,
+    required ResourceDirectory rdir,
+    required VolumeManager vmgr,
+  }) {
+    AgiDictionary dict;
+    try {
+      dict = WordsParser.parse(vmgr.getWordsData());
+    } catch (e) {
+      throw AgiException('Failed to load WORDS.TOK: $e', e);
+    }
+
+    ParsedObjects parsedObs;
+    try {
+      final isEncrypted = meta.version >= 2.411;
+      parsedObs = ObjectsParser.parse(
+        vmgr.getObjectsData(),
+        isEncrypted: isEncrypted,
+        key: meta.decryptionKey,
+      );
+    } catch (e) {
+      throw AgiException('Failed to load OBJECT file: $e', e);
+    }
+
+    return AgiResourceLoader._(
+      meta: meta,
+      rdir: rdir,
+      vmgr: vmgr,
+      dictionary: dict,
+      initialObjects: parsedObs.objects,
+      maxAnimated: parsedObs.maxAnimated,
+    );
+  }
+
+  /// Creates an [AgiResourceLoader] for the specified [meta], automatically constructing
+  /// the appropriate directory and volume manager.
+  factory AgiResourceLoader.fromMetaData(GameMetaData meta) {
+    final rdir = ResourceDirectory.create(meta);
+    final vmgr = VolumeManager.create(meta);
+    return AgiResourceLoader.custom(
+      meta: meta,
+      rdir: rdir,
+      vmgr: vmgr,
+    );
+  }
+
+  /// Convenience loader directly from a game folder path.
+  static Future<AgiResourceLoader> fromDirectory(String gameDir) async {
+    final meta = await OnDiskMetaData.fromDirectory(gameDir);
+    return AgiResourceLoader.fromMetaData(meta);
+  }
+
+  /// Synchronous loader directly from a game folder path.
+  factory AgiResourceLoader.fromDirectorySync(String gameDir) {
+    final meta = OnDiskMetaData.fromDirectorySync(gameDir);
+    return AgiResourceLoader.fromMetaData(meta);
+  }
+
+  int get soundCount => rdir.soundCount;
+  int get picCount => rdir.picCount;
+  int get viewCount => rdir.viewCount;
+  int get logicCount => rdir.logicCount;
+  int get objectCount => initialObjects.length;
+  int get wordCount => dictionary.wordCount;
+
+  /// Loads raw uncompressed bytes for a SOUND resource.
+  Uint8List loadRawSound(int number) {
+    final de = rdir.findSound(number);
+    if (!de.isPresent) {
+      throw ResourceNotPresentException('Sound resource $number is not present.');
+    }
+    return vmgr.getResource(de);
+  }
+
+  /// Loads raw uncompressed bytes for a PICTURE resource.
+  Uint8List loadRawPic(int number) {
+    final de = rdir.findPic(number);
+    if (!de.isPresent) {
+      throw ResourceNotPresentException('Pic resource $number is not present.');
+    }
+    return vmgr.getResource(de);
+  }
+
+  /// Loads raw uncompressed bytes for a VIEW resource.
+  Uint8List loadRawView(int number) {
+    final de = rdir.findView(number);
+    if (!de.isPresent) {
+      throw ResourceNotPresentException('View resource $number is not present.');
+    }
+    return vmgr.getResource(de);
+  }
+
+  /// Loads raw uncompressed bytes for a LOGIC resource.
+  Uint8List loadRawLogic(int number) {
+    final de = rdir.findLogic(number);
+    if (!de.isPresent) {
+      throw ResourceNotPresentException('Logic resource $number is not present.');
+    }
+    return vmgr.getResource(de);
+  }
+
+  /// Summarizes current loaded game into a [GameInfo] snapshot.
+  GameInfo toGameInfo() {
+    return GameInfo(
+      gamePath: meta.gamePath,
+      versionString: meta.versionString,
+      version: meta.version,
+      prefix: meta.prefix,
+      logicCount: logicCount,
+      picCount: picCount,
+      viewCount: viewCount,
+      soundCount: soundCount,
+      objectCount: objectCount,
+      wordCount: wordCount,
+      maxAnimatedObjects: maxAnimated,
+    );
+  }
+
+  void close() {
+    vmgr.close();
+  }
+}
