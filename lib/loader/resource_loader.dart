@@ -3,11 +3,13 @@ import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/game_info.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
+import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/loader/game_metadata.dart';
 import 'package:flutter_agigame/loader/parsers/objects_parser.dart';
 import 'package:flutter_agigame/loader/parsers/words_parser.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
+import 'package:flutter_agigame/picture/pic_vector_interpreter.dart';
 
 /// Central resource loader for Sierra AGI games (v2 and v3).
 class AgiResourceLoader {
@@ -109,6 +111,13 @@ class AgiResourceLoader {
       throw ResourceNotPresentException('Pic resource $number is not present.');
     }
     return vmgr.getResource(de);
+  }
+
+  /// Loads and interprets an AGI PICTURE resource into an [AgiPic] with priority slices.
+  AgiPic loadPic(int number) {
+    final rawBytes = loadRawPic(number);
+    final interpreter = PicVectorInterpreter(isV3: meta.isV3);
+    return interpreter.interpret(rawBytes);
   }
 
   /// Loads raw uncompressed bytes for a VIEW resource.
