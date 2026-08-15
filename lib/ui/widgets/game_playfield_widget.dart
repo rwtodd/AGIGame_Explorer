@@ -36,6 +36,60 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   final Set<String> _pendingDecodes = {};
 
   @override
+  void initState() {
+    super.initState();
+    _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
+  }
+
+  @override
+  void didUpdateWidget(covariant GamePlayfieldWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.renderMode != widget.renderMode ||
+        oldWidget.engine.currentPic != widget.engine.currentPic) {
+      _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
+    }
+  }
+
+  void _ensureRenderModeTextureLoaded(AgiPic? pic, AgiPictureRenderMode mode) {
+    if (pic == null) return;
+    switch (mode) {
+      case AgiPictureRenderMode.compositedSlices:
+        if (pic.activeSlices.any((s) => s.cachedUiImage == null)) {
+          pic.preloadGpuTextures().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+        break;
+      case AgiPictureRenderMode.flatVisual:
+        if (pic.cachedFlatVisualImage == null) {
+          pic.toFlatVisualUiImage().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+        break;
+      case AgiPictureRenderMode.priorityMap:
+        if (pic.cachedPriorityMapImage == null) {
+          pic.toPriorityMapUiImage().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+        break;
+      case AgiPictureRenderMode.controlMap:
+        if (pic.cachedFlatVisualImage == null) {
+          pic.toFlatVisualUiImage().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+        if (pic.cachedControlMapImage == null) {
+          pic.toControlMapUiImage().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+        break;
+    }
+  }
+
+  @override
   void dispose() {
     for (final img in _spriteTextureCache.values) {
       img.dispose();
@@ -47,6 +101,9 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   @override
   Widget build(BuildContext context) {
     final currentPic = widget.engine.currentPic;
+    if (currentPic != null) {
+      _ensureRenderModeTextureLoaded(currentPic, widget.renderMode);
+    }
 
     return AspectRatio(
       aspectRatio: 4.0 / 3.0,
@@ -75,6 +132,9 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                         picture: currentPic,
                         actors: _buildActorSprites(),
                         renderMode: widget.renderMode,
+                        flatVisualImage: currentPic.cachedFlatVisualImage,
+                        priorityMapImage: currentPic.cachedPriorityMapImage,
+                        controlMapImage: currentPic.cachedControlMapImage,
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,
                         showPixelGrid: widget.showPixelGrid,
                       ),

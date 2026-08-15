@@ -95,6 +95,8 @@ class AgiPic {
   final Map<int, PictureSlice> slices;
 
   ui.Image? _cachedFlatVisualImage;
+  ui.Image? _cachedPriorityMapImage;
+  ui.Image? _cachedControlMapImage;
 
   AgiPic({
     required this.visualPixels,
@@ -107,6 +109,15 @@ class AgiPic {
       );
     }
   }
+
+  /// Cached Flutter [ui.Image] for the flat visual background, if decoded.
+  ui.Image? get cachedFlatVisualImage => _cachedFlatVisualImage;
+
+  /// Cached Flutter [ui.Image] for the depth priority map, if decoded.
+  ui.Image? get cachedPriorityMapImage => _cachedPriorityMapImage;
+
+  /// Cached Flutter [ui.Image] for the control barrier map, if decoded.
+  ui.Image? get cachedControlMapImage => _cachedControlMapImage;
 
   /// Gets the priority slice for the given priority level (0..15), if present.
   PictureSlice? getSlice(int priority) => slices[priority];
@@ -123,12 +134,17 @@ class AgiPic {
       priorityBuffer.effectivePriorityAt(x, y);
 
   /// Preloads GPU textures for all active slices asynchronously.
-  Future<void> preloadGpuTextures() async {
+  Future<void> preloadGpuTextures({bool includeDiagnosticMaps = false}) async {
     final futures = <Future<ui.Image>>[];
     for (final slice in slices.values) {
       if (slice.hasVisiblePixels) {
         futures.add(slice.toUiImage());
       }
+    }
+    if (includeDiagnosticMaps) {
+      futures.add(toFlatVisualUiImage());
+      futures.add(toPriorityMapUiImage());
+      futures.add(toControlMapUiImage());
     }
     await Future.wait(futures);
   }
@@ -182,13 +198,55 @@ class AgiPic {
   /// Renders the depth priority map as 320x200 RGBA bytes.
   Uint8List renderPriorityMapRgba() => priorityBuffer.renderPriorityMapRgba();
 
+  /// Decodes and returns the depth priority map as a Flutter [ui.Image].
+  Future<ui.Image> toPriorityMapUiImage() async {
+    if (_cachedPriorityMapImage != null) return _cachedPriorityMapImage!;
+
+    final priRgba = renderPriorityMapRgba();
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      priRgba,
+      renderedWidth,
+      renderedHeight,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        _cachedPriorityMapImage = image;
+        completer.complete(image);
+      },
+    );
+    return completer.future;
+  }
+
   /// Renders the control map (triggers and barriers) as 320x200 RGBA bytes.
   Uint8List renderControlMapRgba() => priorityBuffer.renderControlMapRgba();
+
+  /// Decodes and returns the control map as a Flutter [ui.Image].
+  Future<ui.Image> toControlMapUiImage() async {
+    if (_cachedControlMapImage != null) return _cachedControlMapImage!;
+
+    final ctrlRgba = renderControlMapRgba();
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      ctrlRgba,
+      renderedWidth,
+      renderedHeight,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        _cachedControlMapImage = image;
+        completer.complete(image);
+      },
+    );
+    return completer.future;
+  }
 
   /// Disposes GPU resources held by this picture and its slices.
   void dispose() {
     _cachedFlatVisualImage?.dispose();
     _cachedFlatVisualImage = null;
+    _cachedPriorityMapImage?.dispose();
+    _cachedPriorityMapImage = null;
+    _cachedControlMapImage?.dispose();
+    _cachedControlMapImage = null;
     for (final slice in slices.values) {
       slice.dispose();
     }
