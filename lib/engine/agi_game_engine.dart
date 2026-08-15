@@ -64,6 +64,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   List<int> _parsedWordIds = [];
   String? _lastSubmittedCommand;
   String? _lastError;
+  bool _keyPressedThisCycle = false;
   final math.Random _rng;
 
   AgiGameEngine({
@@ -257,9 +258,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.resetFlag(12); // restore.in.progress reset
     memory.resetControllers();
 
-    // Reset transient edge hit variables
+    // Reset transient edge hit variables and key press state
     memory.setVar(4, 0);
     memory.setVar(5, 0);
+    memory.setVar(19, 0);
+    _keyPressedThisCycle = false;
 
     notifyListeners();
   }
@@ -989,6 +992,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     return false;
+  }
+
+  @override
+  bool haveKey() => _keyPressedThisCycle;
+
+  /// Registers that a key was pressed by the player.
+  void handleKeyPress([int? rawKeyCode]) {
+    _keyPressedThisCycle = true;
+    if (rawKeyCode != null) {
+      memory.setVar(19, rawKeyCode & 0xFF); // %v19: LAST_CHAR
+    }
   }
 
   @override

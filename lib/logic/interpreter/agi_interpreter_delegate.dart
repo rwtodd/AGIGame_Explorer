@@ -78,6 +78,9 @@ abstract class AgiInterpreterDelegate {
   /// Called when `log` is executed.
   void onLog(String message) {}
 
+  /// Evaluates whether a key was pressed (for test opcode 0x0D `have.key()`).
+  bool haveKey() => false;
+
   /// Evaluates whether the current parsed user input matches [wordGroupIds] for `said(...)`.
   bool checkSaid(List<int> wordGroupIds) => false;
 }

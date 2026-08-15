@@ -282,7 +282,7 @@ class AgiLogicInterpreter {
 
       case 0x0D: // have.key()
         frame.ip++;
-        return true;
+        return delegate.haveKey();
 
       case 0x0E: // said(count, w1, w2, ...)
         final count = code[frame.ip + 1];

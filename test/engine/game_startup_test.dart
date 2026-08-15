@@ -116,7 +116,8 @@ void main() {
 
       kq3Engine.initializeGame();
 
-      expect(kq3Engine.memory.getVar(0), isNot(0), reason: 'KQ3 bootstrap should transition from room 0');
+      // KQ3 boots to room 45 (the opening title sequence)
+      expect(kq3Engine.memory.getVar(0), 45, reason: 'KQ3 bootstrap should transition to intro room 45');
       expect(kq3Engine.currentPic, isNotNull, reason: 'Opening room picture should be loaded');
 
       kq3Engine.dispose();
@@ -131,8 +132,8 @@ void main() {
 
       kq2Engine.initializeGame();
 
-      // KQ2 transitions to room 1 (the title/intro screen)
-      expect(kq2Engine.memory.getVar(0), 1, reason: 'KQ2 bootstrap should transition to room 1');
+      // KQ2 transitions to room 97 (the intro/copyright screen)
+      expect(kq2Engine.memory.getVar(0), 97, reason: 'KQ2 bootstrap should transition to intro room 97');
       expect(kq2Engine.currentPic, isNotNull, reason: 'Opening room picture should be loaded');
 
       kq2Engine.dispose();
