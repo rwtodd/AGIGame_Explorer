@@ -252,7 +252,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // ----------------------------------------------------
     // Phase 3: LOGIC 0 Scan Cycle Execution
     // ----------------------------------------------------
-    if (interpreter.currentFrame != null) {
+    if (interpreter.rootScript != null || interpreter.currentFrame != null) {
       try {
         interpreter.executeCycle();
       } catch (e) {

@@ -38,6 +38,11 @@ class AgiLogicInterpreter {
   final List<AgiCallFrame> callStack = [];
   bool isHalted = false;
   bool _newRoomRequested = false;
+  AgiLogicScript? _rootScript;
+  int _rootScriptNumber = 0;
+
+  /// Gets the currently loaded root script (usually Logic 0).
+  AgiLogicScript? get rootScript => _rootScript;
 
   AgiLogicInterpreter({
     AgiMemory? memory,
@@ -81,6 +86,8 @@ class AgiLogicInterpreter {
 
   /// Clears call stack and loads root logic (usually Logic 0).
   void loadRootScript(AgiLogicScript script, {int scriptNumber = 0}) {
+    _rootScript = script;
+    _rootScriptNumber = scriptNumber;
     callStack.clear();
     pushScript(script, scriptNumber: scriptNumber, startIp: memory.scanStartIp);
   }
@@ -98,12 +105,16 @@ class AgiLogicInterpreter {
   /// Implements Sierra's rescan loop: when `new.room()` executes, `LOGIC 0` is
   /// automatically rescanned in the same tick cycle with the new room active.
   InterpreterStatus executeCycle() {
-    if (currentFrame == null) return InterpreterStatus.completed;
+    if (_rootScript == null && currentFrame == null) return InterpreterStatus.completed;
 
     int rescanCount = 0;
     const maxRescans = 10;
 
     while (rescanCount < maxRescans) {
+      if (callStack.isEmpty && _rootScript != null) {
+        pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.scanStartIp);
+      }
+
       // Reset scan start for current cycle
       ip = memory.scanStartIp;
       isHalted = false;
@@ -118,10 +129,11 @@ class AgiLogicInterpreter {
 
       if (_newRoomRequested) {
         rescanCount++;
-        // If delegate.onNewRoom reloaded root script into callStack, rescan LOGIC 0
-        if (callStack.isNotEmpty) {
-          continue;
+        // If onNewRoom was executed, re-push root script if callStack is empty and rescan LOGIC 0
+        if (callStack.isEmpty && _rootScript != null) {
+          pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.scanStartIp);
         }
+        continue;
       }
 
       break;

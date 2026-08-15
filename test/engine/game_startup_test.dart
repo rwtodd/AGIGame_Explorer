@@ -129,6 +129,15 @@ void main() {
       expect(kq3Engine.memory.getVar(0), 45);
       expect(kq3Engine.lastError, isNull);
 
+      // Now press a key (e.g. Enter / 13) to skip the intro
+      kq3Engine.handleKeyPress(13);
+      kq3Engine.tick();
+
+      // Pressing a key during intro skips directly to gameplay in room 7
+      expect(kq3Engine.memory.getVar(0), 7, reason: 'Pressing key during intro should skip to room 7');
+      expect(kq3Engine.isStatusLineEnabled, isTrue, reason: 'Status line should be enabled in gameplay room 7');
+      expect(kq3Engine.isInputEnabled, isTrue, reason: 'Input prompt should be enabled in gameplay room 7');
+
       kq3Engine.dispose();
     });
 

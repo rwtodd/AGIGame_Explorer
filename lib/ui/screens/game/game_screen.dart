@@ -112,11 +112,28 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  int _getKeyCode(KeyEvent event) {
+    if (event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+      return 13;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.space) {
+      return 32;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      return 27;
+    }
+    if (event.character != null && event.character!.isNotEmpty) {
+      return event.character!.codeUnitAt(0);
+    }
+    return 13;
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     // If modal dialog is open, Enter/Space/Escape dismisses it
-    if (_engine.activeDialog != null) {
+    if (_engine.activeDialog != null && _engine.activeDialog!.isModal) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter ||
           event.logicalKey == LogicalKeyboardKey.space ||
@@ -126,10 +143,13 @@ class _GameScreenState extends State<GameScreen> {
       }
     }
 
-    // Direction controls when prompt is not exclusively capturing text
+    // Direction controls and key events when prompt is not exclusively capturing text
     final isPromptFocused = _promptFocusNode.hasFocus;
 
     if (!isPromptFocused) {
+      // Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
+      _engine.handleKeyPress(_getKeyCode(event));
+
       switch (event.logicalKey) {
         case LogicalKeyboardKey.arrowUp:
         case LogicalKeyboardKey.numpad8:
@@ -162,6 +182,10 @@ class _GameScreenState extends State<GameScreen> {
         case LogicalKeyboardKey.numpad5:
         case LogicalKeyboardKey.space:
           _engine.setEgoDirection(0); // Stop
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.enter:
+        case LogicalKeyboardKey.numpadEnter:
+        case LogicalKeyboardKey.escape:
           return KeyEventResult.handled;
       }
     } else {
