@@ -445,14 +445,14 @@ void main() {
         expect(memory.getFlag(0), isTrue);
       });
 
-      test('sets flag 3 when Ego touches signal pixel (priority 0 or 2)', () {
+      test('sets flag 3 when Ego touches signal / trigger pixel (priority 2)', () {
         final ego = controller.ego;
         ego.isAnimated = true;
         ego.isDrawn = true;
         ego.x = 50;
         ego.y = 80;
 
-        priorityBuffer.setPriorityAt(52, 80, 2); // Signal pixel
+        priorityBuffer.setPriorityAt(52, 80, 2); // Trigger / Alarm pixel
 
         controller.tick();
         expect(memory.getFlag(3), isTrue);

@@ -45,7 +45,28 @@ void main() {
       dictionary.addWord('its', 52);
       dictionary.addWord('im', 53);
 
+      // Multi-word phrases and noise word prefixes (e.g. KQ2)
+      dictionary.addWord('little', 0); // Noise word when alone
+      dictionary.addWord('little red riding hood', 18);
+      dictionary.addWord('magic door', 105);
+
       parser = AgiTextParser(dictionary);
+    });
+
+    test('greedy longest-match chooses multi-word phrase over prefix words', () {
+      // "little" is group 0 (ignored), but "little red riding hood" is group 18
+      final result = parser.parse('look little red riding hood');
+      expect(result.isSuccess, isTrue);
+      expect(result.wordGroupIds, equals([10, 18]));
+      expect(result.originalTokens, equals(['look', 'little red riding hood']));
+      expect(result.filteredTokens, equals(['look', 'little red riding hood']));
+    });
+
+    test('multi-word phrase with noise word prefix matches longest phrase', () {
+      final r1 = parser.parse('open the magic door');
+      expect(r1.isSuccess, isTrue);
+      expect(r1.wordGroupIds, equals([30, 105]));
+      expect(r1.originalTokens, equals(['open', 'the', 'magic door']));
     });
 
     test('normalizes lowercase and removes whitespace', () {

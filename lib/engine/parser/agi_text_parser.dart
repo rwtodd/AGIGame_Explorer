@@ -192,11 +192,11 @@ class AgiTextParser {
     return normalized.split(' ');
   }
 
-  /// Parses user command string against the dictionary:
+  /// Parses user command string against the dictionary using greedy longest-match tokenization:
   /// 1. Normalizes and tokenizes the input text.
-  /// 2. Looks up each word in [dictionary].
+  /// 2. Searches for the longest matching dictionary word/phrase starting at current token index.
   /// 3. Filters out Group 0 (ignored noise words such as "a", "the", "to", "in").
-  /// 4. If any word is unknown (ID == -1), returns an [AgiParseResult] failure.
+  /// 4. If any token sequence cannot be matched in the dictionary, returns an [AgiParseResult] failure.
   /// 5. Otherwise returns an [AgiParseResult] success with the list of non-zero word group IDs.
   AgiParseResult parse(String input) {
     final rawInput = input;
@@ -208,27 +208,47 @@ class AgiTextParser {
 
     final tokens = normalized.split(' ');
     final wordGroupIds = <int>[];
+    final originalTokens = <String>[];
     final filteredTokens = <String>[];
 
-    for (var i = 0; i < tokens.length; i++) {
-      final token = tokens[i];
-      final wordId = dictionary.wordToId(token);
+    var i = 0;
+    while (i < tokens.length) {
+      int matchEnd = -1;
+      int matchId = -1;
+      String matchPhrase = '';
 
-      if (wordId == -1) {
-        // Unknown word encountered (1-based index)
+      // Greedy longest-match: search candidate phrases from longest down to single word
+      for (var j = tokens.length; j > i; j--) {
+        final candidate = tokens.sublist(i, j).join(' ');
+        final id = dictionary.wordToId(candidate);
+        if (id != -1) {
+          matchEnd = j;
+          matchId = id;
+          matchPhrase = candidate;
+          break;
+        }
+      }
+
+      if (matchEnd != -1) {
+        // Matched a dictionary word or multi-word phrase
+        originalTokens.add(matchPhrase);
+        if (matchId > 0) {
+          wordGroupIds.add(matchId);
+          filteredTokens.add(matchPhrase);
+        }
+        i = matchEnd;
+      } else {
+        // Unknown word encountered (first unmatched single token)
+        final unknownWord = tokens[i];
+        final unknownIndex = i + 1; // 1-based index in token stream
+
         return AgiParseResult.unknownWord(
           rawInput: rawInput,
           normalizedInput: normalized,
           originalTokens: tokens,
-          unknownWord: token,
-          unknownWordIndex: i + 1,
+          unknownWord: unknownWord,
+          unknownWordIndex: unknownIndex,
         );
-      }
-
-      // Group 0 = ignored / noise words (e.g., "a", "the", "at", "to", "in")
-      if (wordId > 0) {
-        wordGroupIds.add(wordId);
-        filteredTokens.add(token);
       }
     }
 
@@ -236,7 +256,7 @@ class AgiTextParser {
       rawInput: rawInput,
       normalizedInput: normalized,
       wordGroupIds: wordGroupIds,
-      originalTokens: tokens,
+      originalTokens: originalTokens,
       filteredTokens: filteredTokens,
     );
   }

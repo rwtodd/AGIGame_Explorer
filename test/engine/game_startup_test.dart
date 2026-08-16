@@ -160,7 +160,7 @@ void main() {
       kq3Engine.dispose();
     });
 
-    test('boots King\'s Quest II reference game to opening room', () {
+    test('boots King\'s Quest II reference game, types look, and verifies single-shot dialog response', () {
       final kq2Dir = Directory('reference_games/kings-quest-2');
       if (!kq2Dir.existsSync()) return;
 
@@ -172,6 +172,32 @@ void main() {
       // KQ2 transitions to room 97 (the intro/copyright screen)
       expect(kq2Engine.memory.getVar(0), 97, reason: 'KQ2 bootstrap should transition to intro room 97');
       expect(kq2Engine.currentPic, isNotNull, reason: 'Opening room picture should be loaded');
+
+      // Transition to room 1 (first gameplay screen)
+      kq2Engine.changeRoom(1);
+      expect(kq2Engine.memory.getVar(0), 1);
+
+      // Run a cycle in room 1 to initialize
+      kq2Engine.tick();
+      expect(kq2Engine.activeDialog, isNull);
+
+      // Type "look"
+      kq2Engine.submitCommand('look');
+      expect(kq2Engine.memory.getFlag(2), isTrue, reason: 'Flag 2 must be set on command submission');
+
+      // Run tick: room 1 logic responds to "look" with a dialog
+      kq2Engine.tick();
+      expect(kq2Engine.activeDialog, isNotNull, reason: 'Dialog should appear in response to look command');
+
+      // Dismiss dialog
+      kq2Engine.dismissDialog();
+      expect(kq2Engine.activeDialog, isNull);
+
+      // Run subsequent cycles: dialog must NOT reappear
+      for (var i = 0; i < 50; i++) {
+        kq2Engine.tick();
+        expect(kq2Engine.activeDialog, isNull, reason: 'Dialog must not reopen on subsequent cycle $i');
+      }
 
       kq2Engine.dispose();
     });
@@ -189,6 +215,57 @@ void main() {
       expect(kq4Engine.currentPic, isNotNull, reason: 'Opening room picture should be loaded');
 
       kq4Engine.dispose();
+    });
+
+    test('boots The Black Cauldron reference game and survives idle cycles in room 8 without dying', () {
+      final bcDir = Directory('reference_games/black-cauldron');
+      if (!bcDir.existsSync()) return;
+
+      final loader = AgiResourceLoader.fromDirectorySync('reference_games/black-cauldron');
+      final bcEngine = AgiGameEngine(resourceLoader: loader);
+
+      bcEngine.initializeGame();
+
+      // Bootstrap transitions to title screen (room 67)
+      expect(bcEngine.memory.getVar(0), 67, reason: 'Black Cauldron bootstrap should transition to title room 67');
+
+      // Now transition to room 8 (first gameplay screen)
+      bcEngine.changeRoom(8);
+      expect(bcEngine.memory.getVar(0), 8);
+
+      // Run for 500 cycles (~25 seconds of idle gameplay)
+      for (var cycle = 0; cycle < 500; cycle++) {
+        bcEngine.tick();
+      }
+
+      // Variable 93 (pig.timer.1) must stay 0 and not underflow to 255
+      expect(bcEngine.memory.getVar(93), 0, reason: 'pig.timer.1 (var 93) must not underflow');
+
+      // Variable 59 (certain.death) must be 0
+      expect(bcEngine.memory.getVar(59), 0, reason: 'certain.death (var 59) must remain 0');
+
+      // Variable 102 (current.status) must not be 13 (dead)
+      expect(bcEngine.memory.getVar(102), isNot(13), reason: 'Ego must remain alive');
+
+      // Now walk Ego South from Room 8 down to Room 13
+      bcEngine.ego.x = 31;
+      bcEngine.ego.y = 166;
+      bcEngine.setEgoDirection(5); // South
+      bcEngine.tick(); // moves to 167
+      bcEngine.tick(); // crosses 167 -> triggers %v2 = 3 (bottom edge)
+
+      // Script handles bottom edge and calls new.room(13)
+      expect(bcEngine.memory.getVar(0), 13, reason: 'Ego should have transitioned to room 13');
+      expect(bcEngine.horizon, 48, reason: 'Room 13 horizon should be 48');
+      expect(bcEngine.ego.y, greaterThanOrEqualTo(49), reason: 'Ego Y must be below Room 13 horizon 48');
+
+      // Run multiple cycles in Room 13; it must NOT bounce back to Room 8
+      for (var i = 0; i < 50; i++) {
+        bcEngine.tick();
+        expect(bcEngine.memory.getVar(0), 13, reason: 'Room 13 must not bounce back to Room 8 on cycle $i');
+      }
+
+      bcEngine.dispose();
     });
   });
 }

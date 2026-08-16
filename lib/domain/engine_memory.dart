@@ -57,16 +57,20 @@ class AgiMemory {
     variables[index & 0xFF] = value & 0xFF;
   }
 
-  /// Increments variable [index] with 8-bit overflow wrap (0-255).
+  /// Increments variable [index] (saturates at 255 per AGI specification).
   void incrementVar(int index) {
     final idx = index & 0xFF;
-    variables[idx] = (variables[idx] + 1) & 0xFF;
+    if (variables[idx] < 0xFF) {
+      variables[idx]++;
+    }
   }
 
-  /// Decrements variable [index] with 8-bit underflow wrap (0-255).
+  /// Decrements variable [index] (saturates at 0 per AGI specification).
   void decrementVar(int index) {
     final idx = index & 0xFF;
-    variables[idx] = (variables[idx] - 1) & 0xFF;
+    if (variables[idx] > 0) {
+      variables[idx]--;
+    }
   }
 
   /// Reads flag [index] (0 - 255).

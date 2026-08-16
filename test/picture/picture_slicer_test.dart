@@ -57,7 +57,7 @@ void main() {
       expect(slice6Bytes.sublist(blankRowOffset, blankRowOffset + 4), equals([0, 0, 0, 0]));
     });
 
-    test('maps control line pixels to effective depth priority slice', () {
+    test('maps control line pixels to underlying depth priority slice 8', () {
       final visual = Uint8List(160 * 168);
       final pri = PriorityBuffer();
 
@@ -78,7 +78,7 @@ void main() {
         priorityBuffer: pri,
       );
 
-      // Slice 2 should have NO visible pixels because the barrier is mapped to depth band 8
+      // Slice 2 should have NO visible pixels because control lines are mapped to underlying depth band 8
       expect(slices[2]!.hasVisiblePixels, isFalse);
 
       // Slice 8 should have the brown pixel at (10, 10) -> x=20 and x=21 in 320x200
@@ -88,6 +88,42 @@ void main() {
       final offset2 = (10 * 320 + 21) * 4;
       expect(slice8Bytes.sublist(offset1, offset1 + 4), equals(brownRgba));
       expect(slice8Bytes.sublist(offset2, offset2 + 4), equals(brownRgba));
+    });
+
+    test('King\'s Quest II Picture 9 preserves exact tree bounds without slurping adjacent water', () {
+      final visual = Uint8List(160 * 168);
+      final pri = PriorityBuffer();
+
+      // Water (priority 3, visual 9) across row 95
+      for (int x = 0; x < 160; x++) {
+        pri.setPriorityAt(x, 95, 3);
+        visual[95 * 160 + x] = 9;
+      }
+
+      // Foreground tree at x=40..49 (priority 11, visual 6)
+      for (int x = 40; x <= 49; x++) {
+        pri.setPriorityAt(x, 95, 11);
+        visual[95 * 160 + x] = 6;
+      }
+
+      final slices = PictureSlicer.slice(
+        visualPixels: visual,
+        priorityBuffer: pri,
+      );
+
+      final slice11 = slices[11]!;
+      final slice11Bytes = slice11.rgbaBytes;
+
+      // In slice 11 at row 95, only x=40..49 (columns 80..99 in 320x200) must be visible
+      for (int x = 0; x < 160; x++) {
+        final offset = (95 * 320 + (x * 2)) * 4;
+        final isVisible = slice11Bytes[offset + 3] > 0;
+        if (x >= 40 && x <= 49) {
+          expect(isVisible, isTrue, reason: 'Tree pixel at x=$x must be visible in slice 11');
+        } else {
+          expect(isVisible, isFalse, reason: 'Water pixel at x=$x must NOT be in slice 11');
+        }
+      }
     });
   });
 }

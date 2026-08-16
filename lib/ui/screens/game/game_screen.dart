@@ -5,6 +5,7 @@ import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
+import 'package:flutter_agigame/ui/widgets/debug_inspector_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 
@@ -142,7 +143,16 @@ class _GameScreenState extends State<GameScreen> {
       }
     }
 
-    // 2. Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
+    // 2. F12 or Ctrl+D / Cmd+D opens Debug Inspector
+    if (event.logicalKey == LogicalKeyboardKey.f12 ||
+        ((HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed) &&
+            event.logicalKey == LogicalKeyboardKey.keyD)) {
+      DebugInspectorDialog.show(context, _engine);
+      return KeyEventResult.handled;
+    }
+
+    // 3. Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
     _engine.handleKeyPress(_getKeyCode(event));
 
     // 3. Direction controls ALWAYS control Ego
@@ -274,7 +284,7 @@ class _GameScreenState extends State<GameScreen> {
 
   Widget _buildTopToolbar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: const BoxDecoration(
         color: AgiTheme.egaDarkSurface,
         border: Border(bottom: BorderSide(color: AgiTheme.egaBorder)),
@@ -283,12 +293,14 @@ class _GameScreenState extends State<GameScreen> {
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back, size: 18, color: AgiTheme.egaCyan),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
             onPressed: () => Navigator.of(context).pop(),
             tooltip: 'Exit Game',
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           const Text(
-            'AGI ENGINE',
+            'AGI',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
@@ -296,7 +308,7 @@ class _GameScreenState extends State<GameScreen> {
               letterSpacing: 0.8,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 6),
 
           // Pause / Play toggle
           IconButton(
@@ -305,6 +317,8 @@ class _GameScreenState extends State<GameScreen> {
               size: 18,
               color: _engine.isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
             ),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
             onPressed: () {
               if (_engine.isPaused) {
                 _engine.resume();
@@ -318,6 +332,8 @@ class _GameScreenState extends State<GameScreen> {
           // Single Step
           IconButton(
             icon: const Icon(Icons.skip_next, size: 18, color: AgiTheme.egaCyan),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
             onPressed: _engine.isPaused ? () => _engine.tick() : null,
             tooltip: 'Step Single Cycle',
           ),
@@ -325,6 +341,8 @@ class _GameScreenState extends State<GameScreen> {
           // Restart
           IconButton(
             icon: const Icon(Icons.replay, size: 18, color: AgiTheme.egaRed),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
             onPressed: () => _engine.initializeGame(startingRoom: widget.startingRoom),
             tooltip: 'Restart Game',
           ),
@@ -336,18 +354,18 @@ class _GameScreenState extends State<GameScreen> {
             initialValue: _engine.speedHz,
             tooltip: 'Cycle Speed',
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(color: AgiTheme.egaBorder),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.speed, size: 14, color: AgiTheme.egaAmber),
-                  const SizedBox(width: 4),
+                  const Icon(Icons.speed, size: 13, color: AgiTheme.egaAmber),
+                  const SizedBox(width: 3),
                   Text(
                     '${_engine.speedHz.toInt()} Hz',
-                    style: const TextStyle(fontSize: 11, color: AgiTheme.egaAmber),
+                    style: const TextStyle(fontSize: 10, color: AgiTheme.egaAmber),
                   ),
                 ],
               ),
@@ -360,7 +378,7 @@ class _GameScreenState extends State<GameScreen> {
               PopupMenuItem(value: 60.0, child: Text('Fastest (60 Hz)')),
             ],
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
 
           // CRT Toggle
           IconButton(
@@ -369,6 +387,8 @@ class _GameScreenState extends State<GameScreen> {
               size: 18,
               color: _showCrtShader ? AgiTheme.egaCyan : AgiTheme.egaMuted,
             ),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
             onPressed: () {
               setState(() {
                 _showCrtShader = !_showCrtShader;
@@ -384,6 +404,8 @@ class _GameScreenState extends State<GameScreen> {
               size: 18,
               color: _showPixelGrid ? AgiTheme.egaCyan : AgiTheme.egaMuted,
             ),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
             onPressed: () {
               setState(() {
                 _showPixelGrid = !_showPixelGrid;
@@ -391,21 +413,22 @@ class _GameScreenState extends State<GameScreen> {
             },
             tooltip: 'Toggle Pixel Grid',
           ),
+          const SizedBox(width: 2),
 
           // Render Mode View Toggle
           PopupMenuButton<AgiPictureRenderMode>(
             initialValue: _renderMode,
             tooltip: 'View Layer Mode',
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(color: AgiTheme.egaBorder),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.layers, size: 14, color: AgiTheme.egaCyan),
-                  const SizedBox(width: 4),
+                  const Icon(Icons.layers, size: 13, color: AgiTheme.egaCyan),
+                  const SizedBox(width: 3),
                   Text(
                     _renderMode.name.toUpperCase(),
                     style: const TextStyle(fontSize: 10, color: AgiTheme.egaCyan),
@@ -436,6 +459,16 @@ class _GameScreenState extends State<GameScreen> {
                 child: Text('Control Barrier Map'),
               ),
             ],
+          ),
+          const SizedBox(width: 4),
+
+          // Debug Inspector & Checkpoint button
+          IconButton(
+            icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => DebugInspectorDialog.show(context, _engine),
+            tooltip: 'Debug Inspector & Checkpoints (F12)',
           ),
         ],
       ),

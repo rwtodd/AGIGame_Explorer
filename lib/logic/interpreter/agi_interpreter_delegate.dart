@@ -1,8 +1,11 @@
+import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 
 /// Delegate interface allowing the AGI logic interpreter to interact with
 /// the surrounding engine subsystems (rendering, sound synthesizer, text console, resource manager).
 abstract class AgiInterpreterDelegate {
+  /// Called when an animated object is drawn on screen (for boundary and horizon clamping).
+  void onDraw(AnimatedObject obj) {}
   /// Called when the script requests a room change via `new.room` or `new.room.v`.
   void onNewRoom(int roomNumber) {}
 
@@ -80,6 +83,18 @@ abstract class AgiInterpreterDelegate {
 
   /// Called when `prevent.input` / `accept.input` is executed.
   void onInputMode(bool enabled) {}
+
+  /// Called when `program.control` or `player.control` is executed.
+  void onUserControl(bool enabled) {}
+
+  /// Called when `set.horizon` changes the room horizon line.
+  void onSetHorizon(int horizon) {}
+
+  /// Called when `block` defines an active barrier rectangle.
+  void onBlock(int x1, int y1, int x2, int y2) {}
+
+  /// Called when `unblock` removes the active barrier rectangle.
+  void onUnblock() {}
 
   /// Called when `log` is executed.
   void onLog(String message) {}

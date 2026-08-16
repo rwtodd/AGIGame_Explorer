@@ -14,7 +14,7 @@ void main() {
       expect(mem.getController(0), isFalse);
     });
 
-    test('handles 8-bit variable mutation, overflow, and underflow', () {
+    test('handles 8-bit variable mutation and saturation at boundaries per AGI spec', () {
       final mem = AgiMemory();
 
       mem.setVar(10, 250);
@@ -26,15 +26,24 @@ void main() {
       }
       expect(mem.getVar(10), 255);
 
-      // Overflow wrap to 0
+      // Increment at 255 saturates (does not wrap to 0)
       mem.incrementVar(10);
-      expect(mem.getVar(10), 0);
-
-      // Underflow wrap to 255
-      mem.decrementVar(10);
       expect(mem.getVar(10), 255);
 
-      // Clamping on direct set
+      // Decrement from 255
+      mem.decrementVar(10);
+      expect(mem.getVar(10), 254);
+
+      // Decrement to 0
+      mem.setVar(10, 1);
+      mem.decrementVar(10);
+      expect(mem.getVar(10), 0);
+
+      // Decrement at 0 saturates (does not underflow to 255)
+      mem.decrementVar(10);
+      expect(mem.getVar(10), 0);
+
+      // Truncation on direct set
       mem.setVar(10, 300);
       expect(mem.getVar(10), 300 & 0xFF);
     });

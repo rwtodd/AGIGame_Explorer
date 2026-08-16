@@ -550,6 +550,7 @@ class AgiLogicInterpreter {
         final obj = getObj(code[frame.ip + 1]);
         obj.isDrawn = true;
         obj.isAnimated = true;
+        delegate.onDraw(obj);
         frame.ip += 2;
         break;
 
@@ -562,6 +563,11 @@ class AgiLogicInterpreter {
         final o = getObj(code[frame.ip + 1]);
         o.x = code[frame.ip + 2];
         o.y = code[frame.ip + 3];
+        o.prevX = o.x;
+        o.prevY = o.y;
+        if (o.isDrawn) {
+          delegate.onDraw(o);
+        }
         frame.ip += 4;
         break;
 
@@ -569,6 +575,11 @@ class AgiLogicInterpreter {
         final o = getObj(code[frame.ip + 1]);
         o.x = memory.getVar(code[frame.ip + 2]);
         o.y = memory.getVar(code[frame.ip + 3]);
+        o.prevX = o.x;
+        o.prevY = o.y;
+        if (o.isDrawn) {
+          delegate.onDraw(o);
+        }
         frame.ip += 4;
         break;
 
@@ -587,6 +598,11 @@ class AgiLogicInterpreter {
         if (dy >= 128) dy -= 256;
         o.x = (o.x + dx).clamp(0, 159);
         o.y = (o.y + dy).clamp(0, 167);
+        o.prevX = o.x;
+        o.prevY = o.y;
+        if (o.isDrawn) {
+          delegate.onDraw(o);
+        }
         frame.ip += 4;
         break;
 
@@ -717,6 +733,7 @@ class AgiLogicInterpreter {
         break;
 
       case 63: // set.horizon(n)
+        delegate.onSetHorizon(code[frame.ip + 1]);
         frame.ip += 2;
         break;
 
@@ -790,14 +807,24 @@ class AgiLogicInterpreter {
         break;
 
       case 77: // stop.motion(o)
-        final o = getObj(code[frame.ip + 1]);
+        final objNum77 = code[frame.ip + 1];
+        final o = getObj(objNum77);
         o.direction = 0;
         o.motionType = 0;
+        if (objNum77 == 0) {
+          memory.setVar(6, 0);
+          delegate.onUserControl(false);
+        }
         frame.ip += 2;
         break;
 
       case 78: // start.motion(o)
-        getObj(code[frame.ip + 1]).motionType = 0;
+        final objNum78 = code[frame.ip + 1];
+        getObj(objNum78).motionType = 0;
+        if (objNum78 == 0) {
+          memory.setVar(6, 0);
+          delegate.onUserControl(true);
+        }
         frame.ip += 2;
         break;
 
@@ -812,40 +839,82 @@ class AgiLogicInterpreter {
         break;
 
       case 81: // move.obj(o, x, y, step, f)
-        final o = getObj(code[frame.ip + 1]);
+        final objNum81 = code[frame.ip + 1];
+        final o = getObj(objNum81);
         o.motionType = 3;
         o.targetX = code[frame.ip + 2];
         o.targetY = code[frame.ip + 3];
         o.stepDistance = code[frame.ip + 4];
         o.targetFlag = code[frame.ip + 5];
+        if (objNum81 == 0) {
+          if (o.x == o.targetX && o.y == o.targetY) {
+            o.motionType = 0;
+            o.direction = 0;
+            memory.setVar(6, 0);
+            if (o.targetFlag != null) {
+              memory.setFlag(o.targetFlag!);
+              o.targetFlag = null;
+            }
+            delegate.onUserControl(true);
+          } else {
+            delegate.onUserControl(false);
+          }
+        }
         frame.ip += 6;
         break;
 
       case 82: // move.obj.v(o, %vx, %vy, step, f)
-        final o = getObj(code[frame.ip + 1]);
+        final objNum82 = code[frame.ip + 1];
+        final o = getObj(objNum82);
         o.motionType = 3;
         o.targetX = memory.getVar(code[frame.ip + 2]);
         o.targetY = memory.getVar(code[frame.ip + 3]);
-        o.stepDistance = code[frame.ip + 4];
+        o.stepDistance = memory.getVar(code[frame.ip + 4]);
         o.targetFlag = code[frame.ip + 5];
+        if (objNum82 == 0) {
+          if (o.x == o.targetX && o.y == o.targetY) {
+            o.motionType = 0;
+            o.direction = 0;
+            memory.setVar(6, 0);
+            if (o.targetFlag != null) {
+              memory.setFlag(o.targetFlag!);
+              o.targetFlag = null;
+            }
+            delegate.onUserControl(true);
+          } else {
+            delegate.onUserControl(false);
+          }
+        }
         frame.ip += 6;
         break;
 
       case 83: // follow.ego(o, step, f)
-        final o = getObj(code[frame.ip + 1]);
+        final objNum83 = code[frame.ip + 1];
+        final o = getObj(objNum83);
         o.motionType = 2;
         o.stepDistance = code[frame.ip + 2];
         o.targetFlag = code[frame.ip + 3];
+        if (objNum83 == 0) {
+          delegate.onUserControl(false);
+        }
         frame.ip += 4;
         break;
 
       case 84: // wander(o)
-        getObj(code[frame.ip + 1]).motionType = 1;
+        final objNum84 = code[frame.ip + 1];
+        getObj(objNum84).motionType = 1;
+        if (objNum84 == 0) {
+          delegate.onUserControl(false);
+        }
         frame.ip += 2;
         break;
 
       case 85: // normal.motion(o)
-        getObj(code[frame.ip + 1]).motionType = 0;
+        final objNum85 = code[frame.ip + 1];
+        getObj(objNum85).motionType = 0;
+        if (objNum85 == 0) {
+          delegate.onUserControl(true);
+        }
         frame.ip += 2;
         break;
 
@@ -870,10 +939,17 @@ class AgiLogicInterpreter {
         break;
 
       case 90: // block(x1, y1, x2, y2)
+        delegate.onBlock(
+          code[frame.ip + 1],
+          code[frame.ip + 2],
+          code[frame.ip + 3],
+          code[frame.ip + 4],
+        );
         frame.ip += 5;
         break;
 
       case 91: // unblock()
+        delegate.onUnblock();
         frame.ip++;
         break;
 
@@ -1088,6 +1164,7 @@ class AgiLogicInterpreter {
         break;
 
       case 131: // program.control()
+        delegate.onUserControl(false);
         frame.ip++;
         break;
 
@@ -1097,6 +1174,7 @@ class AgiLogicInterpreter {
         egoObj.isCycling = true;
         egoObj.isUpdating = true;
         egoObj.isAnimated = true;
+        delegate.onUserControl(true);
         frame.ip++;
         break;
 

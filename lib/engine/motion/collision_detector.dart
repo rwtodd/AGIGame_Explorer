@@ -125,14 +125,11 @@ class CollisionDetector {
 
       final pri = priorityBuffer.priorityAt(px, y);
 
-      // Priority 0 is unconditional barrier in task specs / control line
+      // Priority 0 is unconditional barrier
       if (pri == 0) return true;
 
-      // Priority 2 is unconditional barrier in PriorityBuffer
-      if (pri == 2) return true;
-
-      // Priority 1 is conditional barrier (blocks if observeBlocks is true)
-      if (observeBlocks && pri == 1) return true;
+      // Priority 1 is conditional barrier
+      if (pri == 1) return true;
     }
 
     return false;
@@ -310,7 +307,10 @@ class CollisionDetector {
     return (clampedX, clampedY);
   }
 
-  /// Checks if the object's baseline touches water (priority 3).
+  /// Checks if the object's baseline is entirely on water (priority 3).
+  ///
+  /// In Sierra AGI, Flag 0 (ONWATER) is set only when every pixel along
+  /// the actor's baseline is on priority 3.
   bool isWaterAtBaseline({
     required int x,
     required int y,
@@ -319,16 +319,20 @@ class CollisionDetector {
     final effectiveWidth = math.max(1, width);
     for (var i = 0; i < effectiveWidth; i++) {
       final px = x + i;
-      if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
-        if (priorityBuffer.priorityAt(px, y) == 3) {
-          return true;
-        }
+      if (px < 0 || px >= screenWidth || y < 0 || y >= screenHeight) {
+        return false;
+      }
+      if (priorityBuffer.priorityAt(px, y) != 3) {
+        return false;
       }
     }
-    return false;
+    return true;
   }
 
-  /// Checks if the object's baseline touches a signal/trigger pixel (priority 2 or 0).
+  /// Checks if the object's baseline touches a special trigger/alarm pixel (priority 2).
+  ///
+  /// In Sierra AGI, Flag 3 (HITSPEC) is set when any pixel along
+  /// the actor's baseline touches priority 2.
   bool isSignalAtBaseline({
     required int x,
     required int y,
@@ -339,7 +343,7 @@ class CollisionDetector {
       final px = x + i;
       if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
         final pri = priorityBuffer.priorityAt(px, y);
-        if (pri == 0 || pri == 2) {
+        if (pri == 2) {
           return true;
         }
       }

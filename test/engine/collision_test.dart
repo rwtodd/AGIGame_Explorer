@@ -28,26 +28,26 @@ void main() {
     });
 
     group('Priority Buffer Barrier Collision', () {
-      test('unconditional barriers (priority 0 and 2) block baseline', () {
+      test('unconditional barrier (priority 0) blocks baseline', () {
         // Draw priority 0 line at y=50, x=10..20
         for (var x = 10; x <= 20; x++) {
           priorityBuffer.setPriorityAt(x, 50, 0);
         }
-        // Draw priority 2 line at y=60, x=10..20
+        // Draw priority 2 (trigger) line at y=60, x=10..20
         for (var x = 10; x <= 20; x++) {
           priorityBuffer.setPriorityAt(x, 60, 2);
         }
 
-        // Test over priority 0
+        // Test over priority 0 (unconditional obstacle -> blocked)
         expect(
           detector.isBaselineBlocked(x: 12, y: 50, width: 4),
           isTrue,
         );
 
-        // Test over priority 2
+        // Test over priority 2 (trigger line -> NOT blocked)
         expect(
           detector.isBaselineBlocked(x: 12, y: 60, width: 4),
-          isTrue,
+          isFalse,
         );
 
         // Test clear area (default priority 4)
@@ -57,39 +57,32 @@ void main() {
         );
       });
 
-      test('conditional barrier (priority 1) blocks only when observeBlocks is active', () {
+      test('conditional barrier (priority 1) blocks unless ignoreBlocks is active', () {
         for (var x = 10; x <= 20; x++) {
           priorityBuffer.setPriorityAt(x, 50, 1);
         }
 
-        // With observeBlocks = false
-        detector.observeBlocks = false;
+        // With ignoreBlocks = false -> blocked
         expect(
-          detector.isBaselineBlocked(x: 12, y: 50, width: 4),
-          isFalse,
+          detector.isBaselineBlocked(x: 12, y: 50, width: 4, ignoreBlocks: false),
+          isTrue,
         );
 
-        // With observeBlocks = true
-        detector.observeBlocks = true;
+        // With ignoreBlocks = true -> allowed
         expect(
-          detector.isBaselineBlocked(x: 12, y: 50, width: 4),
-          isTrue,
+          detector.isBaselineBlocked(x: 12, y: 50, width: 4, ignoreBlocks: true),
+          isFalse,
         );
       });
 
-      test('ignoreBlocks bypasses priority barriers and blocks', () {
+      test('ignoreBlocks bypasses conditional barriers and script blocks', () {
         for (var x = 10; x <= 20; x++) {
-          priorityBuffer.setPriorityAt(x, 50, 0);
-          priorityBuffer.setPriorityAt(x, 60, 2);
+          priorityBuffer.setPriorityAt(x, 50, 1);
         }
         detector.setBlock(10, 70, 30, 80);
 
         expect(
           detector.isBaselineBlocked(x: 12, y: 50, width: 4, ignoreBlocks: true),
-          isFalse,
-        );
-        expect(
-          detector.isBaselineBlocked(x: 12, y: 60, width: 4, ignoreBlocks: true),
           isFalse,
         );
         expect(
@@ -272,21 +265,31 @@ void main() {
     });
 
     group('Water & Signal Detection', () {
-      test('isWaterAtBaseline detects priority 3 pixels', () {
-        priorityBuffer.setPriorityAt(20, 100, 3);
+      test('isWaterAtBaseline detects when baseline is entirely on priority 3 water', () {
+        // Draw water from x=15..25, y=100
+        for (var x = 15; x <= 25; x++) {
+          priorityBuffer.setPriorityAt(x, 100, 3);
+        }
 
+        // Entirely on water (x=16..20, width=5)
         expect(
-          detector.isWaterAtBaseline(x: 18, y: 100, width: 5),
+          detector.isWaterAtBaseline(x: 16, y: 100, width: 5),
           isTrue,
         );
+        // Partially on water (x=12..16, width=5 -> x=12, 13, 14 not water)
+        expect(
+          detector.isWaterAtBaseline(x: 12, y: 100, width: 5),
+          isFalse,
+        );
+        // Completely off water
         expect(
           detector.isWaterAtBaseline(x: 30, y: 100, width: 5),
           isFalse,
         );
       });
 
-      test('isSignalAtBaseline detects trigger control lines (priority 0 or 2)', () {
-        priorityBuffer.setPriorityAt(40, 120, 0);
+      test('isSignalAtBaseline detects trigger control lines (priority 2)', () {
+        priorityBuffer.setPriorityAt(40, 120, 2);
 
         expect(
           detector.isSignalAtBaseline(x: 38, y: 120, width: 5),

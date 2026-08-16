@@ -5,12 +5,15 @@ import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
+import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
+import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// Represents active modal or positional dialog box state.
@@ -75,13 +78,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int _cycleCount = 0;
   int _clockTicks = 0;
   List<int> _parsedWordIds = [];
+  List<String> _inputWords = [];
   String? _lastSubmittedCommand;
   String? _lastError;
   bool _keyPressedThisCycle = false;
   bool _isStatusLineEnabled = true;
   bool _isInputEnabled = true;
+  bool _isUserControl = true;
   final List<AgiDisplayText> _displayedTexts = [];
   final math.Random _rng;
+  int? _activeSoundEndFlag;
+  int horizon = CollisionDetector.defaultHorizon;
+  AgiBlockArea? activeBlock;
 
   AgiGameEngine({
     this.resourceLoader,
@@ -95,6 +103,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         animatedObjects = animatedObjects ??
             List.generate(maxAnimatedObjects, (i) => AnimatedObject(number: i)),
         _rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
+    if (this.soundPlayer != null) {
+      this.soundPlayer!.onFinished = _onSoundFinished;
+    }
+
     interpreter = AgiLogicInterpreter(
       memory: this.memory,
       animatedObjects: this.animatedObjects,
@@ -117,8 +129,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool get isStatusLineEnabled => _isStatusLineEnabled;
   bool get isInputEnabled => _isInputEnabled;
   set isInputEnabled(bool enabled) => onInputMode(enabled);
+  bool get isUserControl => _isUserControl;
+  set isUserControl(bool enabled) => onUserControl(enabled);
+  List<String> get inputWords => List.unmodifiable(_inputWords);
   List<AgiDisplayText> get displayedTexts => List.unmodifiable(_displayedTexts);
-
+  int get currentRoom => memory.getVar(0);
   AnimatedObject get ego => animatedObjects[0];
 
   /// Starts the game loop timer.
@@ -269,7 +284,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // ----------------------------------------------------
     _updateClock();
 
-    // Reset transient per-cycle flags
+    // Reset transient per-cycle flags and parsed input tokens
     memory.resetFlag(1); // Ego completely obscured reset
     memory.resetFlag(2); // have.input reset
     memory.resetFlag(4); // said.accepted reset
@@ -277,6 +292,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.resetFlag(6); // restart.in.progress reset
     memory.resetFlag(12); // restore.in.progress reset
     memory.resetControllers();
+    _parsedWordIds.clear();
 
     // Reset transient edge hit variables and key press state
     memory.setVar(4, 0);
@@ -291,6 +307,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// If [toggleIfSame] is true and Ego is already moving in [direction] (and [direction] != 0),
   /// Ego stops (direction 0).
   void setEgoDirection(int direction, {bool toggleIfSame = true}) {
+    if (!_isUserControl) {
+      return; // Ignore player direction commands when under program.control()
+    }
     if (toggleIfSame && direction != 0 && ego.direction == direction) {
       ego.direction = 0;
     } else {
@@ -300,6 +319,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (ego.direction != 0) {
       ego.isCycling = true;
       ego.isAnimated = true;
+    } else {
+      ego.isCycling = false;
     }
     notifyListeners();
   }
@@ -313,7 +334,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// Sets parsed word group IDs directly for testing matching rules.
   @visibleForTesting
   void setParsedWordIdsForTesting(List<int> wordIds) {
-    _parsedWordIds = List.from(wordIds);
+    _parsedWordIds = List<int>.from(wordIds);
     memory.setFlag(2);
     memory.resetFlag(4);
     notifyListeners();
@@ -335,51 +356,74 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
-  /// Tokenizes a user string into recognized word group IDs using [AgiDictionary].
+  /// Tokenizes a user string into recognized word group IDs using [AgiTextParser].
   List<int> tokenizeCommand(String rawText) {
-    if (resourceLoader == null) {
-      return const [];
+    final dict = resourceLoader?.dictionary ?? AgiDictionary();
+    final parser = AgiTextParser(dict);
+    final result = parser.parse(rawText);
+
+    _inputWords = List<String>.from(result.originalTokens);
+
+    if (!result.isSuccess) {
+      _lastError = result.errorMessage;
+      memory.setVar(9, result.unknownWordIndex ?? 1);
+      return <int>[];
     }
 
-    final dict = resourceLoader!.dictionary;
-    var text = rawText.toLowerCase();
+    memory.setVar(9, 0);
+    return List<int>.from(result.wordGroupIds);
+  }
 
-    // Expand common contractions
-    text = text
-        .replaceAll("don't", 'dont')
-        .replaceAll("can't", 'cant')
-        .replaceAll("it's", 'its')
-        .replaceAll("i'm", 'im')
-        .replaceAll("you're", 'youre')
-        .replaceAll("they're", 'theyre')
-        .replaceAll("we're", 'were')
-        .replaceAll("that's", 'thats')
-        .replaceAll("what's", 'whats')
-        .replaceAll("let's", 'lets');
+  /// Formats Sierra AGI message formatting placeholders (%v, %w, %s, %m, %g, %o).
+  String formatMessage(String text) {
+    if (!text.contains('%')) return text;
 
-    // Replace punctuation with spaces
-    text = text.replaceAll(RegExp(r'[.,;:!?\"()\[\]{}]'), ' ');
+    return text.replaceAllMapped(
+      RegExp(r'%([vwsmgo])(\d+)(?:\|(\d+))?'),
+      (match) {
+        final code = match.group(1)!;
+        final num = int.tryParse(match.group(2)!) ?? 0;
+        final pad = match.group(3) != null ? (int.tryParse(match.group(3)!) ?? 0) : null;
 
-    final rawTokens = text.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
-    final wordIds = <int>[];
+        switch (code) {
+          case 'v':
+            final val = memory.getVar(num);
+            var str = val.toString();
+            if (pad != null && pad > str.length) {
+              str = str.padLeft(pad, '0');
+            }
+            return str;
 
-    for (final token in rawTokens) {
-      final wordId = dict.wordToId(token);
-      if (wordId == -1) {
-        // Unknown word encountered
-        _lastError = "I don't understand '$token'.";
-        // Sierra AGI sets var 9 to unrecognized word number if applicable
-        memory.setVar(9, 1);
-        return const [];
-      } else if (wordId == 0) {
-        // Ignore noise words (group 0: "a", "the", "in", "to", "at", etc.)
-        continue;
-      } else {
-        wordIds.add(wordId);
-      }
-    }
+          case 'w':
+            if (num >= 1 && num <= _inputWords.length) {
+              return _inputWords[num - 1];
+            }
+            return '';
 
-    return wordIds;
+          case 's':
+            return memory.getString(num);
+
+          case 'm':
+            final msg = interpreter.currentFrame?.script.getMessage(num) ?? '';
+            return formatMessage(msg);
+
+          case 'g':
+            final logic0 = resourceLoader?.loadLogic(0);
+            final msg = logic0?.getMessage(num) ?? '';
+            return formatMessage(msg);
+
+          case 'o':
+            final objIdx = memory.getVar(num);
+            if (resourceLoader != null && objIdx >= 0 && objIdx < resourceLoader!.initialObjects.length) {
+              return resourceLoader!.initialObjects[objIdx].name;
+            }
+            return '';
+
+          default:
+            return match.group(0)!;
+        }
+      },
+    );
   }
 
   /// Dismisses active modal dialog box and resumes gameplay.
@@ -390,6 +434,52 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       activeDialog = null;
       notifyListeners();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // State Checkpoints & Snapshots (Debugging & Save-States)
+  // ---------------------------------------------------------------------------
+
+  final List<AgiGameStateSnapshot> _checkpointHistory = [];
+
+  /// Rolling history of in-memory checkpoints taken during gameplay.
+  List<AgiGameStateSnapshot> get checkpointHistory =>
+      List.unmodifiable(_checkpointHistory);
+
+  /// Captures a complete serializable snapshot of the current game engine state.
+  AgiGameStateSnapshot createSnapshot({String label = ''}) {
+    return AgiGameStateSnapshot.capture(this, label: label);
+  }
+
+  /// Restores the game engine to an exact [snapshot] state.
+  void restoreSnapshot(AgiGameStateSnapshot snapshot) {
+    snapshot.restore(this);
+    notifyListeners();
+  }
+
+  /// Records a new snapshot into [_checkpointHistory] and returns it.
+  AgiGameStateSnapshot recordCheckpoint({String label = ''}) {
+    final snap = createSnapshot(label: label);
+    _checkpointHistory.insert(0, snap);
+    if (_checkpointHistory.length > 20) {
+      _checkpointHistory.removeLast();
+    }
+    notifyListeners();
+    return snap;
+  }
+
+  /// Removes a checkpoint from history.
+  void removeCheckpoint(int index) {
+    if (index >= 0 && index < _checkpointHistory.length) {
+      _checkpointHistory.removeAt(index);
+      notifyListeners();
+    }
+  }
+
+  /// Clears all stored checkpoint snapshots.
+  void clearCheckpoints() {
+    _checkpointHistory.clear();
+    notifyListeners();
   }
 
   // ---------------------------------------------------------------------------
@@ -419,17 +509,77 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
       // Cel Animation Timer & Cycling
       if (obj.isCycling) {
-        // Normal cycle mode for object 0 (Ego) only advances when moving
-        if (obj.number == 0 && obj.cycleMode == 0 && obj.direction == 0) {
-          continue;
-        }
-
         obj.cycleTimer--;
         if (obj.cycleTimer <= 0) {
           obj.cycleTimer = obj.cycleTime > 0 ? obj.cycleTime : 1;
           _advanceObjectCel(obj);
         }
       }
+    }
+
+    _updateEgoFlags(priBuf);
+  }
+
+  void _updateEgoFlags(PriorityBuffer? priBuf) {
+    if (priBuf == null) return;
+    final egoObj = ego;
+    int objWidth = 4;
+    if (resourceLoader != null) {
+      try {
+        final v = resourceLoader!.loadView(egoObj.view);
+        final cel = v.getCel(egoObj.loop, egoObj.cel);
+        if (cel != null) {
+          objWidth = cel.width;
+        }
+      } catch (_) {}
+    }
+
+    // Flag 0: EGO entirely on water (pri 3)
+    var onWater = true;
+    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+      if (bx < 0 || bx >= 160 || egoObj.y < 0 || egoObj.y >= 168 || priBuf.priorityAt(bx, egoObj.y) != 3) {
+        onWater = false;
+        break;
+      }
+    }
+    if (onWater) {
+      memory.setFlag(0);
+    } else {
+      memory.resetFlag(0);
+    }
+
+    // Flag 3: EGO touches trigger/alarm line (pri 2)
+    var onSignal = false;
+    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 2) {
+        onSignal = true;
+        break;
+      }
+    }
+    if (onSignal) {
+      memory.setFlag(3);
+    } else {
+      memory.resetFlag(3);
+    }
+
+    // Flag 1: EGO completely obscured
+    var allObscured = true;
+    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168) {
+        final effPri = priBuf.effectivePriorityAt(bx, egoObj.y);
+        if (effPri >= egoObj.effectivePriority) {
+          allObscured = false;
+          break;
+        }
+      } else {
+        allObscured = false;
+        break;
+      }
+    }
+    if (allObscured) {
+      memory.setFlag(1);
+    } else {
+      memory.resetFlag(1);
     }
   }
 
@@ -504,6 +654,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
             memory.setFlag(obj.targetFlag!);
             obj.targetFlag = null;
           }
+          if (obj.number == 0) {
+            memory.setVar(6, 0);
+            _isUserControl = true;
+          }
           return;
         } else {
           final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
@@ -540,44 +694,52 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // Screen boundary clamping
     const minX = 0;
     final maxX = (160 - objWidth).clamp(0, 159);
-    final minY = obj.ignoreHorizon ? 0 : 36;
+    final minY = obj.ignoreHorizon ? 0 : horizon;
     const maxY = 167;
 
     var clampedX = targetX.clamp(minX, maxX);
     var clampedY = targetY.clamp(minY, maxY);
 
     // Border collision triggers for variables %v2 (Ego) and %v4/%v5 (other objects)
+    int border = 0;
+    if (targetY <= minY) {
+      border = 1; // Top (reaching/touching horizon line or screen top)
+    } else if (targetX > maxX) {
+      border = 2; // Right (moving beyond right boundary)
+    } else if (targetY > maxY) {
+      border = 3; // Bottom (moving beyond bottom boundary)
+    } else if (targetX < minX) {
+      border = 4; // Left (moving beyond left boundary)
+    }
+
     if (obj.number == 0) {
-      if (targetY <= minY) {
-        memory.setVar(2, 1); // Top
-      } else if (targetX >= maxX) {
-        memory.setVar(2, 2); // Right
-      } else if (targetY >= maxY) {
-        memory.setVar(2, 3); // Bottom
-      } else if (targetX <= minX) {
-        memory.setVar(2, 4); // Left
+      if (border != 0) {
+        memory.setVar(2, border);
       }
     } else {
-      if (targetY <= minY) {
+      if (border != 0) {
         memory.setVar(4, obj.number);
-        memory.setVar(5, 1);
-      } else if (targetX >= maxX) {
-        memory.setVar(4, obj.number);
-        memory.setVar(5, 2);
-      } else if (targetY >= maxY) {
-        memory.setVar(4, obj.number);
-        memory.setVar(5, 3);
-      } else if (targetX <= minX) {
-        memory.setVar(4, obj.number);
-        memory.setVar(5, 4);
+        memory.setVar(5, border);
       }
     }
 
+    // Script block area check
+    if (!obj.ignoreBlocks && activeBlock != null && activeBlock!.overlapsBaseline(clampedX, clampedY, objWidth)) {
+      if (obj.motionType == 1) {
+        obj.direction = _rng.nextInt(9);
+      } else if (obj.number == 0 && obj.motionType == 0) {
+        obj.direction = 0;
+        memory.setVar(6, 0);
+        obj.isCycling = false;
+      }
+      return;
+    }
+
     // Priority buffer collision check
-    if (priBuf != null && !obj.ignoreBlocks) {
+    if (priBuf != null) {
       var isBlocked = false;
       for (int bx = clampedX; bx < clampedX + objWidth; bx++) {
-        if (!priBuf.isWalkable(bx, clampedY, allowConditional: false)) {
+        if (!priBuf.isWalkable(bx, clampedY, allowConditional: obj.ignoreBlocks)) {
           isBlocked = true;
           break;
         }
@@ -586,6 +748,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       if (isBlocked) {
         if (obj.motionType == 1) {
           obj.direction = _rng.nextInt(9);
+        } else if (obj.number == 0 && obj.motionType == 0) {
+          obj.direction = 0;
+          memory.setVar(6, 0);
+          obj.isCycling = false;
         }
         return;
       }
@@ -598,7 +764,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   void _advanceObjectCel(AnimatedObject obj) {
-    int celCount = 1;
+    int celCount = 4;
     if (resourceLoader != null) {
       try {
         final v = resourceLoader!.loadView(obj.view);
@@ -705,6 +871,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Transitions engine to [roomNumber], adjusting Ego position and loading room scripts.
   void changeRoom(int roomNumber) {
+    onStopSound();
+    horizon = CollisionDetector.defaultHorizon;
+    activeBlock = null;
     final currentRoom = memory.getVar(0);
     if (currentRoom != roomNumber) {
       memory.setVar(1, currentRoom); // %v1 = previous room
@@ -716,11 +885,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final borderHit = memory.getVar(2);
     _repositionEgoForBorder(borderHit);
 
-    // Reset transient edge hit variables and displayed text
+    // Reset transient edge hit variables, displayed text, and user control
     memory.setVar(2, 0);
     memory.setVar(4, 0);
     memory.setVar(5, 0);
     _displayedTexts.clear();
+    _isUserControl = true;
+    _isInputEnabled = true;
 
     // Unload non-Ego animated objects
     for (int i = 1; i < animatedObjects.length; i++) {
@@ -756,13 +927,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     switch (border) {
       case 1: // Top (Horizon) -> place at bottom
-        ego.y = 167 - ego.stepSize;
+        ego.y = 167;
         break;
       case 2: // Right -> place at left
         ego.x = 0;
         break;
       case 3: // Bottom -> place at top (Horizon + 1)
-        ego.y = (ego.ignoreHorizon ? 0 : 36) + 1;
+        ego.y = (ego.ignoreHorizon ? 0 : horizon) + 1;
         break;
       case 4: // Left -> place at right
         ego.x = (160 - egoWidth).clamp(0, 159);
@@ -790,7 +961,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onPrint(String message) {
     activeDialog = AgiDialogState(
-      message: message,
+      message: formatMessage(message),
       isModal: true,
       dismissCompleter: Completer<void>(),
     );
@@ -800,7 +971,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onPrintAt(String message, int x, int y, int width) {
     activeDialog = AgiDialogState(
-      message: message,
+      message: formatMessage(message),
       x: x,
       y: y,
       width: width,
@@ -812,8 +983,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void onDisplay(int row, int col, String message) {
+    final formatted = formatMessage(message);
     _displayedTexts.removeWhere((t) => t.row == row && t.col == col);
-    _displayedTexts.add(AgiDisplayText(row: row, col: col, message: message));
+    _displayedTexts.add(AgiDisplayText(row: row, col: col, message: formatted));
     notifyListeners();
   }
 
@@ -838,8 +1010,43 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
+  void onDraw(AnimatedObject obj) {
+    if (!obj.ignoreHorizon && obj.y <= horizon) {
+      obj.y = horizon + 1;
+      obj.prevY = obj.y;
+    }
+  }
+
+  @override
+  void onSetHorizon(int horizon) {
+    this.horizon = horizon;
+    for (final obj in animatedObjects) {
+      if (!obj.ignoreHorizon && obj.y <= horizon) {
+        obj.y = horizon + 1;
+        obj.prevY = obj.y;
+      }
+    }
+  }
+
+  @override
+  void onBlock(int x1, int y1, int x2, int y2) {
+    activeBlock = AgiBlockArea(x1: x1, y1: y1, x2: x2, y2: y2);
+  }
+
+  @override
+  void onUnblock() {
+    activeBlock = null;
+  }
+
+  @override
   void onInputMode(bool enabled) {
     _isInputEnabled = enabled;
+    notifyListeners();
+  }
+
+  @override
+  void onUserControl(bool enabled) {
+    _isUserControl = enabled;
     notifyListeners();
   }
 
@@ -852,25 +1059,50 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onShakeScreen(int count) {}
 
+  void _onSoundFinished() {
+    if (_activeSoundEndFlag != null) {
+      memory.setFlag(_activeSoundEndFlag!);
+      _activeSoundEndFlag = null;
+    }
+  }
+
   @override
   void onSound(int soundNumber, int completionFlag) {
+    // If a sound is currently playing, stopping/preempting sets its completion flag
+    if (_activeSoundEndFlag != null) {
+      memory.setFlag(_activeSoundEndFlag!);
+      _activeSoundEndFlag = null;
+    }
+
+    // Set the new sound's completion flag to false per AGI specification
+    memory.resetFlag(completionFlag);
+
     if (soundPlayer != null && resourceLoader != null) {
       if (resourceLoader!.presentSoundNumbers.contains(soundNumber)) {
         final snd = resourceLoader!.loadSound(soundNumber);
-        soundPlayer!.play(snd).then((_) {
-          memory.setFlag(completionFlag);
-        }).catchError((_) {
-          memory.setFlag(completionFlag);
-        });
-        return;
+        if (!snd.isEmpty && snd.length > 0) {
+          _activeSoundEndFlag = completionFlag;
+          soundPlayer!.play(snd).catchError((_) {
+            if (_activeSoundEndFlag == completionFlag) {
+              memory.setFlag(completionFlag);
+              _activeSoundEndFlag = null;
+            }
+          });
+          return;
+        }
       }
     }
+    // If sound resource is not present or sound player is unavailable, complete immediately
     memory.setFlag(completionFlag);
   }
 
   @override
   void onStopSound() {
     soundPlayer?.stop();
+    if (_activeSoundEndFlag != null) {
+      memory.setFlag(_activeSoundEndFlag!);
+      _activeSoundEndFlag = null;
+    }
   }
 
   @override
@@ -1004,6 +1236,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   bool checkSaid(List<int> wordGroupIds) {
+    // In Sierra AGI, said() only matches if user input was entered this cycle (Flag 2)
+    // and no previous said() check has claimed/accepted the input (Flag 4).
+    if (!memory.getFlag(2) || memory.getFlag(4)) {
+      return false;
+    }
+
     if (_parsedWordIds.isEmpty && wordGroupIds.isNotEmpty) {
       return false;
     }
@@ -1057,6 +1295,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void dispose() {
+    onStopSound();
     stop();
     super.dispose();
   }

@@ -85,15 +85,15 @@ class EgaColors {
   ];
 
   /// Control line debug colors:
-  /// - 0: Trigger line (Cyan / Blue-green)
+  /// - 0: Unconditional barrier (Red)
   /// - 1: Conditional barrier (Yellow)
-  /// - 2: Unconditional barrier (Red)
+  /// - 2: Trigger / Alarm line (Green)
   /// - 3: Water barrier (Blue)
   static const List<List<int>> controlRgbaBytes = [
-    [0x00, 0xAA, 0xAA, 0xFF], // 0: Trigger (Cyan)
-    [0xFF, 0xFF, 0x55, 0xFF], // 1: Conditional (Yellow)
-    [0xFF, 0x55, 0x55, 0xFF], // 2: Unconditional (Red)
-    [0x00, 0x00, 0xAA, 0xFF], // 3: Water (Blue)
+    [0xFF, 0x55, 0x55, 0xFF], // 0: Unconditional Barrier (Red)
+    [0xFF, 0xFF, 0x55, 0xFF], // 1: Conditional Barrier (Yellow)
+    [0x55, 0xFF, 0x55, 0xFF], // 2: Trigger / Alarm (Green)
+    [0x55, 0x55, 0xFF, 0xFF], // 3: Water (Blue)
   ];
 
   /// Names of the 16 EGA colors.
@@ -118,9 +118,9 @@ class EgaColors {
 
   /// Names of the 4 AGI control lines (priorities 0 to 3).
   static const List<String> controlNames = [
-    'Trigger',
-    'Conditional Barrier',
     'Unconditional Barrier',
+    'Conditional Barrier',
+    'Trigger / Alarm',
     'Water',
   ];
 

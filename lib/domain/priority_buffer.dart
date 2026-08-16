@@ -66,23 +66,29 @@ class PriorityBuffer {
     }
   }
 
-  /// Computes the effective depth priority (4..15) at buffer index [idx].
+  /// Computes the effective depth priority (3..15) at buffer index [idx].
   ///
-  /// If the pixel at [idx] is a control line (< 4), we scan downwards along the column
-  /// until we find the first underlying depth band (>= 4). If none is found before
-  /// reaching the bottom of the screen, 15 (background) is returned.
+  /// Following authentic Sierra AGI / NAGI / ScummVM rules:
+  /// - Priority values > 2 (including Water 3 and Depth Bands 4..15) represent depth planes.
+  /// - Control lines <= 2 (Barriers 0, 1 and Alarms 2) scan downwards along the column
+  ///   to find the first non-control priority (> 2) behind the control line.
+  /// - If no non-control priority is found before reaching the bottom of the screen,
+  ///   the base background priority (4) is returned.
   int effectivePriorityAtIndex(int idx) {
     if (idx < 0 || idx >= bufferSize) return 4;
-    int answer = pixels[idx];
-    if (answer >= 4) return answer;
+    final answer = pixels[idx];
+    if (answer > 2) return answer;
 
-    // Scan down the column
+    // Scan down the column for control lines <= 2 (barriers and alarms)
     int current = idx + width;
-    while (answer < 4 && current < bufferSize) {
-      answer = pixels[current];
+    while (current < bufferSize) {
+      final pri = pixels[current];
+      if (pri > 2) {
+        return pri;
+      }
       current += width;
     }
-    return (answer >= 4) ? answer : 15;
+    return 4;
   }
 
   /// Computes the effective depth priority (4..15) at `(x, y)`.
@@ -91,14 +97,14 @@ class PriorityBuffer {
     return effectivePriorityAtIndex(y * width + x);
   }
 
-  /// Checks if `(x, y)` is a trigger control line (priority 0).
-  bool isTrigger(int x, int y) => priorityAt(x, y) == 0;
+  /// Checks if `(x, y)` is an unconditional barrier (priority 0).
+  bool isUnconditionalBarrier(int x, int y) => priorityAt(x, y) == 0;
 
   /// Checks if `(x, y)` is a conditional barrier (priority 1).
   bool isConditionalBarrier(int x, int y) => priorityAt(x, y) == 1;
 
-  /// Checks if `(x, y)` is an unconditional barrier (priority 2).
-  bool isUnconditionalBarrier(int x, int y) => priorityAt(x, y) == 2;
+  /// Checks if `(x, y)` is a trigger / alarm control line (priority 2).
+  bool isTrigger(int x, int y) => priorityAt(x, y) == 2;
 
   /// Checks if `(x, y)` is a water surface/barrier (priority 3).
   bool isWater(int x, int y) => priorityAt(x, y) == 3;
@@ -106,10 +112,10 @@ class PriorityBuffer {
   /// Checks if `(x, y)` is any control line (0, 1, 2, or 3).
   bool isControlLine(int x, int y) => priorityAt(x, y) < 4;
 
-  /// Standard walkability check: walkable if not blocked by conditional (1) or unconditional (2) barrier.
+  /// Standard walkability check: walkable if not blocked by unconditional (0) or conditional (1) barrier.
   bool isWalkable(int x, int y, {bool allowConditional = false}) {
     final p = priorityAt(x, y);
-    if (p == 2) return false;
+    if (p == 0) return false;
     if (p == 1 && !allowConditional) return false;
     return true;
   }

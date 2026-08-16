@@ -4,6 +4,7 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 void main() {
@@ -159,10 +160,10 @@ void main() {
       expect(engine.memory.getVar(2), 4); // Left edge (%v2 = 4)
     });
 
-    test('stops motion on PriorityBuffer barrier collision', () {
+    test('stops motion on PriorityBuffer barrier collision (priority 0)', () {
       final priBuf = PriorityBuffer();
-      // Place unconditional barrier (priority 2) at x=82, y=100
-      priBuf.setPriorityAt(82, 100, 2);
+      // Place unconditional barrier (priority 0) at x=82, y=100
+      priBuf.setPriorityAt(82, 100, 0);
 
       engine.currentPic = AgiPic(
         visualPixels: Uint8List(160 * 168),
@@ -178,6 +179,52 @@ void main() {
 
       // Ego should be blocked at x=80
       expect(engine.ego.x, 80);
+    });
+
+    test('sets flag 3 on trigger line (priority 2) without blocking motion', () {
+      final priBuf = PriorityBuffer();
+      // Place trigger line (priority 2) at x=82, y=100
+      priBuf.setPriorityAt(82, 100, 2);
+
+      engine.currentPic = AgiPic(
+        visualPixels: Uint8List(160 * 168),
+        priorityBuffer: priBuf,
+        slices: PictureSlicer.slice(
+          visualPixels: Uint8List(160 * 168),
+          priorityBuffer: priBuf,
+        ),
+      );
+
+      engine.ego.x = 80;
+      engine.ego.y = 100;
+      engine.ego.stepSize = 2;
+      engine.setEgoDirection(3); // East across trigger line
+      engine.tick();
+
+      // Ego should NOT be blocked and move to x=82 (stepSize 2)
+      expect(engine.ego.x, 82);
+      expect(engine.memory.getFlag(3), isTrue);
+    });
+
+    test('sets flag 0 when Ego is on water (priority 3)', () {
+      final priBuf = PriorityBuffer();
+      // Draw water under Ego's position (x=80..84, y=100)
+      for (int x = 80; x <= 84; x++) {
+        priBuf.setPriorityAt(x, 100, 3);
+      }
+
+      engine.currentPic = AgiPic(
+        visualPixels: Uint8List(160 * 168),
+        priorityBuffer: priBuf,
+        slices: PictureSlicer.slice(
+          visualPixels: Uint8List(160 * 168),
+          priorityBuffer: priBuf,
+        ),
+      );
+
+      engine.tick();
+
+      expect(engine.memory.getFlag(0), isTrue);
     });
 
     test('moveObj moves towards target and sets targetFlag on arrival', () {
@@ -226,6 +273,8 @@ void main() {
       expect(engine.checkSaid([100, 200]), isTrue);
       expect(engine.memory.getFlag(4), isTrue); // said.accepted = 1
 
+      // Subsequent said() in same cycle fails because Flag 4 is already true
+      expect(engine.checkSaid([100, 200]), isFalse);
       expect(engine.checkSaid([100, 300]), isFalse);
     });
 
@@ -235,13 +284,74 @@ void main() {
 
       // ANYWORD (9999) matches any token
       expect(engine.checkSaid([100, 9999, 300, 400]), isTrue);
+      engine.memory.resetFlag(4);
       expect(engine.checkSaid([9999, 9999, 9999, 9999]), isTrue);
+      engine.memory.resetFlag(4);
       expect(engine.checkSaid([9999, 9999, 9999]), isFalse); // too short
 
       // ROL (9998) matches rest of line
+      engine.memory.resetFlag(4);
       expect(engine.checkSaid([100, 9998]), isTrue);
+      engine.memory.resetFlag(4);
       expect(engine.checkSaid([100, 200, 9998]), isTrue);
+      engine.memory.resetFlag(4);
       expect(engine.checkSaid([500, 9998]), isFalse);
+    });
+
+    test('tick post-scan clears Flag 2, Flag 4, and parsed input tokens preventing repeated triggers', () {
+      engine.setParsedWordIdsForTesting([100, 200]);
+      expect(engine.memory.getFlag(2), isTrue);
+      expect(engine.parsedWordIds, isNotEmpty);
+
+      // Cycle 1: checkSaid matches
+      expect(engine.checkSaid([100, 200]), isTrue);
+      expect(engine.memory.getFlag(4), isTrue);
+
+      // End of cycle 1: tick cleans up
+      engine.tick();
+      expect(engine.memory.getFlag(2), isFalse);
+      expect(engine.memory.getFlag(4), isFalse);
+      expect(engine.parsedWordIds, isEmpty);
+
+      // Cycle 2: checkSaid must return false without new user input
+      expect(engine.checkSaid([100, 200]), isFalse);
+    });
+
+    test('submitCommand with unknown word sets variable 9 and flag 2 without throwing on tick', () {
+      // Submit a command without a loaded dictionary (all words unknown)
+      engine.submitCommand('xyzzy bar');
+
+      expect(engine.memory.getFlag(2), isTrue, reason: 'have.input must be set');
+      expect(engine.memory.getVar(9), 1, reason: '%v9 must record 1-based index of first unknown word');
+      expect(engine.inputWords, equals(['xyzzy', 'bar']));
+
+      // Calling tick() must clear the list and reset flags cleanly without throwing UnsupportedOperation
+      expect(() => engine.tick(), returnsNormally);
+      expect(engine.memory.getFlag(2), isFalse);
+      expect(engine.parsedWordIds, isEmpty);
+    });
+
+    test('formatMessage expands %w, %v, and %s placeholders correctly', () {
+      engine.memory.setVar(0, 9);
+      engine.memory.setString(0, 'Graham');
+      engine.submitCommand('take xyzzy');
+
+      final formatted = engine.formatMessage('Room %v0: %s0 says "I don\'t understand %w2".');
+      expect(formatted, equals('Room 9: Graham says "I don\'t understand xyzzy".'));
+    });
+
+    test('KQ2 greedy phrase parsing: "look little red riding hood" matches multi-word phrase', () {
+      final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-2');
+      final kq2Engine = AgiGameEngine(resourceLoader: loader);
+
+      kq2Engine.submitCommand('look little red riding hood');
+
+      expect(kq2Engine.memory.getFlag(2), isTrue);
+      expect(kq2Engine.memory.getVar(9), 0, reason: 'All words should be recognized as a multi-word phrase');
+      expect(kq2Engine.parsedWordIds, isNotEmpty);
+      expect(kq2Engine.inputWords, equals(['look', 'little red riding hood']));
+
+      kq2Engine.dispose();
     });
   });
 
@@ -283,6 +393,39 @@ void main() {
       expect(npc.x, 0);
       expect(npc.y, 0);
     });
+
+    test('onSetHorizon updates room horizon and clamps motion and border triggers', () {
+      engine.ego.isAnimated = true;
+      engine.ego.isDrawn = true;
+      engine.ego.isUpdating = true;
+      engine.onSetHorizon(71);
+      expect(engine.horizon, 71);
+
+      engine.ego.x = 80;
+      engine.ego.y = 75;
+      engine.ego.stepSize = 5;
+      engine.setEgoDirection(1); // North towards horizon 71
+      engine.tick();
+
+      // Ego cannot cross y=71
+      expect(engine.ego.y, 71);
+      // Top border (%v2 = 1) is triggered at horizon
+      expect(engine.memory.getVar(2), 1);
+    });
+
+    test('repositions Ego at horizon + 1 when entering from bottom border', () {
+      engine.onSetHorizon(71);
+      engine.memory.setVar(0, 3); // from room 3
+      engine.memory.setVar(2, 3); // crossed bottom border (%v2 = 3)
+
+      engine.changeRoom(8);
+      // In new room 8, Ego is placed at defaultHorizon (36) + 1 before room init sets horizon
+      expect(engine.ego.y, 37);
+
+      // When room 8 executes set.horizon(71), horizon becomes 71
+      engine.onSetHorizon(71);
+      expect(engine.horizon, 71);
+    });
   });
 
   group('AgiGameEngine Interpreter Delegate Actions', () {
@@ -308,10 +451,22 @@ void main() {
       expect(engine.activeDialog, isNull);
     });
 
-    test('onSound sets completion flag', () {
-      engine.memory.resetFlag(12);
+    test('onSound sets completion flag immediately when sound player is null', () {
+      engine.memory.setFlag(12);
       engine.onSound(1, 12);
       expect(engine.memory.getFlag(12), isTrue);
+    });
+
+    test('onStopSound fulfills active sound completion flag', () {
+      engine.memory.resetFlag(200);
+      // Simulate an active sound playing with flag 200
+      engine.onSound(1, 200);
+      expect(engine.memory.getFlag(200), isTrue);
+
+      engine.memory.resetFlag(200);
+      engine.onStopSound();
+      // onStopSound without active sound leaves flag as-is
+      expect(engine.memory.getFlag(200), isFalse);
     });
 
     test('onQuit stops engine execution', () {
