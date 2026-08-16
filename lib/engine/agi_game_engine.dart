@@ -1032,7 +1032,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _isUserControl = true;
     _isInputEnabled = true;
 
-    // Unload non-Ego animated objects
+    // Unload non-Ego animated objects and reset Ego per-room state
+    ego.resetForNewRoom();
     for (int i = 1; i < animatedObjects.length; i++) {
       animatedObjects[i].reset();
     }

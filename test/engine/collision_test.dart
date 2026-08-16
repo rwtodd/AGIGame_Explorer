@@ -90,6 +90,25 @@ void main() {
           isFalse,
         );
       });
+
+      test('unconditional barrier (priority 0) blocks even when ignoreBlocks is true', () {
+        for (var x = 10; x <= 20; x++) {
+          priorityBuffer.setPriorityAt(x, 50, 0);
+        }
+
+        // Even with ignoreBlocks = true, priority 0 MUST block!
+        expect(
+          detector.isBaselineBlocked(x: 12, y: 50, width: 4, ignoreBlocks: true),
+          isTrue,
+        );
+
+        // Also via isPositionBlocked
+        ego.ignoreBlocks = true;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 50, width: 4, height: 10),
+          isTrue,
+        );
+      });
     });
 
     group('Script Block Area (block and unblock)', () {

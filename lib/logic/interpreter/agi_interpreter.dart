@@ -531,10 +531,19 @@ class AgiLogicInterpreter {
 
       case 33: // animate.obj(o)
         final obj = getObj(code[frame.ip + 1]);
-        obj.isAnimated = true;
-        obj.isUpdating = true;
-        obj.isCycling = true;
-        obj.motionType = 0;
+        if (!obj.isAnimated) {
+          obj.isAnimated = true;
+          obj.isUpdating = true;
+          obj.isCycling = true;
+          obj.motionType = 0;
+          obj.cycleMode = 0;
+          obj.direction = 0;
+          obj.ignoreBlocks = false;
+          obj.ignoreHorizon = false;
+          obj.ignoreObjects = false;
+          obj.fixedPriority = false;
+          obj.fixedLoop = false;
+        }
         frame.ip += 2;
         break;
 

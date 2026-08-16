@@ -539,11 +539,11 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     if (!isInsidePicture) {
       controlDesc = 'Text Area / Border';
     } else if (rawPri == 0) {
-      controlDesc = 'Trigger (0)';
+      controlDesc = 'Unconditional Barrier (0)';
     } else if (rawPri == 1) {
       controlDesc = 'Conditional Barrier (1)';
     } else if (rawPri == 2) {
-      controlDesc = 'Unconditional Barrier (2)';
+      controlDesc = 'Trigger / Alarm (2)';
     } else if (rawPri == 3) {
       controlDesc = 'Water (3)';
     } else {

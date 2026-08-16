@@ -47,10 +47,10 @@ Rather than emulating a flat, CPU-driven software framebuffer, this engine decom
 - **Memory Representation**: 8-bit `Uint8List` buffer ($160 \times 168 = 26,880\text{ bytes}$).
 - **Default State**: Initialized to priority `4` everywhere across the buffer.
 - **Values**:
-  - `0`: Trigger line (used by LOGIC scripts to detect room boundaries or events).
-  - `1`: Conditional barrier (blocks Ego / certain NPCs unless allowed by script).
-  - `2`: Unconditional barrier (solid obstacle: walls, cliff edges, impassable terrain).
-  - `3`: Water barrier (swimming / drowning hazard boundary).
+  - `0`: Unconditional barrier (solid obstacle: walls, trees, cliff edges, impassable terrain; always blocks).
+  - `1`: Conditional barrier (blocks Ego / certain actors unless allowed by `ignore.blocks`).
+  - `2`: Trigger / Alarm line (used by LOGIC scripts to detect room boundaries or events, sets flag 3).
+  - `3`: Water barrier (swimming / drowning hazard boundary, sets flag 0).
   - `4..14`: Z-depth bands.
   - `15`: Unconditional background (sky / horizon).
 - **Downward Column Scanning (`effectivePriorityAt`)**:

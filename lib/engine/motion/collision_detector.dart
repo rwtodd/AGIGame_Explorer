@@ -102,16 +102,18 @@ class CollisionDetector {
 
   /// Checks if any pixel along the baseline `(x, y)` to `(x + width - 1, y)` is blocked
   /// by control lines or script block areas.
+  ///
+  /// Following Sierra AGI specification:
+  /// - Priority 0 (Unconditional Barrier) ALWAYS blocks movement, even when [ignoreBlocks] is active.
+  /// - Priority 1 (Conditional Barrier) and script [activeBlock] areas block movement UNLESS [ignoreBlocks] is true.
   bool isBaselineBlocked({
     required int x,
     required int y,
     required int width,
     bool ignoreBlocks = false,
   }) {
-    if (ignoreBlocks) return false;
-
-    // Check script block area
-    if (activeBlock != null && activeBlock!.overlapsBaseline(x, y, width)) {
+    // Check script block area (ignored if ignoreBlocks is active)
+    if (!ignoreBlocks && activeBlock != null && activeBlock!.overlapsBaseline(x, y, width)) {
       return true;
     }
 
@@ -125,11 +127,11 @@ class CollisionDetector {
 
       final pri = priorityBuffer.priorityAt(px, y);
 
-      // Priority 0 is unconditional barrier
+      // Priority 0 is unconditional barrier (always blocks)
       if (pri == 0) return true;
 
-      // Priority 1 is conditional barrier
-      if (pri == 1) return true;
+      // Priority 1 is conditional barrier (blocks unless ignoreBlocks is true)
+      if (pri == 1 && !ignoreBlocks) return true;
     }
 
     return false;
@@ -155,15 +157,13 @@ class CollisionDetector {
     if (y < minAllowedY) return true;
 
     // Baseline barrier collision check
-    if (!obj.ignoreBlocks) {
-      if (isBaselineBlocked(
-        x: x,
-        y: y,
-        width: effectiveWidth,
-        ignoreBlocks: false,
-      )) {
-        return true;
-      }
+    if (isBaselineBlocked(
+      x: x,
+      y: y,
+      width: effectiveWidth,
+      ignoreBlocks: obj.ignoreBlocks,
+    )) {
+      return true;
     }
 
     // Object-to-object collision check

@@ -102,4 +102,32 @@ class AnimatedObject {
     ignoreBlocks = false;
     ignoreObjects = false;
   }
+
+  /// Resets per-room motion, timers, and control flags on room transitions
+  /// while preserving object coordinates and view assignments (following Sierra NEWROOM.C).
+  void resetForNewRoom() {
+    priority = 0;
+    fixedPriority = false;
+    fixedLoop = false;
+    direction = 0;
+    stepSize = 1;
+    stepTime = 1;
+    stepTimer = 1;
+    cycleTime = 1;
+    cycleTimer = 1;
+    isAnimated = false;
+    isDrawn = false;
+    isUpdating = true;
+    isCycling = true;
+    cycleMode = 0;
+    endOfLoopFlag = null;
+    motionType = 0;
+    targetX = 0;
+    targetY = 0;
+    stepDistance = 1;
+    targetFlag = null;
+    ignoreHorizon = false;
+    ignoreBlocks = false;
+    ignoreObjects = false;
+  }
 }
