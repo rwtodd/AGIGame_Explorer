@@ -39,6 +39,6 @@ class CryptoUtils {
     while (zero < src.length && src[zero] != 0) {
       zero++;
     }
-    return ascii.decode(src.sublist(offset, zero));
+    return latin1.decode(src.sublist(offset, zero));
   }
 }

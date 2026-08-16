@@ -157,13 +157,17 @@ class CollisionDetector {
     if (y < minAllowedY) return true;
 
     // Baseline barrier collision check
-    if (isBaselineBlocked(
-      x: x,
-      y: y,
-      width: effectiveWidth,
-      ignoreBlocks: obj.ignoreBlocks,
-    )) {
-      return true;
+    // Per Sierra AGI & ScummVM specification: priority 15 (0x0F) represents sky/background,
+    // which bypasses ground control line barriers (priority 0, 1, water).
+    if (obj.priority != 15) {
+      if (isBaselineBlocked(
+        x: x,
+        y: y,
+        width: effectiveWidth,
+        ignoreBlocks: obj.ignoreBlocks,
+      )) {
+        return true;
+      }
     }
 
     // Object-to-object collision check

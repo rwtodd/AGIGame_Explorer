@@ -662,6 +662,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void _updateEgoFlags(PriorityBuffer? priBuf) {
     if (priBuf == null) return;
     final egoObj = ego;
+    if (egoObj.priority == 15) {
+      memory.resetFlag(0);
+      memory.resetFlag(3);
+      return;
+    }
     int objWidth = 4;
     if (resourceLoader != null) {
       try {
@@ -887,8 +892,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return;
     }
 
-    // Priority buffer collision check
-    if (priBuf != null) {
+    // Priority buffer collision check (priority 15 represents sky/background and bypasses ground barriers)
+    if (priBuf != null && obj.priority != 15) {
       var isBlocked = false;
       for (int bx = clampedX; bx < clampedX + objWidth; bx++) {
         if (!priBuf.isWalkable(bx, clampedY, allowConditional: obj.ignoreBlocks)) {

@@ -82,6 +82,23 @@ void main() {
       expect(script.getMessage(1), 'Secret Message');
     });
 
+    test('parses messages containing extended bytes (e.g. 0xFF non-breaking space)', () {
+      final builder = BytesBuilder();
+      builder.add([0x00, 0x00]); // 0 bytecodes, text starts at offset 2
+      builder.add([0x01]); // 1 message
+      builder.add([0x14, 0x00]); // end offset
+      builder.add([0x04, 0x00]); // Pointer for msg 1
+      // Message string: "\xFF  Hear ye!\0"
+      final rawStr = [0xFF, 0x20, 0x20, 0x48, 0x65, 0x61, 0x72, 0x20, 0x79, 0x65, 0x21, 0x00];
+      final encryptedMsg = Uint8List.fromList(rawStr);
+      CryptoUtils.decodeInPlace(encryptedMsg, key: CryptoUtils.avisDurganKey);
+      builder.add(encryptedMsg);
+
+      final script = LogicParser.parse(builder.toBytes(), isEncrypted: true);
+      expect(script.messageCount, 1);
+      expect(script.getMessage(1), '\xFF  Hear ye!');
+    });
+
     test('throws AgiException on truncated header', () {
       expect(() => LogicParser.parse(Uint8List.fromList([0x01])), throwsA(isA<AgiException>()));
     });

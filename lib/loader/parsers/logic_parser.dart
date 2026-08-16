@@ -49,8 +49,8 @@ class LogicParser {
         int endOffset = buffer.length;
         if (textOffset + 2 < buffer.length) {
           final declaredEnd = (buffer[textOffset + 1] | (buffer[textOffset + 2] << 8));
-          if (declaredEnd > 0 && textOffset + declaredEnd <= buffer.length) {
-            endOffset = textOffset + declaredEnd;
+          if (declaredEnd > 0 && textOffset + 1 + declaredEnd <= buffer.length) {
+            endOffset = textOffset + 1 + declaredEnd;
           }
         }
         CryptoUtils.decodeInPlace(

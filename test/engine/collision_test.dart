@@ -109,6 +109,18 @@ void main() {
           isTrue,
         );
       });
+
+      test('priority 15 (sky/background) bypasses all ground priority barriers', () {
+        for (var x = 10; x <= 20; x++) {
+          priorityBuffer.setPriorityAt(x, 50, 0); // Unconditional barrier
+        }
+        ego.priority = 15;
+        ego.fixedPriority = true;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 50, width: 4, height: 10),
+          isFalse,
+        );
+      });
     });
 
     group('Script Block Area (block and unblock)', () {
