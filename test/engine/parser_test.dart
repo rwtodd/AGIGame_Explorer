@@ -157,37 +157,37 @@ void main() {
       expect(AgiSaidMatcher.matchWords([10, 100], [10]), isFalse);
     });
 
-    test('matches ANYWORD (9999) single-word wildcard', () {
-      // 9999 matches any single word token
-      expect(AgiSaidMatcher.matchWords([10, 9999], [10, 100]), isTrue);
-      expect(AgiSaidMatcher.matchWords([10, 9999], [10, 101]), isTrue);
-      expect(AgiSaidMatcher.matchWords([9999, 100], [10, 100]), isTrue);
-      expect(AgiSaidMatcher.matchWords([9999, 9999], [10, 100]), isTrue);
+    test('matches ANYWORD (1) single-word wildcard', () {
+      // 1 matches any single word token
+      expect(AgiSaidMatcher.matchWords([10, 1], [10, 100]), isTrue);
+      expect(AgiSaidMatcher.matchWords([10, 1], [10, 101]), isTrue);
+      expect(AgiSaidMatcher.matchWords([1, 100], [10, 100]), isTrue);
+      expect(AgiSaidMatcher.matchWords([1, 1], [10, 100]), isTrue);
 
       // Does not match wrong count
-      expect(AgiSaidMatcher.matchWords([10, 9999], [10]), isFalse);
-      expect(AgiSaidMatcher.matchWords([10, 9999], [10, 100, 101]), isFalse);
+      expect(AgiSaidMatcher.matchWords([10, 1], [10]), isFalse);
+      expect(AgiSaidMatcher.matchWords([10, 1], [10, 100, 101]), isFalse);
     });
 
-    test('matches ROL (9998) rest-of-line wildcard', () {
+    test('matches ROL (9999) rest-of-line wildcard', () {
       // ROL at end matches 0, 1, or more remaining words
-      expect(AgiSaidMatcher.matchWords([10, 9998], [10]), isTrue);
-      expect(AgiSaidMatcher.matchWords([10, 9998], [10, 100]), isTrue);
-      expect(AgiSaidMatcher.matchWords([10, 9998], [10, 100, 101, 102]), isTrue);
+      expect(AgiSaidMatcher.matchWords([10, 9999], [10]), isTrue);
+      expect(AgiSaidMatcher.matchWords([10, 9999], [10, 100]), isTrue);
+      expect(AgiSaidMatcher.matchWords([10, 9999], [10, 100, 101, 102]), isTrue);
 
       // First word must match
-      expect(AgiSaidMatcher.matchWords([10, 9998], [20, 100]), isFalse);
+      expect(AgiSaidMatcher.matchWords([10, 9999], [20, 100]), isFalse);
 
       // ROL alone matches any input
-      expect(AgiSaidMatcher.matchWords([9998], []), isTrue);
-      expect(AgiSaidMatcher.matchWords([9998], [10]), isTrue);
-      expect(AgiSaidMatcher.matchWords([9998], [10, 20, 30]), isTrue);
+      expect(AgiSaidMatcher.matchWords([9999], []), isTrue);
+      expect(AgiSaidMatcher.matchWords([9999], [10]), isTrue);
+      expect(AgiSaidMatcher.matchWords([9999], [10, 20, 30]), isTrue);
 
       // ROL before another word (e.g. wildcard prefix)
-      expect(AgiSaidMatcher.matchWords([9998, 100], [100]), isTrue);
-      expect(AgiSaidMatcher.matchWords([9998, 100], [10, 100]), isTrue);
-      expect(AgiSaidMatcher.matchWords([9998, 100], [10, 20, 100]), isTrue);
-      expect(AgiSaidMatcher.matchWords([9998, 100], [10, 20, 99]), isFalse);
+      expect(AgiSaidMatcher.matchWords([9999, 100], [100]), isTrue);
+      expect(AgiSaidMatcher.matchWords([9999, 100], [10, 100]), isTrue);
+      expect(AgiSaidMatcher.matchWords([9999, 100], [10, 20, 100]), isTrue);
+      expect(AgiSaidMatcher.matchWords([9999, 100], [10, 20, 99]), isFalse);
     });
   });
 

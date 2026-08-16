@@ -1,0 +1,556 @@
+[ MESSAGES: ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  %m1: ""%m6, I have awakened.""
+  %m2: ""%m6, I have decided to take a journey.""
+  %m3: ""I have returned, %m6, and am ready to eat.""
+  %m4: ""I am going to bed, %m6. Do not disturb me.""
+  %m5: " When will you learn to OBEY!" Up goes the dreaded finger."
+  %m6: "Gwydion"
+  %m7: "Manannan"
+  %m8: ""%m6! You were assigned a chore. You know what happens to lazy boys!" %m7 shakes his head in disgust. ""
+  %m9: "%m8The kitchen is still dirty.%m5"
+  %m10: "%m8You failed to empty my chamber pot.%m5"
+  %m11: "%m8I am still hungry.%m5"
+  %m12: "%m8You did not dust my study.%m5"
+  %m13: "%m8You failed to feed my fowl.%m5"
+  %m14: "You are forbidden to be here!"
+  %m15: ""
+  %m16: ""Perhaps you'd like a closer view of the ground, %m6," says %m7."
+  %m17: ""Try hanging around in the kitchen a while, %m6," growls %m7."
+  %m18: ""You need to work off a little of that weight, %m6," snarls %m7."
+  %m19: "%m7 leers, "Like a bad little boy, you need to spend some time in your room!""
+  %m20: ""%m14" hisses the old wizard, displaying no emotion, his face stony and cold."
+  %m21: "%m7's eyes narrow to slits. "%m6!! %m14 I've a good mind to..." His face softens as he continues, "Well, maybe next time. For now... GO HOME!""
+  %m22: ""Attempting magic around me will always fail," %m7 laughs. "Be gone, %m6; you bore me!""
+  %m23: ""I am ravenous. Fix me something immediately!""
+  %m24: ""My magic wand is missing!! It's time to teach you a LESSON, boy!""
+  %m25: ""I've tried to be patient with you, %m6, but this is the final straw." With a snaggle-toothed grin, %m7 raises his finger."
+  %m26: ""You're up to no good, %m6" %m7 snarls through clenched teeth. "Never again will you discover my secrets!""
+  %m27: ""There's no way you could have collected these things without disobeying me, %m6" the hateful wizard hisses as he takes the offensive objects from you."
+  %m28: ""You'll create no magic around me, %m6" the hateful wizard growls as he takes the offending ingredients from you."
+  %m29: ""You've discovered the secrets of `The Sorcery of Old.' Never again will you disobey me, %m6!!""
+
+[ SCRIPT: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+0000: IF-AND (
+0002:     NOT isset(%f109)
+0004: ) {
+0007:     set(%f109)
+0009:     set(%f46)
+000B:     program.control
+000C:     prevent.input
+000D:     normal.motion(%o0)
+000F:     stop.motion(%o0)
+0011:     set(%f38)
+0013:     set(%f37)
+0015:     ignore.blocks(%o0)
+0017:     load.view(191)
+0019:     load.view(13)
+001B:     load.sound(4)
+001D:     load.sound(5)
+001F:     load.sound(2)
+0021:     load.view(193)
+0023:     load.view(199)
+0025:     animate.obj(%o14)
+0027:     set.view(%o14, 199)
+002A:     set.priority(%o14, 15)
+002D:     set.cel(%o14, 0)
+0030:     assignn(%v36, 3)
+0033:     cycle.time(%o14, %v36)
+0036:     ignore.objs(%o14)
+0038:     stop.motion(%o14)
+003A:     assignn(%v135, 0)
+003D:     reset(%f104)
+003F:     reset(%f106)
+0041:     reset(%f105)
+0043:     assignn(%v133, 0)
+0046:     IF-AND (
+0047:         isset(%f99)
+0049:     ) {
+004C:         reset(%f98)
+004E:         set.view(%o15, 190)
+0051:         reset(%f104)
+0053:         normal.motion(%o15)
+0055:         stop.motion(%o15)
+0057:         assignn(%v133, 2)
+005A:         set(%f108)
+005C:     } else {
+005F:         set(%f104)
+0061:         end.of.loop(%o14, %f108)
+0064:         load.sound(27)
+0066:         animate.obj(%o15)
+0068:         position.v(%o15, %v32, %v31)
+          }
+006C:     set.view(%o15, 193)
+006F:     assignv(%v36, %v40)
+0072:     IF-AND (
+0073:         greatern(%v36, 2)
+0076:     ) {
+0079:         subn(%v36, 3)
+          }
+007C:     assignv(%v37, %v32)
+007F:     IF-AND (
+0080:         lessv(%v36, %v37)
+0083:     ) {
+0086:         set.loop(%o15, 1)
+0089:         addn(%v37, 8)
+008C:     } else {
+008F:         set.loop(%o15, 0)
+0092:         addn(%v37, 4)
+          }
+0095:     position.v(%o14, %v37, %v31)
+0099:     assignn(%v36, 2)
+009C:     cycle.time(%o15, %v36)
+009F:     set.cel(%o15, 0)
+00A2:     stop.cycling(%o15)
+00A4:     IF-AND (
+00A6:         NOT isset(%f99)
+00A8:     ) {
+00AB:         set(%f99)
+00AD:         sound(27, %f41)
+00B0:         draw(%o14)
+          }
+      }
+00B2: IF-AND (
+00B3:     isset(%f45)
+00B5: ) {
+00B8:     decrement(%v132)
+00BA:     IF-AND (
+00BB:         equaln(%v132, 1)
+00BE:     ) {
+00C1:         set(%f108)
+          }
+      }
+00C3: IF-AND (
+00C4:     OR (
+00C5:         equaln(%v133, 0)
+00C8:         equaln(%v133, 13)
+00CB:         equaln(%v133, 10)
+00CE:     )
+00CF: ) {
+00D2:     current.cel(%o14, %v36)
+00D5:     IF-AND (
+00D6:         equaln(%v36, 3)
+00D9:     ) {
+00DC:         set(%f108)
+          }
+      }
+00DE: IF-AND (
+00DF:     isset(%f108)
+00E1: ) {
+00E4:     reset(%f108)
+00E6:     increment(%v133)
+00E8:     IF-AND (
+00E9:         equaln(%v133, 1)
+00EC:     ) {
+00EF:         draw(%o15)
+          }
+00F1:     IF-AND (
+00F2:         equaln(%v133, 2)
+00F5:     ) {
+00F8:         erase(%o14)
+00FA:         assignn(%v132, 4)
+          }
+00FD:     IF-AND (
+00FE:         equaln(%v133, 3)
+0101:     ) {
+0104:         IF-AND (
+0105:             OR (
+0106:                 equaln(%v123, 15)
+0109:                 greatern(%v123, 15)
+010C:             )
+010D:             lessn(%v123, 20)
+0110:         ) {
+0113:             reset(%f106)
+0115:             reset(%f104)
+0117:             set(%f105)
+0119:         } else {
+011C:             IF-AND (
+011D:                 equaln(%v123, 22)
+0120:             ) {
+0123:                 set(%f106)
+0125:                 set(%f104)
+0127:                 reset(%f105)
+0129:             } else {
+012C:                 IF-AND (
+012E:                     NOT greatern(%v84, 0)
+0132:                     NOT greatern(%v83, 0)
+0135:                 ) {
+0138:                     increment(%v127)
+013A:                     IF-AND (
+013B:                         greatern(%v127, 4)
+013E:                     ) {
+0141:                         assignn(%v127, 1)
+0144:                         assignn(%v84, 5)
+                          }
+0147:                     IF-AND (
+0148:                         equaln(%v127, 2)
+014B:                     ) {
+014E:                         assignn(%v84, 25)
+                          }
+0151:                     IF-AND (
+0152:                         equaln(%v127, 3)
+0155:                     ) {
+0158:                         assignn(%v84, 5)
+                          }
+015B:                     IF-AND (
+015C:                         equaln(%v127, 4)
+015F:                     ) {
+0162:                         assignn(%v84, 25)
+                          }
+0165:                     assignv(%v123, %v127)
+0168:                     reset(%f106)
+016A:                     set(%f104)
+016C:                     reset(%f105)
+                      }
+016E:                 IF-AND (
+016F:                     greatern(%v137, 0)
+0173:                     NOT greatern(%v110, 0)
+0177:                     NOT greatern(%v109, 0)
+017A:                 ) {
+017D:                     assignn(%v123, 8)
+0180:                     addv(%v123, %v137)
+0183:                     assignn(%v137, 0)
+0186:                     reset(%f106)
+0188:                     reset(%f104)
+018A:                     set(%f105)
+                      }
+018C:                 IF-AND (
+018D:                     greatern(%v0, 8)
+                          [ VAR %v0: Current room number
+0190:                     lessn(%v0, 87)
+                          [ VAR %v0: Current room number
+0193:                 ) {
+0196:                     IF-AND (
+0197:                         greatern(%v0, 10)
+                              [ VAR %v0: Current room number
+019B:                         NOT equaln(%v56, 7)
+019F:                         NOT isset(%f124)
+01A1:                     ) {
+01A4:                         set(%f124)
+01A6:                         assignn(%v44, 14)
+01A9:                         assignn(%v135, 8)
+01AC:                         assignn(%v123, 21)
+01AF:                         reset(%f106)
+01B1:                         reset(%f104)
+01B3:                         set(%f105)
+01B5:                     } else {
+01B8:                         IF-AND (
+01B9:                             OR (
+01BA:                                 equaln(%v56, 7)
+01BD:                                 greatern(%v134, 4)
+01C0:                             )
+01C1:                         ) {
+01C4:                             assignn(%v123, 25)
+01C7:                             set(%f106)
+01C9:                             set(%f104)
+01CB:                             reset(%f105)
+01CD:                         } else {
+01D0:                             assignn(%v123, 20)
+01D3:                             reset(%f106)
+01D5:                             reset(%f104)
+01D7:                             set(%f105)
+                              }
+                          }
+                      }
+01D9:                 set(%f107)
+01DB:                 call(107)
+01DD:                 IF-AND (
+01DE:                     greatern(%v123, 26)
+01E1:                 ) {
+01E4:                     set(%f106)
+01E6:                     set(%f104)
+01E8:                     reset(%f105)
+                      }
+01EA:                 IF-AND (
+01EB:                     greatern(%v95, 0)
+01EE:                 ) {
+01F1:                     assignn(%v123, 26)
+01F4:                     set(%f106)
+01F6:                     set(%f104)
+01F8:                     reset(%f105)
+                      }
+01FA:                 assignn(%v36, 5)
+01FD:                 IF-AND (
+01FF:                     NOT obj.in.room(%i37, %v36)
+                              [ INVENTORY %i37: "Magic Wand*"
+0202:                 ) {
+0205:                     assignn(%v123, 24)
+0208:                     set(%f106)
+020A:                     set(%f104)
+020C:                     reset(%f105)
+                      }
+                  }
+              }
+020E:         IF-AND (
+020F:             OR (
+0210:                 isset(%f105)
+0212:                 isset(%f106)
+0214:             )
+0215:         ) {
+0218:             assignn(%v133, 4)
+021B:         } else {
+021E:             assignn(%v133, 13)
+              }
+0221:         IF-AND (
+0222:             OR (
+0223:                 lessn(%v123, 15)
+0226:                 greatern(%v123, 20)
+0229:                 equaln(%v123, 20)
+022C:             )
+022D:         ) {
+0230:             print.v(%v123)
+              }
+0232:         IF-AND (
+0233:             equalv(%v123, %v127)
+0236:             equaln(%v127, 3)
+0239:         ) {
+023C:             assignn(%v137, 3)
+023F:             assignn(%v110, 3)
+              }
+0242:         IF-AND (
+0243:             equalv(%v123, %v127)
+0246:             isset(%f155)
+0248:             equaln(%v127, 1)
+024B:         ) {
+024E:             assignn(%v137, 3)
+0251:             assignn(%v110, 3)
+0254:             print(%m23)
+                  [ MSG %m23: ""I am ravenous. Fix me something immediately!""
+              }
+          }
+0256:     IF-AND (
+0257:         equaln(%v133, 4)
+025A:     ) {
+025D:         start.cycling(%o15)
+025F:         end.of.loop(%o15, %f108)
+0262:         IF-AND (
+0263:             isset(%f105)
+0265:         ) {
+0268:             increment(%v134)
+026A:             IF-AND (
+026B:                 greatern(%v134, 5)
+026E:             ) {
+0271:                 assignn(%v123, 25)
+0274:                 print.v(%v123)
+0276:                 set(%f106)
+0278:                 set(%f104)
+027A:                 reset(%f105)
+                  }
+              }
+          }
+027C:     IF-AND (
+027D:         equaln(%v133, 5)
+0280:     ) {
+0283:         IF-AND (
+0284:             isset(%f105)
+0286:         ) {
+0289:             assignn(%v133, 10)
+028C:         } else {
+028F:             assignn(%v133, 6)
+              }
+          }
+0292:     IF-AND (
+0293:         equaln(%v133, 6)
+0296:     ) {
+0299:         set.view(%o14, 191)
+029C:         assignv(%v37, %v40)
+029F:         subn(%v37, 8)
+02A2:         assignv(%v38, %v41)
+02A5:         subn(%v38, 9)
+02A8:         position.v(%o14, %v37, %v38)
+02AC:         draw(%o14)
+02AE:         stop.cycling(%o14)
+02B0:         set.cel(%o14, 0)
+02B3:         sound(4, %f41)
+02B6:         shake.screen(1)
+02B8:         set.cel(%o14, 1)
+02BB:         force.update(%o14)
+02BD:         sound(4, %f41)
+02C0:         shake.screen(1)
+02C2:         set.cel(%o14, 0)
+02C5:         force.update(%o14)
+02C7:         sound(4, %f41)
+02CA:         shake.screen(1)
+02CC:         set.cel(%o14, 1)
+02CF:         force.update(%o14)
+02D1:         sound(4, %f41)
+02D4:         shake.screen(1)
+02D6:         start.cycling(%o14)
+02D8:         sound(4, %f41)
+02DB:         assignn(%v132, 2)
+          }
+02DE:     IF-AND (
+02DF:         equaln(%v133, 7)
+02E2:     ) {
+02E5:         erase(%o14)
+02E7:         assignn(%v133, 8)
+          }
+02EA:     IF-AND (
+02EB:         equaln(%v133, 8)
+02EE:     ) {
+02F1:         set.view(%o0, 13)
+02F4:         stop.motion(%o0)
+02F6:         set.cel(%o0, 0)
+02F9:         set(%f35)
+02FB:         assignn(%v36, 2)
+02FE:         cycle.time(%o0, %v36)
+0301:         end.of.loop(%o0, %f108)
+0304:         sound(5, %f41)
+          }
+0307:     IF-AND (
+0308:         equaln(%v133, 9)
+030B:     ) {
+030E:         assignn(%v133, 13)
+0311:         reset(%f35)
+0313:         stop.cycling(%o0)
+0315:         stop.motion(%o0)
+0317:         set(%f104)
+          }
+0319:     IF-AND (
+031A:         equaln(%v133, 10)
+031D:     ) {
+0320:         assignv(%v37, %v40)
+0323:         IF-AND (
+0324:             greatern(%v37, 3)
+0327:         ) {
+032A:             subn(%v37, 4)
+              }
+032D:         position.v(%o14, %v37, %v41)
+0331:         set.view(%o14, 199)
+0334:         set.cel(%o14, 0)
+0337:         draw(%o14)
+0339:         end.of.loop(%o14, %f108)
+033C:         sound(2, %f41)
+          }
+033F:     IF-AND (
+0340:         equaln(%v133, 11)
+0343:     ) {
+0346:         erase(%o0)
+0348:         set(%f114)
+          }
+034A:     IF-AND (
+034B:         equaln(%v133, 12)
+034E:     ) {
+0351:         erase(%o14)
+0353:         IF-AND (
+0354:             equaln(%v123, 21)
+0357:         ) {
+035A:             assignn(%v135, 8)
+035D:             assignn(%v133, 16)
+0360:             load.view(0)
+0362:             set.view(%o0, 0)
+0365:         } else {
+0368:             assignn(%v112, 1)
+036B:             IF-AND (
+036C:                 greatern(%v123, 15)
+036F:                 lessn(%v123, 20)
+0372:             ) {
+0375:                 assignv(%v36, %v123)
+0378:             } else {
+037B:                 random(16, 19, %v36)
+                  }
+037F:             IF-AND (
+0380:                 equaln(%v36, 16)
+0383:             ) {
+0386:                 assignn(%v44, 27)
+0389:                 assignn(%v135, 3)
+                  }
+038C:             IF-AND (
+038D:                 equaln(%v36, 17)
+0390:             ) {
+0393:                 assignn(%v44, 21)
+0396:                 assignn(%v135, 6)
+                  }
+0399:             IF-AND (
+039A:                 equaln(%v36, 18)
+039D:             ) {
+03A0:                 assignn(%v44, 23)
+03A3:                 assignn(%v135, 7)
+                  }
+03A6:             IF-AND (
+03A7:                 equaln(%v36, 19)
+03AA:             ) {
+03AD:                 assignn(%v44, 22)
+03B0:                 assignn(%v135, 4)
+                  }
+03B3:             IF-AND (
+03B4:                 equalv(%v135, %v0)
+                      [ VAR %v0: Current room number
+03B7:             ) {
+03BA:                 GOTO(0x037B)
+                  }
+03BD:             print.v(%v36)
+03BF:             assignn(%v133, 16)
+              }
+          }
+03C2:     IF-AND (
+03C3:         equaln(%v133, 13)
+03C6:     ) {
+03C9:         IF-AND (
+03CB:             NOT isset(%f104)
+03CD:         ) {
+03D0:             assignn(%v133, 16)
+03D3:         } else {
+03D6:             get.posn(%o15, %v32, %v31)
+03DA:             current.loop(%o15, %v36)
+03DD:             assignv(%v36, %v32)
+03E0:             IF-AND (
+03E1:                 equaln(%v36, 1)
+03E4:             ) {
+03E7:                 addn(%v36, 8)
+03EA:             } else {
+03ED:                 addn(%v36, 4)
+                  }
+03F0:             position.v(%o14, %v36, %v31)
+03F4:             set.view(%o14, 199)
+03F7:             set.cel(%o14, 0)
+03FA:             draw(%o14)
+03FC:             end.of.loop(%o14, %f108)
+03FF:             sound(2, %f41)
+              }
+          }
+0402:     IF-AND (
+0403:         equaln(%v133, 14)
+0406:     ) {
+0409:         erase(%o15)
+          }
+040B:     IF-AND (
+040C:         equaln(%v133, 15)
+040F:     ) {
+0412:         reset(%f99)
+0414:         erase(%o14)
+0416:         assignn(%v133, 16)
+          }
+0419:     IF-AND (
+041A:         equaln(%v133, 16)
+041D:     ) {
+0420:         assignn(%v123, 0)
+0423:         assignn(%v133, 0)
+0426:         reset(%f109)
+0428:         IF-AND (
+0429:             isset(%f105)
+042B:         ) {
+042E:             assignn(%v0, 106)
+                  [ VAR %v0: Current room number
+0431:             new.room.v(%v135)
+              }
+0433:         IF-AND (
+0434:             isset(%f106)
+0436:         ) {
+0439:             stop.motion(%o0)
+043B:             stop.cycling(%o0)
+043D:             set(%f44)
+              }
+043F:         IF-AND (
+0441:             NOT isset(%f44)
+0443:         ) {
+0446:             reset(%f46)
+0448:             player.control
+0449:             accept.input
+044A:             start.motion(%o0)
+044C:             reset(%f38)
+044E:             reset(%f37)
+0450:             observe.blocks(%o0)
+              }
+          }
+      }
+0452: return

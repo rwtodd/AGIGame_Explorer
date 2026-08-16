@@ -445,5 +445,37 @@ void main() {
       expect(find.byType(InventoryDialog), findsNothing);
       expect(engine.isInventoryOpen, isFalse);
     });
+
+    testWidgets('preserves asterisk in dangerous item names in InventoryDialog and ObjectInspectionDialog', (tester) async {
+      final engine = AgiGameEngine(
+        objects: const [
+          AgiObject(name: '?', startingRoom: 0),
+          AgiObject(name: '*magic wand', startingRoom: 255),
+          AgiObject(name: 'bread dough*', startingRoom: 255),
+        ],
+      );
+      engine.initializeGame();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+
+      // Press Tab key to open inventory
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+
+      expect(find.byType(InventoryDialog), findsOneWidget);
+      expect(find.text('*magic wand'), findsOneWidget);
+      expect(find.text('bread dough*'), findsOneWidget);
+
+      // Inspect first item (*magic wand)
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(find.byType(ObjectInspectionDialog), findsOneWidget);
+      expect(find.text('*MAGIC WAND'), findsOneWidget);
+    });
   });
 }

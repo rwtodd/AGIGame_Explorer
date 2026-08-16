@@ -133,11 +133,12 @@ class AgiTextScreenBuffer {
     }
   }
 
-  /// Returns true if there are any non-space characters in the buffer.
+  /// Returns true if there are any non-space characters or non-zero background colors in the buffer.
   bool get hasContent {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < columns; c++) {
-        if (!_grid[r][c].isBlank) return true;
+        final cell = _grid[r][c];
+        if (!cell.isBlank || cell.bg != 0) return true;
       }
     }
     return false;

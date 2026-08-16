@@ -278,24 +278,24 @@ void main() {
       expect(engine.checkSaid([100, 300]), isFalse);
     });
 
-    test('checkSaid supports ANYWORD wildcard (9999) and ROL wildcard (9998)', () {
+    test('checkSaid supports ANYWORD wildcard (1) and ROL wildcard (9999)', () {
       // Input: [100 (look), 200 (at), 300 (magic), 400 (tree)]
       engine.setParsedWordIdsForTesting([100, 200, 300, 400]);
 
-      // ANYWORD (9999) matches any token
-      expect(engine.checkSaid([100, 9999, 300, 400]), isTrue);
+      // ANYWORD (1) matches any token
+      expect(engine.checkSaid([100, 1, 300, 400]), isTrue);
       engine.memory.resetFlag(4);
-      expect(engine.checkSaid([9999, 9999, 9999, 9999]), isTrue);
+      expect(engine.checkSaid([1, 1, 1, 1]), isTrue);
       engine.memory.resetFlag(4);
-      expect(engine.checkSaid([9999, 9999, 9999]), isFalse); // too short
+      expect(engine.checkSaid([1, 1, 1]), isFalse); // too short
 
-      // ROL (9998) matches rest of line
+      // ROL (9999) matches rest of line
       engine.memory.resetFlag(4);
-      expect(engine.checkSaid([100, 9998]), isTrue);
+      expect(engine.checkSaid([100, 9999]), isTrue);
       engine.memory.resetFlag(4);
-      expect(engine.checkSaid([100, 200, 9998]), isTrue);
+      expect(engine.checkSaid([100, 200, 9999]), isTrue);
       engine.memory.resetFlag(4);
-      expect(engine.checkSaid([500, 9998]), isFalse);
+      expect(engine.checkSaid([500, 9999]), isFalse);
     });
 
     test('tick post-scan clears Flag 2, Flag 4, and parsed input tokens preventing repeated triggers', () {

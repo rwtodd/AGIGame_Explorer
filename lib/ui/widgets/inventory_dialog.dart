@@ -8,7 +8,7 @@ import 'package:flutter_agigame/ui/core/theme.dart';
 /// Modal Inventory Screen widget (`status()` / Opcode 124).
 ///
 /// Features:
-/// - Filters items currently in room 0 (carried in inventory)
+/// - Filters items currently in room 255 (carried in inventory)
 /// - Clean EGA styled card with Unicode-capable typography
 /// - Empty state ("You are carrying nothing.")
 /// - Full keyboard navigation (Up/Down arrow keys, Enter to inspect, Esc/Space to close)
@@ -284,7 +284,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
         itemBuilder: (context, index) {
           final item = carried[index];
           final isSelected = index == _selectedIndex;
-          final cleanName = item.name.replaceAll('*', '').trim();
+          final displayName = item.name.trim();
 
           return InkWell(
             onTap: () {
@@ -347,7 +347,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
                   // Item Name
                   Expanded(
                     child: Text(
-                      cleanName,
+                      displayName,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,

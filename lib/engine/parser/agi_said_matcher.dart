@@ -7,16 +7,16 @@ import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart'
 ///
 /// In Sierra AGI:
 /// - `said(count, w1, w2, ...)` tests if the player's input matches the word group IDs.
-/// - Special wildcard `9999` (`ANYWORD` / `_ANY`) matches any single word token.
-/// - Special wildcard `9998` (`ROL` / `_ROL` - Rest of Line) matches 0 or more remaining words.
+/// - Special wildcard `1` (`ANYWORD` / `_ANY`) matches any single word token.
+/// - Special wildcard `9999` (`ROL` / `_ROL` - Rest of Line) matches 0 or more remaining words.
 /// - When a match occurs, Flag 4 (`said.accepted`) is set to 1.
 /// - If Flag 2 (`have.input`) is 0 or Flag 4 is already 1, `said()` returns false.
 class AgiSaidMatcher {
-  /// Special wildcard ID matching any single word token.
-  static const int anyWord = 9999;
+  /// Special wildcard ID matching any single word token (`ANYWORD` in Sierra AGI).
+  static const int anyWord = 1;
 
-  /// Special wildcard ID matching zero or more remaining words.
-  static const int restOfLine = 9998;
+  /// Special wildcard ID matching zero or more remaining words (`ROL` / Rest of Line in Sierra AGI).
+  static const int restOfLine = 9999;
 
   /// Optional reference to engine memory for flag/var synchronization.
   final AgiMemory? memory;
@@ -99,8 +99,8 @@ class AgiSaidMatcher {
   ///
   /// Handles:
   /// - Exact word group ID matches
-  /// - `9999` ([anyWord]): matches any single word at this position
-  /// - `9998` ([restOfLine]): matches zero or more words up to end of input
+  /// - `1` ([anyWord]): matches any single word at this position
+  /// - `9999` ([restOfLine]): matches zero or more words up to end of input
   static bool matchWords(List<int> pattern, List<int> userWords) {
     return _matchHelper(pattern, 0, userWords, 0);
   }

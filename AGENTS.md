@@ -28,7 +28,7 @@ Reference engines, specifications, and test game data are kept in the primary re
 - **`lib/engine/`**:
   - `AgiGameEngine`: 20 Hz tick coordinator, room lifecycle, script calls, interpreter delegate events.
   - `lib/engine/motion/`: Direction vectors (0–8), motion modes (`normal`, `wander`, `followEgo`, `moveObj`), cel animation cycling, and control line / screen border collision detection.
-  - `lib/engine/parser/`: Text input tokenizer against `WORDS.TOK`, noise filtering, unknown word detection, and Sierra `said(...)` pattern matcher with `ANYWORD` (9999) & `ROL` (9998) wildcards.
+  - `lib/engine/parser/`: Text input tokenizer against `WORDS.TOK`, noise filtering, unknown word detection, and Sierra `said(...)` pattern matcher with `ANYWORD` (1) & `ROL` (9999) wildcards.
   - `lib/engine/state/`: JSON `.sav` save state serializer and rolling checkpoint manager.
   - `lib/engine/controllers/`: Keyboard shortcut and function key mapping (`set.key`).
 - **`lib/ui/`**:

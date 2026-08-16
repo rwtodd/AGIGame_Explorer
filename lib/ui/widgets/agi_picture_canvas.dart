@@ -311,7 +311,7 @@ class AgiPicturePainter extends CustomPainter {
 
         while (c < AgiTextScreenBuffer.columns) {
           final nextCell = textScreenBuffer!.getCell(r, c);
-          if (nextCell.isBlank || nextCell.fg != fg || nextCell.bg != bg) {
+          if (nextCell.fg != fg || nextCell.bg != bg) {
             break;
           }
           sb.write(nextCell.char);

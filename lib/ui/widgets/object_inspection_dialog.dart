@@ -93,7 +93,7 @@ class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
     final resolvedView = _resolveView(resolvedObj);
 
     final rawName = resolvedObj?.name ?? 'Object #${widget.objectNumber}';
-    final displayName = rawName.replaceAll('*', '').trim();
+    final displayName = rawName.trim();
     final effectiveDescription = widget.description ??
         ((resolvedView?.description != null && resolvedView!.description!.trim().isNotEmpty)
             ? resolvedView.description!.trim()

@@ -18,6 +18,7 @@ import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
@@ -1789,39 +1790,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return false;
     }
 
-    if (_parsedWordIds.isEmpty && wordGroupIds.isNotEmpty) {
-      return false;
-    }
-
-    int inputIdx = 0;
-    int expectedIdx = 0;
-
-    while (expectedIdx < wordGroupIds.length) {
-      final expected = wordGroupIds[expectedIdx];
-
-      // 9998 = Rest of Line (_ROL) wildcard: matches all remaining tokens
-      if (expected == 9998) {
-        memory.setFlag(4); // said.accepted = 1
-        return true;
-      }
-
-      if (inputIdx >= _parsedWordIds.length) {
-        return false;
-      }
-
-      final actual = _parsedWordIds[inputIdx];
-
-      // 9999 = Any Word (_ANY) wildcard: matches any single token
-      if (expected == 9999 || expected == actual) {
-        inputIdx++;
-        expectedIdx++;
-      } else {
-        return false;
-      }
-    }
-
-    // Must match all tokens exactly unless ROL was specified
-    if (inputIdx == _parsedWordIds.length) {
+    if (AgiSaidMatcher.matchWords(wordGroupIds, _parsedWordIds)) {
       memory.setFlag(4); // said.accepted = 1
       return true;
     }

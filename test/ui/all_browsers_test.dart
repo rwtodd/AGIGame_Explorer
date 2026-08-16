@@ -43,9 +43,11 @@ class _MockVolumeManager extends VolumeManager {
 
   @override
   Uint8List getObjectsData() => Uint8List.fromList([
-        3, 0, 16,
-        3, 0, 1,
+        6, 0, 16, // wordsStart = 9, maxAnimated = 16
+        6, 0, 1,   // obj 0: name at 3+6=9 ('book'), room 1
+        11, 0, 255, // obj 1: name at 3+11=14 ('*wand'), room 255
         98, 111, 111, 107, 0, // 'book\0'
+        42, 119, 97, 110, 100, 0, // '*wand\0'
       ]);
 
   @override
@@ -158,11 +160,15 @@ void main() {
     expect(find.text('#0'), findsOneWidget);
     expect(find.text('OBJECT #0'), findsOneWidget);
     expect(find.text('book'), findsWidgets);
+    expect(find.text('Starting Room: 1'), findsWidgets);
+    expect(find.text('*wand'), findsOneWidget);
+    expect(find.text('Carried by Ego (Room 255)'), findsOneWidget);
 
     // Search query
     await tester.enterText(find.byType(TextField), 'book');
     await tester.pumpAndSettle();
     expect(find.text('#0'), findsOneWidget);
+    expect(find.text('#1'), findsNothing);
   });
 
   testWidgets('WordsBrowserScreen renders vocabulary dictionary', (tester) async {

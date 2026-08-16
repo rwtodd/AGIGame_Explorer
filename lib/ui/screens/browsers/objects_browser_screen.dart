@@ -293,7 +293,7 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
                                             Text(
                                               _formatRoomLocation(obj.startingRoom),
                                               style: TextStyle(
-                                                color: obj.startingRoom == 0 ? AgiTheme.egaGreen : AgiTheme.egaMuted,
+                                                color: obj.startingRoom == 255 ? AgiTheme.egaGreen : AgiTheme.egaMuted,
                                                 fontSize: 11,
                                               ),
                                             ),
@@ -378,7 +378,7 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
                                   Text(
                                     _formatRoomLocation(selectedObj.startingRoom),
                                     style: TextStyle(
-                                      color: selectedObj.startingRoom == 0 ? AgiTheme.egaGreen : AgiTheme.egaMuted,
+                                      color: selectedObj.startingRoom == 255 ? AgiTheme.egaGreen : AgiTheme.egaMuted,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 11,
                                     ),
@@ -542,8 +542,7 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
   }
 
   String _formatRoomLocation(int room) {
-    if (room == 0) return 'Carried by Ego (Room 0)';
-    if (room == 255) return 'Room 255 (Unobtainable / Out of Play)';
+    if (room == 255) return 'Carried by Ego (Room 255)';
     return 'Starting Room: $room';
   }
 }
