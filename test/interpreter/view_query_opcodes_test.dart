@@ -415,7 +415,7 @@ void main() {
       );
     });
 
-    test('get.string prompts delegate and stores submitted text in string register', () async {
+    test('get.string prompts delegate and stores submitted text in string register', () {
       // get.string(s: 2, m: 1, row: 10, col: 5, maxLen: 12) -> 0x73, 2, 1, 10, 5, 12
       final script = AgiLogicScript(
         bytecodes: Uint8List.fromList([
@@ -428,21 +428,22 @@ void main() {
       );
 
       vm.loadRootScript(script);
-      vm.executeCycle();
+      final status = vm.executeCycle();
+      expect(status, equals(InterpreterStatus.yielded));
+      expect(vm.hasPendingInput, isTrue);
 
       expect(delegate.lastGetStringPrompt, equals('What is your name?'));
       expect(delegate.lastGetStringRow, equals(10));
       expect(delegate.lastGetStringCol, equals(5));
       expect(delegate.lastGetStringMaxLen, equals(12));
 
-      // Resolve delegate future
-      delegate.getStringCompleter!.complete('Sir Graham');
-      await Future<void>.delayed(Duration.zero);
-
+      // Resume interpreter with input
+      final resumeStatus = vm.resumeWithInput('Sir Graham');
+      expect(resumeStatus, equals(InterpreterStatus.completed));
       expect(memory.getString(2), equals('Sir Graham'));
     });
 
-    test('get.string clamps entered text to maxLen', () async {
+    test('get.string clamps entered text to maxLen', () {
       final script = AgiLogicScript(
         bytecodes: Uint8List.fromList([
           0x73, 0x00, 0x01, 0x00, 0x00, 0x04, // maxLen = 4
@@ -454,15 +455,14 @@ void main() {
       );
 
       vm.loadRootScript(script);
-      vm.executeCycle();
+      final status = vm.executeCycle();
+      expect(status, equals(InterpreterStatus.yielded));
 
-      delegate.getStringCompleter!.complete('123456789');
-      await Future<void>.delayed(Duration.zero);
-
+      vm.resumeWithInput('123456789');
       expect(memory.getString(0), equals('1234'));
     });
 
-    test('get.num prompts delegate and stores numeric value in variable', () async {
+    test('get.num prompts delegate and stores numeric value in variable', () {
       // get.num(m: 1, %v15) -> 0x76, 1, 15
       final script = AgiLogicScript(
         bytecodes: Uint8List.fromList([
@@ -475,17 +475,16 @@ void main() {
       );
 
       vm.loadRootScript(script);
-      vm.executeCycle();
+      final status = vm.executeCycle();
+      expect(status, equals(InterpreterStatus.yielded));
 
       expect(delegate.lastGetNumPrompt, equals('How much do you want to gamble?'));
 
-      delegate.getNumCompleter!.complete(75);
-      await Future<void>.delayed(Duration.zero);
-
+      vm.resumeWithInput('75');
       expect(memory.getVar(15), equals(75));
     });
 
-    test('get.num clamps numeric input to 0 - 255', () async {
+    test('get.num clamps numeric input to 0 - 255', () {
       final script = AgiLogicScript(
         bytecodes: Uint8List.fromList([
           0x76, 0x01, 0x02,
@@ -497,11 +496,10 @@ void main() {
       );
 
       vm.loadRootScript(script);
-      vm.executeCycle();
+      final status = vm.executeCycle();
+      expect(status, equals(InterpreterStatus.yielded));
 
-      delegate.getNumCompleter!.complete(999);
-      await Future<void>.delayed(Duration.zero);
-
+      vm.resumeWithInput('999');
       expect(memory.getVar(2), equals(255));
     });
   });

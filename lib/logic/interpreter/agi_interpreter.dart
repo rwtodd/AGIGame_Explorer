@@ -142,6 +142,44 @@ class AgiLogicInterpreter {
     return InterpreterStatus.completed;
   }
 
+  void Function(String?)? _pendingInputCallback;
+
+  /// Returns true if the interpreter is currently yielded waiting for player input.
+  bool get hasPendingInput => _pendingInputCallback != null;
+
+  /// Resumes interpreter execution after a yielded input prompt (`get.string` or `get.num`).
+  InterpreterStatus resumeWithInput(String? value) {
+    if (_pendingInputCallback != null) {
+      final cb = _pendingInputCallback!;
+      _pendingInputCallback = null;
+      cb(value);
+    }
+
+    int rescanCount = 0;
+    const maxRescans = 10;
+
+    while (rescanCount < maxRescans) {
+      while (!isHalted && callStack.isNotEmpty && !_newRoomRequested) {
+        final status = stepInstruction();
+        if (status != InterpreterStatus.running && !_newRoomRequested) {
+          return status;
+        }
+      }
+
+      if (_newRoomRequested) {
+        rescanCount++;
+        if (callStack.isEmpty && _rootScript != null) {
+          pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.scanStartIp);
+        }
+        continue;
+      }
+
+      break;
+    }
+
+    return InterpreterStatus.completed;
+  }
+
   /// Executes exactly one bytecode instruction from the active script frame.
   InterpreterStatus stepInstruction() {
     final frame = currentFrame;
@@ -167,8 +205,7 @@ class AgiLogicInterpreter {
         return InterpreterStatus.running;
 
       default:
-        _execAction(opcode, code, frame);
-        return InterpreterStatus.running;
+        return _execAction(opcode, code, frame);
     }
   }
 
@@ -424,7 +461,7 @@ class AgiLogicInterpreter {
     }
   }
 
-  void _execAction(int opcode, Uint8List code, AgiCallFrame frame) {
+  InterpreterStatus _execAction(int opcode, Uint8List code, AgiCallFrame frame) {
     switch (opcode) {
       case 0: // return
         callStack.removeLast();
@@ -1177,6 +1214,7 @@ class AgiLogicInterpreter {
         break;
 
       case 109: // set.text.attribute(fg, bg)
+        delegate.onSetTextAttribute(code[frame.ip + 1], code[frame.ip + 2]);
         frame.ip += 3;
         break;
 
@@ -1211,15 +1249,15 @@ class AgiLogicInterpreter {
         final col = code[frame.ip + 4];
         final maxLen = code[frame.ip + 5];
         final prompt = frame.script.getMessage(m);
-        final future = delegate.onGetString(prompt, row, col, maxLen);
-        future.then((value) {
+        frame.ip += 6;
+        _pendingInputCallback = (value) {
           if (value != null) {
             final clamped = maxLen > 0 && value.length > maxLen ? value.substring(0, maxLen) : value;
             memory.setString(s, clamped);
           }
-        });
-        frame.ip += 6;
-        break;
+        };
+        delegate.onGetString(prompt, row, col, maxLen);
+        return InterpreterStatus.yielded;
 
       case 116: // word.to.string(w, s)
         final w = code[frame.ip + 1];
@@ -1240,14 +1278,15 @@ class AgiLogicInterpreter {
         final m = code[frame.ip + 1];
         final v = code[frame.ip + 2];
         final prompt = frame.script.getMessage(m);
-        final future = delegate.onGetNum(prompt);
-        future.then((value) {
-          if (value != null) {
-            memory.setVar(v, value.clamp(0, 255));
-          }
-        });
         frame.ip += 3;
-        break;
+        _pendingInputCallback = (value) {
+          if (value != null) {
+            final num = int.tryParse(value) ?? 0;
+            memory.setVar(v, num.clamp(0, 255));
+          }
+        };
+        delegate.onGetNum(prompt);
+        return InterpreterStatus.yielded;
 
       case 119: // prevent.input()
         delegate.onInputMode(false);
@@ -1560,6 +1599,7 @@ class AgiLogicInterpreter {
           throw AgiException('Unknown action opcode 0x${opcode.toRadixString(16).padLeft(2, '0')} ($opcode)');
         }
     }
+    return InterpreterStatus.running;
   }
 
   void _doNewRoom(int room) {

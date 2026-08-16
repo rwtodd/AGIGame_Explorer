@@ -54,6 +54,9 @@ abstract class AgiInterpreterDelegate {
   /// Called when `clear.text.rect` is executed.
   void onClearTextRect(int top, int left, int bottom, int right, int color) {}
 
+  /// Called when `set.text.attribute` is executed.
+  void onSetTextAttribute(int fg, int bg) {}
+
   /// Called when `text.screen` is executed.
   void onTextScreen() {}
 

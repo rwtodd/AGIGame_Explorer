@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -34,11 +35,20 @@ class GamePlayfieldWidget extends StatefulWidget {
 class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   final Map<String, ui.Image> _spriteTextureCache = {};
   final Set<String> _pendingDecodes = {};
+  Timer? _blinkTimer;
+  bool _cursorBlink = true;
 
   @override
   void initState() {
     super.initState();
     _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
+    _blinkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted && widget.engine.activeInputPrompt?.row != null) {
+        setState(() {
+          _cursorBlink = !_cursorBlink;
+        });
+      }
+    });
   }
 
   @override
@@ -91,6 +101,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   @override
   void dispose() {
+    _blinkTimer?.cancel();
     for (final img in _spriteTextureCache.values) {
       img.dispose();
     }
@@ -126,16 +137,26 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (currentPic != null)
+                  if (widget.engine.isTextScreen || currentPic != null)
                     CustomPaint(
                       painter: AgiPicturePainter(
                         picture: currentPic,
                         actors: _buildActorSprites(),
                         displayedTexts: widget.engine.displayedTexts,
+                        textScreenBuffer: widget.engine.textScreenBuffer,
+                        isTextScreen: widget.engine.isTextScreen,
+                        textFgColor: widget.engine.textFgColor,
+                        textBgColor: widget.engine.textBgColor,
+                        showCursor: _cursorBlink && (widget.engine.activeInputPrompt?.row != null),
+                        cursorRow: widget.engine.activeInputPrompt?.row,
+                        cursorCol: widget.engine.activeInputPrompt?.col ?? 0,
+                        cursorPromptText: (widget.engine.activeInputPrompt != null && widget.engine.activeInputPrompt!.row != null)
+                            ? '${widget.engine.activeInputPrompt!.prompt}${widget.engine.activeInputPrompt!.currentText}'
+                            : null,
                         renderMode: widget.renderMode,
-                        flatVisualImage: currentPic.cachedFlatVisualImage,
-                        priorityMapImage: currentPic.cachedPriorityMapImage,
-                        controlMapImage: currentPic.cachedControlMapImage,
+                        flatVisualImage: currentPic?.cachedFlatVisualImage,
+                        priorityMapImage: currentPic?.cachedPriorityMapImage,
+                        controlMapImage: currentPic?.cachedControlMapImage,
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,
                         showPixelGrid: widget.showPixelGrid,
                       ),

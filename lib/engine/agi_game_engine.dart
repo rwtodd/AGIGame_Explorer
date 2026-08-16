@@ -19,6 +19,7 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
+import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// Represents the type of user input requested by an input prompt dialog.
@@ -34,15 +35,17 @@ class AgiInputPromptState {
   final int? row;
   final int? col;
   final int maxLen;
+  String currentText;
   final Completer<String?>? stringCompleter;
   final Completer<int?>? numCompleter;
 
-  const AgiInputPromptState({
+  AgiInputPromptState({
     required this.type,
     required this.prompt,
     this.row,
     this.col,
     this.maxLen = 40,
+    this.currentText = '',
     this.stringCompleter,
     this.numCompleter,
   });
@@ -122,6 +125,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool _isInputEnabled = true;
   bool _isUserControl = true;
   final List<AgiDisplayText> _displayedTexts = [];
+  final AgiTextScreenBuffer textScreenBuffer = AgiTextScreenBuffer();
+  bool _isTextScreen = false;
+  int _textFgColor = 15;
+  int _textBgColor = 0;
   final math.Random _rng;
   int? _activeSoundEndFlag;
   int horizon = CollisionDetector.defaultHorizon;
@@ -192,6 +199,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   set isUserControl(bool enabled) => onUserControl(enabled);
   List<String> get inputWords => List.unmodifiable(_inputWords);
   List<AgiDisplayText> get displayedTexts => List.unmodifiable(_displayedTexts);
+  bool get isTextScreen => _isTextScreen;
+  int get textFgColor => _textFgColor;
+  int get textBgColor => _textBgColor;
   int get currentRoom => memory.getVar(0);
   AnimatedObject get ego => animatedObjects[0];
 
@@ -288,6 +298,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         if (_isRunning &&
             !_isPaused &&
             !(activeDialog?.isModal ?? false) &&
+            activeInputPrompt == null &&
             !_isInventoryOpen &&
             _inspectingObjectNumber == null) {
           tick();
@@ -551,25 +562,48 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
   }
 
-  /// Submits the current active input prompt value and completes the awaiting future.
+  /// Updates the current interactive prompt text and synchronizes with the on-screen text buffer.
+  void updateInputPrompt(String value) {
+    final prompt = activeInputPrompt;
+    if (prompt == null) return;
+    final clamped = (prompt.maxLen > 0 && value.length > prompt.maxLen)
+        ? value.substring(0, prompt.maxLen)
+        : value;
+    prompt.currentText = clamped;
+
+    if (prompt.row != null) {
+      final r = prompt.row!;
+      final c = (prompt.col ?? 0) + prompt.prompt.length;
+      final maxAvailable = (AgiTextScreenBuffer.columns - c).clamp(0, 40);
+      final padLen = (prompt.maxLen > 0 ? prompt.maxLen : clamped.length).clamp(clamped.length, maxAvailable);
+      textScreenBuffer.writeString(r, c, clamped.padRight(padLen, ' '), fg: _textFgColor, bg: _textBgColor);
+    }
+    notifyListeners();
+  }
+
+  /// Submits the current active input prompt value, completes awaiting future, and resumes interpreter.
   void submitInputPrompt(String value) {
     final prompt = activeInputPrompt;
     if (prompt != null) {
+      String? resultValue;
       if (prompt.type == AgiInputPromptType.string) {
         final clamped = prompt.maxLen > 0 && value.length > prompt.maxLen
             ? value.substring(0, prompt.maxLen)
             : value;
+        resultValue = clamped;
         prompt.stringCompleter?.complete(clamped);
       } else {
-        final num = int.tryParse(value) ?? 0;
-        prompt.numCompleter?.complete(num.clamp(0, 255));
+        final num = (int.tryParse(value) ?? 0).clamp(0, 255);
+        resultValue = num.toString();
+        prompt.numCompleter?.complete(num);
       }
       activeInputPrompt = null;
+      interpreter.resumeWithInput(resultValue);
       notifyListeners();
     }
   }
 
-  /// Cancels the current active input prompt without submitting a value.
+  /// Cancels the current active input prompt without submitting a value and resumes interpreter.
   void cancelInputPrompt() {
     final prompt = activeInputPrompt;
     if (prompt != null) {
@@ -579,6 +613,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         prompt.numCompleter?.complete(null);
       }
       activeInputPrompt = null;
+      interpreter.resumeWithInput(null);
       notifyListeners();
     }
   }
@@ -1115,6 +1150,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(4, 0);
     memory.setVar(5, 0);
     _displayedTexts.clear();
+    textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    _isTextScreen = false;
     _isUserControl = true;
     // Update variable 16 with current Ego view (matching Sierra NEWROOM.C var[CURRENT_EGO] = ego->view)
     memory.setVar(16, ego.view);
@@ -1147,6 +1184,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     horizon = CollisionDetector.defaultHorizon;
     activeBlock = null;
     _displayedTexts.clear();
+    textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    _isTextScreen = false;
 
     // Load room picture if available
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(roomNumber)) {
@@ -1241,9 +1280,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   Future<String?> onGetString(String prompt, int row, int col, int maxLen) {
     final completer = Completer<String?>();
+    final formatted = formatMessage(prompt);
+    if (row < AgiTextScreenBuffer.rows && formatted.isNotEmpty) {
+      textScreenBuffer.writeString(row, col, formatted, fg: _textFgColor, bg: _textBgColor);
+    }
     activeInputPrompt = AgiInputPromptState(
       type: AgiInputPromptType.string,
-      prompt: formatMessage(prompt),
+      prompt: formatted,
       row: row,
       col: col,
       maxLen: maxLen,
@@ -1256,9 +1299,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   Future<int?> onGetNum(String prompt) {
     final completer = Completer<int?>();
+    final formatted = formatMessage(prompt);
     activeInputPrompt = AgiInputPromptState(
       type: AgiInputPromptType.number,
-      prompt: formatMessage(prompt),
+      prompt: formatted,
       maxLen: 3,
       numCompleter: completer,
     );
@@ -1294,12 +1338,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final formatted = formatMessage(message);
     _displayedTexts.removeWhere((t) => t.row == row && t.col == col);
     _displayedTexts.add(AgiDisplayText(row: row, col: col, message: formatted));
+    textScreenBuffer.writeString(row, col, formatted, fg: _textFgColor, bg: _textBgColor);
     notifyListeners();
   }
 
   @override
   void onClearLines(int top, int bottom, int color) {
     _displayedTexts.removeWhere((t) => t.row >= top && t.row <= bottom);
+    textScreenBuffer.clearLines(top, bottom, color);
     notifyListeners();
   }
 
@@ -1308,7 +1354,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _displayedTexts.removeWhere(
       (t) => t.row >= top && t.row <= bottom && t.col >= left && t.col <= right,
     );
+    textScreenBuffer.clearTextRect(top, left, bottom, right, color);
     notifyListeners();
+  }
+
+  @override
+  void onSetTextAttribute(int fg, int bg) {
+    _textFgColor = fg.clamp(0, 15);
+    _textBgColor = bg.clamp(0, 15);
+    textScreenBuffer.currentFg = _textFgColor;
+    textScreenBuffer.currentBg = _textBgColor;
   }
 
   @override
@@ -1359,10 +1414,19 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onTextScreen() {}
+  void onTextScreen() {
+    _isTextScreen = true;
+    textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    notifyListeners();
+  }
 
   @override
-  void onGraphics() {}
+  void onGraphics() {
+    _isTextScreen = false;
+    _displayedTexts.clear();
+    textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    notifyListeners();
+  }
 
   @override
   void onShakeScreen(int count) {}
@@ -1406,11 +1470,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void onStopSound() {
-    soundPlayer?.stop();
     if (_activeSoundEndFlag != null) {
       memory.setFlag(_activeSoundEndFlag!);
       _activeSoundEndFlag = null;
     }
+    soundPlayer?.stop();
   }
 
   @override
@@ -1425,6 +1489,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
       currentPic = resourceLoader!.loadPic(picNumber);
       currentPic?.preloadGpuTextures();
+      _displayedTexts.clear();
+      textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
       notifyListeners();
     }
   }
@@ -1432,6 +1498,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onShowPic() {
     currentPic?.preloadGpuTextures();
+    _displayedTexts.clear();
+    textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
     notifyListeners();
   }
 

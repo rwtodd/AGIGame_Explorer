@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 
 /// Render modes for visualizing AGI pictures in game and diagnostic views.
@@ -40,9 +41,17 @@ class AgiActorSprite {
 
 /// Impeller-optimized CustomPainter that renders AGI backgrounds using the Painter's Algorithm across priority slices.
 class AgiPicturePainter extends CustomPainter {
-  final AgiPic picture;
+  final AgiPic? picture;
   final List<AgiActorSprite> actors;
   final List<AgiDisplayText> displayedTexts;
+  final AgiTextScreenBuffer? textScreenBuffer;
+  final bool isTextScreen;
+  final int textFgColor;
+  final int textBgColor;
+  final bool showCursor;
+  final int? cursorRow;
+  final int? cursorCol;
+  final String? cursorPromptText;
   final AgiPictureRenderMode renderMode;
   final ui.Image? flatVisualImage;
   final ui.Image? priorityMapImage;
@@ -51,9 +60,17 @@ class AgiPicturePainter extends CustomPainter {
   final bool showPixelGrid;
 
   AgiPicturePainter({
-    required this.picture,
+    this.picture,
     this.actors = const [],
     this.displayedTexts = const [],
+    this.textScreenBuffer,
+    this.isTextScreen = false,
+    this.textFgColor = 15,
+    this.textBgColor = 0,
+    this.showCursor = false,
+    this.cursorRow,
+    this.cursorCol,
+    this.cursorPromptText,
     this.renderMode = AgiPictureRenderMode.compositedSlices,
     this.flatVisualImage,
     this.priorityMapImage,
@@ -71,54 +88,66 @@ class AgiPicturePainter extends CustomPainter {
     canvas.save();
     canvas.scale(scaleX, scaleY);
 
-    final effectiveFlat = flatVisualImage ?? picture.cachedFlatVisualImage;
-    final effectivePri = priorityMapImage ?? picture.cachedPriorityMapImage;
-    final effectiveCtrl = controlMapImage ?? picture.cachedControlMapImage;
-
-    if (isolatedPrioritySlice != null) {
-      final slice = picture.getSlice(isolatedPrioritySlice!);
-      if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
-        canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
+    if (isTextScreen) {
+      _paintTextScreen(canvas);
+      if (showCursor) {
+        _paintCursor(canvas);
       }
     } else {
-      switch (renderMode) {
-        case AgiPictureRenderMode.compositedSlices:
-          _paintCompositedSlices(canvas, paint, effectiveFlat);
-          break;
+      final pic = picture;
+      final effectiveFlat = flatVisualImage ?? pic?.cachedFlatVisualImage;
+      final effectivePri = priorityMapImage ?? pic?.cachedPriorityMapImage;
+      final effectiveCtrl = controlMapImage ?? pic?.cachedControlMapImage;
 
-        case AgiPictureRenderMode.flatVisual:
-          if (effectiveFlat != null) {
-            canvas.drawImage(effectiveFlat, Offset.zero, paint);
-          }
-          if (actors.isNotEmpty) {
-            for (final actor in actors) {
-              canvas.drawImage(actor.image, actor.position, paint);
+      if (isolatedPrioritySlice != null && pic != null) {
+        final slice = pic.getSlice(isolatedPrioritySlice!);
+        if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
+          canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
+        }
+      } else if (pic != null) {
+        switch (renderMode) {
+          case AgiPictureRenderMode.compositedSlices:
+            _paintCompositedSlices(canvas, paint, effectiveFlat, pic);
+            break;
+
+          case AgiPictureRenderMode.flatVisual:
+            if (effectiveFlat != null) {
+              canvas.drawImage(effectiveFlat, Offset.zero, paint);
             }
-          }
-          break;
+            if (actors.isNotEmpty) {
+              for (final actor in actors) {
+                canvas.drawImage(actor.image, actor.position, paint);
+              }
+            }
+            break;
 
-        case AgiPictureRenderMode.priorityMap:
-          if (effectivePri != null) {
-            canvas.drawImage(effectivePri, Offset.zero, paint);
-          }
-          break;
+          case AgiPictureRenderMode.priorityMap:
+            if (effectivePri != null) {
+              canvas.drawImage(effectivePri, Offset.zero, paint);
+            }
+            break;
 
-        case AgiPictureRenderMode.controlMap:
-          if (effectiveFlat != null) {
-            final dimPaint = Paint()
-              ..filterQuality = FilterQuality.none
-              ..color = Colors.white.withValues(alpha: 0.25);
-            canvas.drawImage(effectiveFlat, Offset.zero, dimPaint);
-          }
-          if (effectiveCtrl != null) {
-            canvas.drawImage(effectiveCtrl, Offset.zero, paint);
-          }
-          break;
+          case AgiPictureRenderMode.controlMap:
+            if (effectiveFlat != null) {
+              final dimPaint = Paint()
+                ..filterQuality = FilterQuality.none
+                ..color = Colors.white.withValues(alpha: 0.25);
+              canvas.drawImage(effectiveFlat, Offset.zero, dimPaint);
+            }
+            if (effectiveCtrl != null) {
+              canvas.drawImage(effectiveCtrl, Offset.zero, paint);
+            }
+            break;
+        }
       }
-    }
 
-    if (displayedTexts.isNotEmpty) {
-      _paintDisplayedTexts(canvas);
+      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+        _paintTextOverlay(canvas);
+      }
+
+      if (showCursor) {
+        _paintCursor(canvas);
+      }
     }
 
     if (showPixelGrid) {
@@ -128,34 +157,186 @@ class AgiPicturePainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _paintDisplayedTexts(Canvas canvas) {
-    for (final item in displayedTexts) {
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: item.message,
-          style: const TextStyle(
-            color: Color(0xFFFFFFFF),
-            fontSize: 7.0,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Courier',
-            height: 1.0,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
+  static TextStyle _monospaceStyle(int fg, {double fontSize = 7.5}) {
+    return TextStyle(
+      color: EgaColors.palette[fg.clamp(0, 15)],
+      fontSize: fontSize,
+      fontWeight: FontWeight.w600,
+      fontFamily: 'SF Mono',
+      fontFamilyFallback: const ['Menlo', 'Consolas', 'Courier New', 'monospace'],
+      height: 1.0,
+      letterSpacing: 0.1,
+    );
+  }
 
-      // Each character cell is 8x8 in 320x200 resolution
-      textPainter.paint(canvas, Offset(item.col * 8.0, item.row * 8.0));
+  static double _measureMonospaceWidth(String text, int fg, {double fontSize = 7.5}) {
+    if (text.isEmpty) return 0.0;
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: _monospaceStyle(fg, fontSize: fontSize)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    return tp.width;
+  }
+
+  static double _getHorizontalScale(int fg, {double fontSize = 7.5}) {
+    final sampleWidth = _measureMonospaceWidth('0123456789ABCDEF', fg, fontSize: fontSize);
+    if (sampleWidth <= 0) return 1.75;
+    final charWidth = sampleWidth / 16.0;
+    return 8.0 / charWidth;
+  }
+
+  void _paintTextRun(Canvas canvas, String text, int startCol, int r, int fg, {double fontSize = 7.5}) {
+    if (text.isEmpty) return;
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: _monospaceStyle(fg, fontSize: fontSize),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final sx = _getHorizontalScale(fg, fontSize: fontSize);
+    final yOffset = r * 8.0 + ((8.0 - textPainter.height) / 2.0).clamp(0.0, 4.0);
+
+    canvas.save();
+    canvas.translate(startCol * 8.0, yOffset);
+    canvas.scale(sx, 1.0);
+    textPainter.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  void _paintCursor(Canvas canvas) {
+    if (!showCursor || cursorRow == null) return;
+    if (cursorRow! < 0 || cursorRow! >= AgiTextScreenBuffer.rows) return;
+
+    double cursorX;
+    if (cursorPromptText != null) {
+      final promptOffset = (cursorCol ?? 0) * 8.0;
+      cursorX = promptOffset + (cursorPromptText!.length * 8.0);
+    } else if (cursorCol != null) {
+      cursorX = cursorCol! * 8.0;
+    } else {
+      return;
+    }
+
+    final cursorPaint = Paint()
+      ..color = EgaColors.palette[textFgColor.clamp(0, 15)]
+      ..style = PaintingStyle.fill;
+
+    canvas.drawRect(
+      Rect.fromLTWH(cursorX, cursorRow! * 8.0 + 6.5, 8.0, 1.5),
+      cursorPaint,
+    );
+  }
+
+  void _paintTextScreen(Canvas canvas) {
+    // Fill text screen background with EGA color
+    final bgPaint = Paint()
+      ..color = EgaColors.palette[textBgColor.clamp(0, 15)]
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(
+      const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0),
+      bgPaint,
+    );
+
+    if (textScreenBuffer == null) return;
+
+    for (int r = 0; r < AgiTextScreenBuffer.rows; r++) {
+      int c = 0;
+      while (c < AgiTextScreenBuffer.columns) {
+        final cell = textScreenBuffer!.getCell(r, c);
+        if (cell.isBlank && cell.bg == textBgColor) {
+          c++;
+          continue;
+        }
+
+        final startCol = c;
+        final fg = cell.fg;
+        final bg = cell.bg;
+        final sb = StringBuffer();
+
+        while (c < AgiTextScreenBuffer.columns) {
+          final nextCell = textScreenBuffer!.getCell(r, c);
+          if (nextCell.fg != fg || nextCell.bg != bg) {
+            break;
+          }
+          sb.write(nextCell.char);
+          c++;
+        }
+
+        final runText = sb.toString();
+        final textTrimmed = runText.trimRight();
+
+        if (bg != textBgColor) {
+          final cellBgPaint = Paint()
+            ..color = EgaColors.palette[bg.clamp(0, 15)]
+            ..style = PaintingStyle.fill;
+          canvas.drawRect(
+            Rect.fromLTWH(startCol * 8.0, r * 8.0, (c - startCol) * 8.0, 8.0),
+            cellBgPaint,
+          );
+        }
+
+        if (textTrimmed.isNotEmpty) {
+          _paintTextRun(canvas, textTrimmed, startCol, r, fg);
+        }
+      }
     }
   }
 
-  void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat) {
+  void _paintTextOverlay(Canvas canvas) {
+    if (textScreenBuffer == null) return;
+
+    for (int r = 0; r < AgiTextScreenBuffer.rows; r++) {
+      int c = 0;
+      while (c < AgiTextScreenBuffer.columns) {
+        final cell = textScreenBuffer!.getCell(r, c);
+        if (cell.isBlank && cell.bg == 0) {
+          c++;
+          continue;
+        }
+
+        final startCol = c;
+        final fg = cell.fg;
+        final bg = cell.bg;
+        final sb = StringBuffer();
+
+        while (c < AgiTextScreenBuffer.columns) {
+          final nextCell = textScreenBuffer!.getCell(r, c);
+          if (nextCell.isBlank || nextCell.fg != fg || nextCell.bg != bg) {
+            break;
+          }
+          sb.write(nextCell.char);
+          c++;
+        }
+
+        final runText = sb.toString();
+        final textTrimmed = runText.trimRight();
+
+        if (bg != 0) {
+          final cellBgPaint = Paint()
+            ..color = EgaColors.palette[bg.clamp(0, 15)]
+            ..style = PaintingStyle.fill;
+          canvas.drawRect(
+            Rect.fromLTWH(startCol * 8.0, r * 8.0, (c - startCol) * 8.0, 8.0),
+            cellBgPaint,
+          );
+        }
+
+        if (textTrimmed.isNotEmpty) {
+          _paintTextRun(canvas, textTrimmed, startCol, r, fg);
+        }
+      }
+    }
+  }
+
+  void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat, AgiPic pic) {
     bool drawnAny = false;
 
     // Interleave priority slices (0..15) with actor sprites in authentic Painter's Algorithm order.
     // In AGI, priority 4 is furthest background (horizon) and 15 is closest foreground overlay.
     for (int p = 0; p <= 15; p++) {
-      final slice = picture.getSlice(p);
+      final slice = pic.getSlice(p);
       if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
         canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
         drawnAny = true;
@@ -200,12 +381,20 @@ class AgiPicturePainter extends CustomPainter {
     return oldDelegate.picture != picture ||
         oldDelegate.renderMode != renderMode ||
         oldDelegate.actors != actors ||
+        oldDelegate.isTextScreen != isTextScreen ||
+        oldDelegate.textBgColor != textBgColor ||
+        oldDelegate.textScreenBuffer != textScreenBuffer ||
+        oldDelegate.displayedTexts != displayedTexts ||
         oldDelegate.flatVisualImage != flatVisualImage ||
         oldDelegate.priorityMapImage != priorityMapImage ||
         oldDelegate.controlMapImage != controlMapImage ||
-        oldDelegate.picture.cachedFlatVisualImage != picture.cachedFlatVisualImage ||
-        oldDelegate.picture.cachedPriorityMapImage != picture.cachedPriorityMapImage ||
-        oldDelegate.picture.cachedControlMapImage != picture.cachedControlMapImage ||
+        oldDelegate.picture?.cachedFlatVisualImage != picture?.cachedFlatVisualImage ||
+        oldDelegate.picture?.cachedPriorityMapImage != picture?.cachedPriorityMapImage ||
+        oldDelegate.picture?.cachedControlMapImage != picture?.cachedControlMapImage ||
+        oldDelegate.showCursor != showCursor ||
+        oldDelegate.cursorRow != cursorRow ||
+        oldDelegate.cursorCol != cursorCol ||
+        oldDelegate.cursorPromptText != cursorPromptText ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||
         oldDelegate.showPixelGrid != showPixelGrid;
   }

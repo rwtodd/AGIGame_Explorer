@@ -343,6 +343,7 @@ class _GameScreenState extends State<GameScreen> {
                         Positioned.fill(
                           child: InputPromptDialog(
                             promptState: _engine.activeInputPrompt!,
+                            onChanged: _engine.updateInputPrompt,
                             onSubmit: _engine.submitInputPrompt,
                             onCancel: _engine.cancelInputPrompt,
                           ),

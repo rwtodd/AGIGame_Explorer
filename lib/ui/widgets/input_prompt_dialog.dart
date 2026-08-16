@@ -6,12 +6,14 @@ import 'package:flutter_agigame/ui/core/theme.dart';
 /// Modal input prompt dialog for `get.string` (Opcode 115) and `get.num` (Opcode 118).
 class InputPromptDialog extends StatefulWidget {
   final AgiInputPromptState promptState;
+  final ValueChanged<String>? onChanged;
   final ValueChanged<String> onSubmit;
   final VoidCallback onCancel;
 
   const InputPromptDialog({
     super.key,
     required this.promptState,
+    this.onChanged,
     required this.onSubmit,
     required this.onCancel,
   });
@@ -27,7 +29,7 @@ class _InputPromptDialogState extends State<InputPromptDialog> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController();
+    _controller = TextEditingController(text: widget.promptState.currentText);
     _focusNode = FocusNode();
   }
 
@@ -46,12 +48,44 @@ class _InputPromptDialogState extends State<InputPromptDialog> {
   Widget build(BuildContext context) {
     final isNumeric = widget.promptState.type == AgiInputPromptType.number;
 
+    // In authentic AGI, on-screen prompts (row != null) are typed directly on the playfield
+    // with 0 screen occlusion.
+    if (widget.promptState.row != null) {
+      return CallbackShortcuts(
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.escape): widget.onCancel,
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => _focusNode.requestFocus(),
+          child: SizedBox.expand(
+            child: Opacity(
+              opacity: 0.0,
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                autofocus: true,
+                maxLength: widget.promptState.maxLen > 0 ? widget.promptState.maxLen : null,
+                keyboardType: isNumeric ? TextInputType.number : TextInputType.text,
+                inputFormatters: isNumeric ? [FilteringTextInputFormatter.digitsOnly] : null,
+                textInputAction: TextInputAction.done,
+                onChanged: (val) {
+                  widget.onChanged?.call(val);
+                },
+                onSubmitted: (_) => _handleSubmit(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.escape): widget.onCancel,
       },
       child: Container(
-        color: Colors.black.withValues(alpha: 0.65),
+        color: Colors.black.withValues(alpha: 0.25),
         alignment: Alignment.center,
         child: GestureDetector(
           onTap: () {}, // Prevent dismissal when tapping inside card
