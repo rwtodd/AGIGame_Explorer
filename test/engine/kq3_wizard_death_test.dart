@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/disassembler/disassembly_formatter.dart';
 import 'package:test/test.dart';
@@ -21,9 +20,6 @@ void main() {
       ),
     );
     final code = formatter.formatScript(logic2);
-    final scratchDir = Directory('scratch');
-    if (!scratchDir.existsSync()) scratchDir.createSync();
-    File('scratch/logic2_disasm.txt').writeAsStringSync(code);
-    print('Wrote logic 2 to scratch/logic2_disasm.txt');
+    expect(code, isNotEmpty);
   });
 }

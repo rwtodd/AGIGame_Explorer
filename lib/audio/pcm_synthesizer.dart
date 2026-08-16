@@ -123,6 +123,36 @@ class SynthesizerConfig {
         voice3Pan: 0.5,
         noisePan: 0.5,
       );
+
+  SynthesizerConfig copyWith({
+    int? sampleRate,
+    PcmPlaybackMode? mode,
+    WaveformType? waveform,
+    double? masterVolume,
+    bool? enableReverb,
+    double? reverbMix,
+    double? reverbRoomSize,
+    double? reverbDamping,
+    double? voice1Pan,
+    double? voice2Pan,
+    double? voice3Pan,
+    double? noisePan,
+  }) {
+    return SynthesizerConfig(
+      sampleRate: sampleRate ?? this.sampleRate,
+      mode: mode ?? this.mode,
+      waveform: waveform ?? this.waveform,
+      masterVolume: masterVolume ?? this.masterVolume,
+      enableReverb: enableReverb ?? this.enableReverb,
+      reverbMix: reverbMix ?? this.reverbMix,
+      reverbRoomSize: reverbRoomSize ?? this.reverbRoomSize,
+      reverbDamping: reverbDamping ?? this.reverbDamping,
+      voice1Pan: voice1Pan ?? this.voice1Pan,
+      voice2Pan: voice2Pan ?? this.voice2Pan,
+      voice3Pan: voice3Pan ?? this.voice3Pan,
+      noisePan: noisePan ?? this.noisePan,
+    );
+  }
 }
 
 /// Software synthesizer for rendering [AgiSound] resources into 16-bit PCM audio.

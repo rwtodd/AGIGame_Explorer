@@ -21,7 +21,23 @@ import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart'
 import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
+import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
+
+/// Available audio output modes for [AgiGameEngine].
+enum AgiSoundMode {
+  /// Sound muted (Flag %f9 = false).
+  off,
+
+  /// Authentic 1-Channel IBM PC Speaker square wave (%v22 = 1).
+  ibmPc,
+
+  /// Authentic 3-Voice Tone + Noise PCjr / Tandy 1000 emulation (%v22 = 3).
+  pcJr,
+
+  /// Modern synthesizer with custom waveforms & reverb DSP (%v22 = 3).
+  enhanced,
+}
 
 /// Represents the type of user input requested by an input prompt dialog.
 enum AgiInputPromptType {
@@ -132,6 +148,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int _textBgColor = 0;
   final math.Random _rng;
   int? _activeSoundEndFlag;
+  AgiSoundMode _soundMode = AgiSoundMode.pcJr;
+  SynthesizerConfig _synthesizerConfig = const SynthesizerConfig();
   int horizon = CollisionDetector.defaultHorizon;
   AgiBlockArea? activeBlock;
 
@@ -459,10 +477,77 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
+  /// Active sound output mode.
+  AgiSoundMode get soundMode => _soundMode;
+
+  /// Active synthesizer DSP configuration.
+  SynthesizerConfig get synthesizerConfig => _synthesizerConfig;
+
+  /// Whether sound is actively enabled and outputting audio.
+  bool get isSoundOn => _soundMode != AgiSoundMode.off && memory.getFlag(9);
+
+  /// Sets the active sound playback mode ([AgiSoundMode]).
+  void setSoundMode(AgiSoundMode mode) {
+    _soundMode = mode;
+    switch (mode) {
+      case AgiSoundMode.off:
+        memory.resetFlag(9); // %f9 = sound off
+        soundPlayer?.stop();
+        break;
+      case AgiSoundMode.ibmPc:
+        memory.setFlag(9); // %f9 = sound on
+        memory.setVar(22, 1); // %v22 = 1 voice
+        _synthesizerConfig = _synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.ibmPcSingleChannel,
+          enableReverb: false,
+        );
+        break;
+      case AgiSoundMode.pcJr:
+        memory.setFlag(9); // %f9 = sound on
+        memory.setVar(22, 3); // %v22 = 3 voices
+        _synthesizerConfig = _synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.tandy3VoiceNoise,
+          enableReverb: false,
+        );
+        break;
+      case AgiSoundMode.enhanced:
+        memory.setFlag(9); // %f9 = sound on
+        memory.setVar(22, 3); // %v22 = 3 voices
+        _synthesizerConfig = _synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.enhanced,
+          enableReverb: _synthesizerConfig.reverbMix > 0.0,
+        );
+        break;
+    }
+    notifyListeners();
+  }
+
+  /// Configures synthesizer parameters and updates mode accordingly.
+  void setSynthesizerConfig(SynthesizerConfig config) {
+    _synthesizerConfig = config;
+    if (_soundMode != AgiSoundMode.off) {
+      if (config.mode == PcmPlaybackMode.ibmPcSingleChannel) {
+        _soundMode = AgiSoundMode.ibmPc;
+        memory.setVar(22, 1);
+      } else if (config.mode == PcmPlaybackMode.tandy3VoiceNoise) {
+        _soundMode = AgiSoundMode.pcJr;
+        memory.setVar(22, 3);
+      } else {
+        _soundMode = AgiSoundMode.enhanced;
+        memory.setVar(22, 3);
+      }
+      memory.setFlag(9);
+    }
+    notifyListeners();
+  }
+
   /// Toggles game audio sound on/off (%f9) and notifies UI listeners.
   void toggleSound() {
-    memory.toggleFlag(9);
-    notifyListeners();
+    if (_soundMode == AgiSoundMode.off || !memory.getFlag(9)) {
+      setSoundMode(AgiSoundMode.pcJr);
+    } else {
+      setSoundMode(AgiSoundMode.off);
+    }
   }
 
   /// Sets parsed word group IDs directly for testing matching rules.
@@ -1465,12 +1550,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // Set the new sound's completion flag to false per AGI specification
     memory.resetFlag(completionFlag);
 
+    // If sound is disabled or muted, complete flag immediately without playing
+    if (!memory.getFlag(9) || _soundMode == AgiSoundMode.off) {
+      memory.setFlag(completionFlag);
+      return;
+    }
+
     if (soundPlayer != null && resourceLoader != null) {
       if (resourceLoader!.presentSoundNumbers.contains(soundNumber)) {
         final snd = resourceLoader!.loadSound(soundNumber);
         if (!snd.isEmpty && snd.length > 0) {
           _activeSoundEndFlag = completionFlag;
-          soundPlayer!.play(snd).catchError((_) {
+          soundPlayer!.play(snd, config: _synthesizerConfig).catchError((_) {
             if (_activeSoundEndFlag == completionFlag) {
               memory.setFlag(completionFlag);
               _activeSoundEndFlag = null;

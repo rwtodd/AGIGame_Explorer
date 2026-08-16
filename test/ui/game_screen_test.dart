@@ -32,7 +32,7 @@ void main() {
       expect(find.byIcon(Icons.pause), findsOneWidget);
       expect(find.byIcon(Icons.save_outlined), findsOneWidget);
       expect(find.byIcon(Icons.speed), findsOneWidget);
-      expect(find.byIcon(Icons.volume_up), findsOneWidget);
+      expect(find.byIcon(Icons.volume_down), findsOneWidget);
 
       // Verify Playfield Widget
       expect(find.byType(GamePlayfieldWidget), findsOneWidget);
@@ -88,26 +88,66 @@ void main() {
       expect(engine.activeDialog, isNull);
     });
 
-    testWidgets('toggles sound on sidebar button tap', (tester) async {
+    testWidgets('opens slideout audio options panel and changes sound modes', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GameScreen(engine: engine),
         ),
       );
 
-      expect(engine.memory.getFlag(9), isTrue);
-      expect(find.byIcon(Icons.volume_up), findsOneWidget);
+      expect(engine.isSoundOn, isTrue);
+      expect(find.byIcon(Icons.volume_down), findsOneWidget);
 
-      // Tap sound toggle in left sidebar
-      final soundToggle = find.byIcon(Icons.volume_up);
-      await tester.tap(soundToggle);
-      await tester.pump();
+      // Tap sound button in left sidebar to open slide-out panel
+      final soundButton = find.byIcon(Icons.volume_down);
+      await tester.tap(soundButton);
+      await tester.pumpAndSettle();
 
-      expect(engine.memory.getFlag(9), isFalse);
-      expect(find.byIcon(Icons.volume_off), findsOneWidget);
+      // Verify Audio Options panel is open
+      expect(find.text('AUDIO OPTIONS'), findsOneWidget);
+      expect(find.text('Sound Off'), findsOneWidget);
+      expect(find.text('IBM PC Speaker'), findsOneWidget);
+      expect(find.text('PCjr / Tandy 3-Voice'), findsOneWidget);
+      expect(find.text('Enhanced Mode'), findsOneWidget);
+
+      // Switch to Enhanced Mode
+      await tester.tap(find.text('Enhanced Mode'));
+      await tester.pumpAndSettle();
+
+      expect(engine.soundMode, equals(AgiSoundMode.enhanced));
+      expect(find.text('ENHANCED WAVEFORM'), findsOneWidget);
+      expect(find.text('DSP ROOM REVERB'), findsOneWidget);
+      expect(find.text('Square'), findsOneWidget);
+      expect(find.text('Sawtooth'), findsOneWidget);
+      expect(find.text('PWM'), findsOneWidget);
+
+      // Select Sawtooth waveform
+      await tester.tap(find.text('Sawtooth'));
+      await tester.pumpAndSettle();
+      expect(engine.synthesizerConfig.waveform.name, equals('sawtooth'));
+
+      // Switch to IBM PC Speaker
+      await tester.tap(find.text('IBM PC Speaker'));
+      await tester.pumpAndSettle();
+
+      expect(engine.soundMode, equals(AgiSoundMode.ibmPc));
+      expect(engine.memory.getVar(22), equals(1)); // %v22 = 1 voice
+
+      // Switch to Sound Off
+      await tester.tap(find.text('Sound Off'));
+      await tester.pumpAndSettle();
+
+      expect(engine.soundMode, equals(AgiSoundMode.off));
+      expect(engine.memory.getFlag(9), isFalse); // %f9 = 0
+
+      // Close panel
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('AUDIO OPTIONS'), findsNothing);
     });
 
-    testWidgets('switches render modes in game toolbar and loads textures', (tester) async {
+    testWidgets('switches render modes and video options in slideout panel and loads textures', (tester) async {
       final visualPixels = Uint8List(160 * 168);
       final priorityBuffer = PriorityBuffer();
       final slices = <int, PictureSlice>{
@@ -133,14 +173,22 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Open Render Mode popup menu
-      expect(find.byIcon(Icons.layers), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.layers));
+      // Open Video Options panel via sidebar tv icon
+      expect(find.byIcon(Icons.tv), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.tv));
       await tester.pumpAndSettle();
 
-      // Select Priority Depth Map
-      expect(find.text('Priority Depth Map'), findsOneWidget);
-      await tester.tap(find.text('Priority Depth Map'));
+      // Verify Video Options panel elements
+      expect(find.text('VIDEO & DISPLAY'), findsOneWidget);
+      expect(find.text('4:3 CRT Aspect Correction'), findsOneWidget);
+      expect(find.text('Strict Integer Scaling'), findsOneWidget);
+      expect(find.text('CRT Scanline Shader'), findsOneWidget);
+      expect(find.text('Pixel Grid Overlay'), findsOneWidget);
+
+      // Select Priority Depth Buffer mode
+      expect(find.text('Priority Depth Buffer'), findsOneWidget);
+      await tester.ensureVisible(find.text('Priority Depth Buffer'));
+      await tester.tap(find.text('Priority Depth Buffer'));
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
         await Future.delayed(const Duration(milliseconds: 50));
@@ -149,13 +197,10 @@ void main() {
 
       expect(pic.cachedPriorityMapImage, isNotNull);
 
-      // Open Render Mode popup menu again
-      await tester.tap(find.byIcon(Icons.layers));
-      await tester.pumpAndSettle();
-
-      // Select Control Barrier Map
-      expect(find.text('Control Barrier Map'), findsOneWidget);
-      await tester.tap(find.text('Control Barrier Map'));
+      // Select Control Screen
+      expect(find.text('Control Screen'), findsOneWidget);
+      await tester.ensureVisible(find.text('Control Screen'));
+      await tester.tap(find.text('Control Screen'));
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
         await Future.delayed(const Duration(milliseconds: 50));
@@ -164,12 +209,9 @@ void main() {
 
       expect(pic.cachedControlMapImage, isNotNull);
 
-      // Open Render Mode popup menu again
-      await tester.tap(find.byIcon(Icons.layers));
-      await tester.pumpAndSettle();
-
       // Select Flat Visual Background
       expect(find.text('Flat Visual Background'), findsOneWidget);
+      await tester.ensureVisible(find.text('Flat Visual Background'));
       await tester.tap(find.text('Flat Visual Background'));
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
@@ -178,6 +220,16 @@ void main() {
       await tester.pump();
 
       expect(pic.cachedFlatVisualImage, isNotNull);
+
+      // Toggle Strict Integer Scaling
+      await tester.ensureVisible(find.text('Strict Integer Scaling'));
+      await tester.tap(find.text('Strict Integer Scaling'));
+      await tester.pumpAndSettle();
+
+      // Toggle 4:3 Aspect Correction
+      await tester.ensureVisible(find.text('4:3 CRT Aspect Correction'));
+      await tester.tap(find.text('4:3 CRT Aspect Correction'));
+      await tester.pumpAndSettle();
     });
 
     testWidgets('routes keyboard typing to prompt automatically while arrow keys move Ego', (tester) async {

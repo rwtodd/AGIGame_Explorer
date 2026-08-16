@@ -503,28 +503,20 @@ void main() {
 
     engine.restoreSnapshot(snapshot);
 
-    print('Restored state: room=${engine.memory.getVar(0)}, prevRoom=${engine.memory.getVar(1)}');
-    print('v123=${engine.memory.getVar(123)}, v125=${engine.memory.getVar(125)}, v127=${engine.memory.getVar(127)}, v133=${engine.memory.getVar(133)}, v134=${engine.memory.getVar(134)}, v137=${engine.memory.getVar(137)}');
-    print('v84=${engine.memory.getVar(84)}, v83=${engine.memory.getVar(83)}, v95=${engine.memory.getVar(95)}');
+    expect(engine.memory.getVar(0), equals(6));
+    expect(engine.memory.getVar(1), equals(8));
 
     // Check items in room 255 (carried items)
     final carried = engine.getCarriedItems();
-    print('Carried items (${carried.length}):');
-    for (final item in carried) {
-      print('  #${item.index}: ${item.object.name}');
-    }
+    expect(carried, isNotEmpty);
 
-    // Check all item rooms
+    // Check that room 2 contraband items were correctly restored
+    final room2Items = <int>[];
     for (int i = 0; i < engine.objects.length; i++) {
-      final r = engine.memory.itemRooms[i];
-      if (r != null && r != engine.objects[i].startingRoom) {
-        print('  Obj #$i "${engine.objects[i].name}" moved from starting room ${engine.objects[i].startingRoom} -> room $r');
+      if (engine.memory.itemRooms[i] == 2) {
+        room2Items.add(i);
       }
     }
-
-    // Check which logic numbers are called in room 6
-    final logic6 = loader.loadLogic(6);
-    print('Logic 6 calls:');
-    // Let's inspect logic 6
+    expect(room2Items, contains(12)); // item 12 (leather bag)
   });
 }

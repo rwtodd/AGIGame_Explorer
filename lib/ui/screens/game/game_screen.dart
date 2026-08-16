@@ -12,6 +12,7 @@ import 'package:flutter_agigame/ui/widgets/input_prompt_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/inventory_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/save_load_dialog.dart';
+import 'package:flutter_agigame/ui/widgets/sidebar_slideout_panel.dart';
 
 /// Main Playable Game Screen for Sierra AGI games.
 ///
@@ -50,6 +51,9 @@ class _GameScreenState extends State<GameScreen> {
   AgiPictureRenderMode _renderMode = AgiPictureRenderMode.compositedSlices;
   bool _showCrtShader = false;
   bool _showPixelGrid = false;
+  bool _correctAspectRatio = true;
+  bool _strictIntegerScaling = false;
+  SidebarPanelTab? _openPanelTab;
 
   @override
   void initState() {
@@ -316,23 +320,46 @@ class _GameScreenState extends State<GameScreen> {
           child: Row(
             children: [
               _buildLeftSidebar(),
+              SidebarSlideoutPanel(
+                isOpen: _openPanelTab != null,
+                activeTab: _openPanelTab ?? SidebarPanelTab.audio,
+                engine: _engine,
+                onTabChanged: (tab) => setState(() => _openPanelTab = tab),
+                onClose: () => setState(() => _openPanelTab = null),
+                showCrtShader: _showCrtShader,
+                onCrtShaderChanged: (val) => setState(() => _showCrtShader = val),
+                showPixelGrid: _showPixelGrid,
+                onPixelGridChanged: (val) => setState(() => _showPixelGrid = val),
+                correctAspectRatio: _correctAspectRatio,
+                onAspectRatioChanged: (val) => setState(() => _correctAspectRatio = val),
+                strictIntegerScaling: _strictIntegerScaling,
+                onStrictIntegerScalingChanged: (val) => setState(() => _strictIntegerScaling = val),
+                renderMode: _renderMode,
+                onRenderModeChanged: (mode) => setState(() => _renderMode = mode),
+              ),
               Expanded(
                 child: Column(
                   children: [
                     Expanded(
-                      child: Center(
+                      child: Container(
+                        color: Colors.black,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            GamePlayfieldWidget(
-                              engine: _engine,
-                              renderMode: _renderMode,
-                              showCrtShader: _showCrtShader,
-                              showPixelGrid: _showPixelGrid,
+                            // Main Game Playfield Compositor
+                            Positioned.fill(
+                              child: GamePlayfieldWidget(
+                                engine: _engine,
+                                renderMode: _renderMode,
+                                showCrtShader: _showCrtShader,
+                                showPixelGrid: _showPixelGrid,
+                                correctAspectRatio: _correctAspectRatio,
+                                strictIntegerScaling: _strictIntegerScaling,
+                              ),
                             ),
 
-                            // Modal Dialog Popup Overlay
-                            if (_engine.activeDialog != null && _engine.activeDialog!.isModal)
+                            // Modal Dialog Box Overlay
+                            if (_engine.activeDialog != null)
                               Positioned.fill(
                                 child: DialogBoxWidget(
                                   dialogState: _engine.activeDialog!,
@@ -386,8 +413,6 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildLeftSidebar() {
-    final soundOn = _engine.memory.getFlag(9);
-
     return Container(
       width: 42,
       decoration: const BoxDecoration(
@@ -481,82 +506,91 @@ class _GameScreenState extends State<GameScreen> {
             ],
           ),
 
-          // Sound Toggle (F2)
-          IconButton(
-            icon: Icon(
-              soundOn ? Icons.volume_up : Icons.volume_off,
-              size: 18,
-              color: soundOn ? AgiTheme.egaCyan : AgiTheme.egaMuted,
-            ),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () => _engine.toggleSound(),
-            tooltip: 'Sound: ${soundOn ? "ON" : "OFF"} (F2)',
+          // Sound Options Slideout Button
+          Builder(
+            builder: (context) {
+              final isAudioOpen = _openPanelTab == SidebarPanelTab.audio;
+              IconData soundIcon;
+              Color soundColor;
+              String soundLabel;
+
+              if (!_engine.isSoundOn || _engine.soundMode == AgiSoundMode.off) {
+                soundIcon = Icons.volume_off;
+                soundColor = AgiTheme.egaMuted;
+                soundLabel = 'Sound: OFF';
+              } else {
+                switch (_engine.soundMode) {
+                  case AgiSoundMode.off:
+                    soundIcon = Icons.volume_off;
+                    soundColor = AgiTheme.egaMuted;
+                    soundLabel = 'Sound: OFF';
+                    break;
+                  case AgiSoundMode.ibmPc:
+                    soundIcon = Icons.speaker;
+                    soundColor = AgiTheme.egaAmber;
+                    soundLabel = 'Sound: IBM PC Speaker';
+                    break;
+                  case AgiSoundMode.pcJr:
+                    soundIcon = Icons.volume_down;
+                    soundColor = AgiTheme.egaCyan;
+                    soundLabel = 'Sound: PCjr / Tandy 3-Voice';
+                    break;
+                  case AgiSoundMode.enhanced:
+                    soundIcon = Icons.auto_awesome;
+                    soundColor = AgiTheme.egaMagenta;
+                    soundLabel = 'Sound: Enhanced Mode';
+                    break;
+                }
+              }
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: isAudioOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: IconButton(
+                  icon: Icon(soundIcon, size: 18, color: soundColor),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    setState(() {
+                      _openPanelTab = isAudioOpen ? null : SidebarPanelTab.audio;
+                    });
+                  },
+                  tooltip: '$soundLabel (Click for Audio Panel / F2 toggle)',
+                ),
+              );
+            },
           ),
 
-          // CRT Toggle
-          IconButton(
-            icon: Icon(
-              Icons.tv,
-              size: 18,
-              color: _showCrtShader ? AgiTheme.egaCyan : AgiTheme.egaMuted,
-            ),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              setState(() {
-                _showCrtShader = !_showCrtShader;
-              });
+          // Display / Video Options Slideout Button
+          Builder(
+            builder: (context) {
+              final isVideoOpen = _openPanelTab == SidebarPanelTab.video;
+              return Container(
+                decoration: BoxDecoration(
+                  color: isVideoOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    Icons.tv,
+                    size: 18,
+                    color: isVideoOpen
+                        ? AgiTheme.egaWhite
+                        : (_showCrtShader || _showPixelGrid ? AgiTheme.egaCyan : AgiTheme.egaMuted),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    setState(() {
+                      _openPanelTab = isVideoOpen ? null : SidebarPanelTab.video;
+                    });
+                  },
+                  tooltip: 'Display & Video Options',
+                ),
+              );
             },
-            tooltip: 'Toggle CRT Scanline Shader',
-          ),
-
-          // Pixel Grid Toggle
-          IconButton(
-            icon: Icon(
-              Icons.grid_4x4,
-              size: 18,
-              color: _showPixelGrid ? AgiTheme.egaCyan : AgiTheme.egaMuted,
-            ),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              setState(() {
-                _showPixelGrid = !_showPixelGrid;
-              });
-            },
-            tooltip: 'Toggle Pixel Grid',
-          ),
-
-          // Render Mode View Toggle
-          PopupMenuButton<AgiPictureRenderMode>(
-            initialValue: _renderMode,
-            tooltip: 'Layer: ${_renderMode.name}',
-            icon: const Icon(Icons.layers, size: 18, color: AgiTheme.egaCyan),
-            padding: EdgeInsets.zero,
-            onSelected: (mode) {
-              setState(() {
-                _renderMode = mode;
-              });
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: AgiPictureRenderMode.compositedSlices,
-                child: Text('Priority Slices (Game View)'),
-              ),
-              PopupMenuItem(
-                value: AgiPictureRenderMode.flatVisual,
-                child: Text('Flat Visual Background'),
-              ),
-              PopupMenuItem(
-                value: AgiPictureRenderMode.priorityMap,
-                child: Text('Priority Depth Map'),
-              ),
-              PopupMenuItem(
-                value: AgiPictureRenderMode.controlMap,
-                child: Text('Control Barrier Map'),
-              ),
-            ],
           ),
 
           const Spacer(),
