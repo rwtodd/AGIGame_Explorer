@@ -268,7 +268,7 @@ class AgiLogicInterpreter {
         final i = code[frame.ip + 1];
         frame.ip += 2;
         final room = memory.itemRooms[i];
-        return room == 0 || room == 255; // Ego is carrying item
+        return room == 255; // 255 = Ego is carrying item
 
       case 0x0A: // obj.in.room(%i, %v)
         final i = code[frame.ip + 1];
@@ -954,17 +954,17 @@ class AgiLogicInterpreter {
         break;
 
       case 92: // get(i)
-        memory.itemRooms[code[frame.ip + 1]] = 0;
+        memory.itemRooms[code[frame.ip + 1]] = 255;
         frame.ip += 2;
         break;
 
       case 93: // get.v(%v)
-        memory.itemRooms[memory.getVar(code[frame.ip + 1])] = 0;
+        memory.itemRooms[memory.getVar(code[frame.ip + 1])] = 255;
         frame.ip += 2;
         break;
 
       case 94: // drop(i)
-        memory.itemRooms[code[frame.ip + 1]] = 0xFF;
+        memory.itemRooms[code[frame.ip + 1]] = 0;
         frame.ip += 2;
         break;
 
@@ -1130,6 +1130,7 @@ class AgiLogicInterpreter {
         break;
 
       case 124: // status()
+        delegate.onStatus();
         frame.ip++;
         break;
 

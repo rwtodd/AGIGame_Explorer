@@ -18,7 +18,8 @@ class ParsedObjects {
 class ObjectsParser {
   const ObjectsParser._();
 
-  /// Parses the OBJECT file [data]. If [isEncrypted] is true (AGI >= 2.411), [data] will be decrypted with [key].
+  /// Parses the OBJECT file [data]. If [isEncrypted] is true, attempts decryption with [key];
+  /// safely falls back if decryption or raw bytes yield invalid headers.
   static ParsedObjects parse(
     Uint8List data, {
     bool isEncrypted = false,
@@ -28,9 +29,34 @@ class ObjectsParser {
       throw const AgiException('OBJECT file is too short.');
     }
 
-    final bytes = Uint8List.fromList(data);
+    final keyToUse = (key != null && key.isNotEmpty) ? key : CryptoUtils.avisDurganKey;
+
+    bool isValid(Uint8List b) {
+      final ws = 3 + (b[0] | (b[1] << 8));
+      return ws <= b.length && (ws % 3 == 0) && ws >= 3;
+    }
+
+    Uint8List bytes;
     if (isEncrypted) {
-      CryptoUtils.decodeInPlace(bytes, key: key);
+      final dec = CryptoUtils.decodeInPlace(Uint8List.fromList(data), key: keyToUse);
+      if (isValid(dec)) {
+        bytes = dec;
+      } else if (isValid(data)) {
+        bytes = Uint8List.fromList(data);
+      } else {
+        bytes = dec;
+      }
+    } else {
+      if (isValid(data)) {
+        bytes = Uint8List.fromList(data);
+      } else {
+        final dec = CryptoUtils.decodeInPlace(Uint8List.fromList(data), key: keyToUse);
+        if (isValid(dec)) {
+          bytes = dec;
+        } else {
+          bytes = Uint8List.fromList(data);
+        }
+      }
     }
 
     final wordsStart = 3 + (bytes[0] | (bytes[1] << 8));

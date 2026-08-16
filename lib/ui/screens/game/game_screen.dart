@@ -8,6 +8,8 @@ import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/ui/widgets/debug_inspector_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
+import 'package:flutter_agigame/ui/widgets/inventory_dialog.dart';
+import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 
 /// Main Playable Game Screen for Sierra AGI games.
 ///
@@ -132,7 +134,7 @@ class _GameScreenState extends State<GameScreen> {
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
-    // 1. If modal dialog is open, Enter/Space/Escape dismisses it
+    // 1. If modal text dialog is open, Enter/Space/Escape dismisses it
     if (_engine.activeDialog != null && _engine.activeDialog!.isModal) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter ||
@@ -141,9 +143,38 @@ class _GameScreenState extends State<GameScreen> {
         _engine.dismissDialog();
         return KeyEventResult.handled;
       }
+      return KeyEventResult.ignored;
     }
 
-    // 2. F12 or Ctrl+D / Cmd+D opens Debug Inspector
+    // 2. If object inspection modal is open, Enter/Space/Escape dismisses it
+    if (_engine.inspectingObjectNumber != null) {
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.space ||
+          event.logicalKey == LogicalKeyboardKey.escape) {
+        _engine.closeObjectInspection();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    // 3. If inventory dialog is open, Tab or Escape dismisses it; other keys handled by dialog
+    if (_engine.isInventoryOpen) {
+      if (event.logicalKey == LogicalKeyboardKey.tab ||
+          event.logicalKey == LogicalKeyboardKey.escape) {
+        _engine.closeInventory();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    // 4. Tab opens Inventory screen
+    if (event.logicalKey == LogicalKeyboardKey.tab) {
+      _engine.openInventory();
+      return KeyEventResult.handled;
+    }
+
+    // 4. F12 or Ctrl+D / Cmd+D opens Debug Inspector
     if (event.logicalKey == LogicalKeyboardKey.f12 ||
         ((HardwareKeyboard.instance.isControlPressed ||
                 HardwareKeyboard.instance.isMetaPressed) &&
@@ -268,6 +299,26 @@ class _GameScreenState extends State<GameScreen> {
                           child: DialogBoxWidget(
                             dialogState: _engine.activeDialog!,
                             onDismiss: _engine.dismissDialog,
+                          ),
+                        ),
+
+                      // Inventory Dialog Overlay
+                      if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
+                        Positioned.fill(
+                          child: InventoryDialog(
+                            engine: _engine,
+                            onClose: _engine.closeInventory,
+                            onInspect: (itemIdx) => _engine.inspectObject(itemIdx),
+                          ),
+                        ),
+
+                      // Object Inspection Dialog Overlay
+                      if (_engine.inspectingObjectNumber != null)
+                        Positioned.fill(
+                          child: ObjectInspectionDialog(
+                            engine: _engine,
+                            objectNumber: _engine.inspectingObjectNumber!,
+                            onClose: _engine.closeObjectInspection,
                           ),
                         ),
                     ],

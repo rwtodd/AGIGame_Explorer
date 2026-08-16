@@ -1,5 +1,3 @@
-import 'dart:async';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +6,7 @@ import 'package:flutter_agigame/loader/object_view_resolver.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
+import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 
 class ObjectsBrowserScreen extends ConsumerStatefulWidget {
   final int? initialObjectIndex;
@@ -546,90 +545,5 @@ class _ObjectsBrowserScreenState extends ConsumerState<ObjectsBrowserScreen> {
     if (room == 0) return 'Carried by Ego (Room 0)';
     if (room == 255) return 'Room 255 (Unobtainable / Out of Play)';
     return 'Starting Room: $room';
-  }
-}
-
-/// Helper widget that renders a single [AgiViewCel] into a pixelated canvas.
-class CelImageWidget extends StatefulWidget {
-  final AgiView view;
-  final int loopIndex;
-  final int celIndex;
-  final double scale;
-
-  const CelImageWidget({
-    super.key,
-    required this.view,
-    this.loopIndex = 0,
-    this.celIndex = 0,
-    this.scale = 2.0,
-  });
-
-  @override
-  State<CelImageWidget> createState() => _CelImageWidgetState();
-}
-
-class _CelImageWidgetState extends State<CelImageWidget> {
-  ui.Image? _decodedImage;
-
-  @override
-  void initState() {
-    super.initState();
-    _decode();
-  }
-
-  @override
-  void didUpdateWidget(covariant CelImageWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.view != widget.view ||
-        oldWidget.loopIndex != widget.loopIndex ||
-        oldWidget.celIndex != widget.celIndex) {
-      _decode();
-    }
-  }
-
-  Future<void> _decode() async {
-    final cel = widget.view.getCel(widget.loopIndex, widget.celIndex);
-    if (cel == null) return;
-
-    try {
-      final rgba = cel.toRgba(
-        parentView: widget.view,
-        celIndex: widget.celIndex,
-        scaleX: 2, // 2x horizontal scaling for 160->320 aspect
-        scaleY: 1,
-      );
-
-      final completer = Completer<ui.Image>();
-      ui.decodeImageFromPixels(
-        rgba,
-        cel.width * 2,
-        cel.height,
-        ui.PixelFormat.rgba8888,
-        completer.complete,
-      );
-      final img = await completer.future;
-      if (mounted) {
-        setState(() => _decodedImage = img);
-      }
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cel = widget.view.getCel(widget.loopIndex, widget.celIndex);
-    if (cel == null || _decodedImage == null) {
-      return const SizedBox(width: 16, height: 16);
-    }
-
-    final displayWidth = (cel.width * 2 * widget.scale).toDouble();
-    final displayHeight = (cel.height * widget.scale).toDouble();
-
-    return RawImage(
-      image: _decodedImage,
-      width: displayWidth,
-      height: displayHeight,
-      fit: BoxFit.contain,
-      filterQuality: FilterQuality.none,
-    );
   }
 }

@@ -6,6 +6,7 @@ import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
+import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
@@ -65,6 +66,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   final AgiSoundPlayer? soundPlayer;
   final AgiMemory memory;
   final List<AnimatedObject> animatedObjects;
+  final List<AgiObject>? _customObjects;
   late final AgiLogicInterpreter interpreter;
 
   AgiPic? currentPic;
@@ -72,6 +74,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   bool _isRunning = false;
   bool _isPaused = false;
+  bool _isInventoryOpen = false;
+  int? _inspectingObjectNumber;
   double _speedHz;
   Timer? _gameLoopTimer;
 
@@ -96,15 +100,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     this.soundPlayer,
     AgiMemory? memory,
     List<AnimatedObject>? animatedObjects,
+    List<AgiObject>? objects,
     this._speedHz = 20.0,
     int? randomSeed,
     int maxAnimatedObjects = 64,
   })  : memory = memory ?? AgiMemory(),
         animatedObjects = animatedObjects ??
             List.generate(maxAnimatedObjects, (i) => AnimatedObject(number: i)),
+        _customObjects = objects,
         _rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
-    if (this.soundPlayer != null) {
-      this.soundPlayer!.onFinished = _onSoundFinished;
+    if (soundPlayer != null) {
+      soundPlayer!.onFinished = _onSoundFinished;
     }
 
     interpreter = AgiLogicInterpreter(
@@ -121,6 +127,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   bool get isRunning => _isRunning;
   bool get isPaused => _isPaused;
+  bool get isInventoryOpen => _isInventoryOpen;
+  int? get inspectingObjectNumber => _inspectingObjectNumber;
   double get speedHz => _speedHz;
   int get cycleCount => _cycleCount;
   List<int> get parsedWordIds => List.unmodifiable(_parsedWordIds);
@@ -135,6 +143,47 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   List<AgiDisplayText> get displayedTexts => List.unmodifiable(_displayedTexts);
   int get currentRoom => memory.getVar(0);
   AnimatedObject get ego => animatedObjects[0];
+
+  /// All game objects defined for this game.
+  List<AgiObject> get objects =>
+      _customObjects ?? resourceLoader?.initialObjects ?? const [];
+
+  /// Returns the subset of items currently carried by the player (room 255 in memory).
+  List<CarriedItem> getCarriedItems() {
+    final all = objects;
+    final carried = <CarriedItem>[];
+    for (int i = 0; i < all.length; i++) {
+      final obj = all[i];
+      if (obj.name == '?' || obj.name.trim().isEmpty) continue;
+      final room = memory.itemRooms[i] ?? obj.startingRoom;
+      if (room == 255) {
+        carried.add(CarriedItem(index: i, object: obj));
+      }
+    }
+    return carried;
+  }
+
+  /// Opens the interactive inventory dialog and pauses game tick updates.
+  void openInventory() {
+    onStatus();
+  }
+
+  /// Closes the interactive inventory dialog and resumes game loop ticks.
+  void closeInventory() {
+    _isInventoryOpen = false;
+    notifyListeners();
+  }
+
+  /// Opens the object inspection modal for [objectNumber] and pauses game tick updates.
+  void inspectObject(int objectNumber) {
+    onShowObj(objectNumber);
+  }
+
+  /// Closes the object inspection modal.
+  void closeObjectInspection() {
+    _inspectingObjectNumber = null;
+    notifyListeners();
+  }
 
   /// Starts the game loop timer.
   void start() {
@@ -183,7 +232,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _gameLoopTimer = Timer.periodic(
       Duration(milliseconds: intervalMs.clamp(1, 1000)),
       (_) {
-        if (_isRunning && !_isPaused && !(activeDialog?.isModal ?? false)) {
+        if (_isRunning &&
+            !_isPaused &&
+            !(activeDialog?.isModal ?? false) &&
+            !_isInventoryOpen &&
+            _inspectingObjectNumber == null) {
           tick();
         }
       },
@@ -212,13 +265,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       obj.reset();
     }
 
-    if (resourceLoader != null) {
-      // Load initial inventory item locations
-      for (int i = 0; i < resourceLoader!.initialObjects.length; i++) {
-        final item = resourceLoader!.initialObjects[i];
+    if (objects.isNotEmpty) {
+      for (int i = 0; i < objects.length; i++) {
+        final item = objects[i];
         memory.itemRooms[i] = item.startingRoom;
       }
+    }
 
+    if (resourceLoader != null) {
       // Load root logic script (LOGIC 0)
       if (resourceLoader!.presentLogicNumbers.contains(0)) {
         final logic0 = resourceLoader!.loadLogic(0);
@@ -1215,7 +1269,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onShowObj(int objNumber) {}
+  void onStatus() {
+    _isInventoryOpen = true;
+    notifyListeners();
+  }
+
+  @override
+  void onShowObj(int objNumber) {
+    _inspectingObjectNumber = objNumber;
+    notifyListeners();
+  }
 
   @override
   void onQuit() {
