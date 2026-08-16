@@ -87,6 +87,8 @@ class AgiObjectSnapshot {
   final bool ignoreHorizon;
   final bool ignoreBlocks;
   final bool ignoreObjects;
+  final bool onWater;
+  final bool onLand;
 
   const AgiObjectSnapshot({
     required this.number,
@@ -120,6 +122,8 @@ class AgiObjectSnapshot {
     required this.ignoreHorizon,
     required this.ignoreBlocks,
     required this.ignoreObjects,
+    this.onWater = false,
+    this.onLand = false,
   });
 
   factory AgiObjectSnapshot.fromObject(AnimatedObject obj) {
@@ -155,6 +159,8 @@ class AgiObjectSnapshot {
       ignoreHorizon: obj.ignoreHorizon,
       ignoreBlocks: obj.ignoreBlocks,
       ignoreObjects: obj.ignoreObjects,
+      onWater: obj.onWater,
+      onLand: obj.onLand,
     );
   }
 
@@ -189,6 +195,8 @@ class AgiObjectSnapshot {
     obj.ignoreHorizon = ignoreHorizon;
     obj.ignoreBlocks = ignoreBlocks;
     obj.ignoreObjects = ignoreObjects;
+    obj.onWater = onWater;
+    obj.onLand = onLand;
   }
 
   Map<String, dynamic> toJson() => {
@@ -223,6 +231,8 @@ class AgiObjectSnapshot {
         'ignoreHorizon': ignoreHorizon,
         'ignoreBlocks': ignoreBlocks,
         'ignoreObjects': ignoreObjects,
+        'onWater': onWater,
+        'onLand': onLand,
       };
 
   factory AgiObjectSnapshot.fromJson(Map<String, dynamic> json) {
@@ -258,6 +268,8 @@ class AgiObjectSnapshot {
       ignoreHorizon: json['ignoreHorizon'] as bool? ?? false,
       ignoreBlocks: json['ignoreBlocks'] as bool? ?? false,
       ignoreObjects: json['ignoreObjects'] as bool? ?? false,
+      onWater: json['onWater'] as bool? ?? false,
+      onLand: json['onLand'] as bool? ?? false,
     );
   }
 }
@@ -538,8 +550,8 @@ class AgiGameStateSnapshot {
 
   /// Deserializes from Map.
   factory AgiGameStateSnapshot.fromJson(Map<String, dynamic> json) {
-    final varsRaw = json['variables'] as Map<String, dynamic>? ?? {};
-    final vars = varsRaw.map((k, v) => MapEntry(k, v as int));
+    final varsRaw = (json['variables'] as Map?) ?? {};
+    final vars = varsRaw.map((k, v) => MapEntry(k.toString(), v as int));
 
     final flagsRaw = json['activeFlags'] as List<dynamic>? ?? [];
     final activeFlags = flagsRaw.cast<int>();
@@ -547,20 +559,20 @@ class AgiGameStateSnapshot {
     final ctrlRaw = json['activeControllers'] as List<dynamic>? ?? [];
     final activeControllers = ctrlRaw.cast<int>();
 
-    final itemsRaw = json['itemRooms'] as Map<String, dynamic>? ?? {};
-    final itemRooms = itemsRaw.map((k, v) => MapEntry(k, v as int));
+    final itemsRaw = (json['itemRooms'] as Map?) ?? {};
+    final itemRooms = itemsRaw.map((k, v) => MapEntry(k.toString(), v as int));
 
-    final strRaw = json['strings'] as Map<String, dynamic>? ?? {};
-    final strings = strRaw.map((k, v) => MapEntry(k, v.toString()));
+    final strRaw = (json['strings'] as Map?) ?? {};
+    final strings = strRaw.map((k, v) => MapEntry(k.toString(), v.toString()));
 
     final objsRaw = json['objects'] as List<dynamic>? ?? [];
     final objects = objsRaw
-        .map((o) => AgiObjectSnapshot.fromJson(o as Map<String, dynamic>))
+        .map((o) => AgiObjectSnapshot.fromJson((o as Map).cast<String, dynamic>()))
         .toList();
 
     final stackRaw = json['callStack'] as List<dynamic>? ?? [];
     final callStack = stackRaw
-        .map((c) => AgiCallFrameSnapshot.fromJson(c as Map<String, dynamic>))
+        .map((c) => AgiCallFrameSnapshot.fromJson((c as Map).cast<String, dynamic>()))
         .toList();
 
     return AgiGameStateSnapshot(

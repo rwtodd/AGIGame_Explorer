@@ -44,6 +44,10 @@ class AnimatedObject {
   bool ignoreBlocks = false;
   bool ignoreObjects = false;
 
+  /// Object priority/surface constraints set by `object.on.water` and `object.on.land`.
+  bool onWater = false;
+  bool onLand = false;
+
   AnimatedObject({required this.number});
 
   /// Calculates priority band (4..14) based on base-Y position if priority is automatic (0).
@@ -101,6 +105,8 @@ class AnimatedObject {
     ignoreHorizon = false;
     ignoreBlocks = false;
     ignoreObjects = false;
+    onWater = false;
+    onLand = false;
   }
 
   /// Resets per-room motion, timers, and control flags on room transitions

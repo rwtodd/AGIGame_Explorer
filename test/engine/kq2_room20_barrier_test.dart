@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';

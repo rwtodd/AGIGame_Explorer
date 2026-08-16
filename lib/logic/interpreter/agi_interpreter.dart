@@ -181,14 +181,85 @@ class AgiLogicInterpreter {
     frame.ip += target + 3;
   }
 
+  void _skipTestInstruction(Uint8List code, AgiCallFrame frame) {
+    if (frame.ip >= code.length) return;
+    final op = code[frame.ip];
+    switch (op) {
+      case 0x01: // equaln
+      case 0x02: // equalv
+      case 0x03: // lessn
+      case 0x04: // lessv
+      case 0x05: // greatern
+      case 0x06: // greaterv
+      case 0x0A: // obj.in.room
+      case 0x0F: // compare.strings
+        frame.ip += 3;
+        break;
+
+      case 0x07: // isset
+      case 0x08: // issetv
+      case 0x09: // has
+      case 0x0C: // controller
+        frame.ip += 2;
+        break;
+
+      case 0x0B: // posn
+      case 0x10: // obj.in.box
+      case 0x11: // center.posn
+      case 0x12: // right.posn
+        frame.ip += 6;
+        break;
+
+      case 0x0D: // have.key
+      case 0x13:
+        frame.ip += 1;
+        break;
+
+      case 0x0E: // said(count, w1, w2, ...)
+        final count = code[frame.ip + 1];
+        frame.ip += 2 + count * 2;
+        break;
+
+      case 0xFC: // OR block
+        frame.ip++; // skip opening 0xFC
+        while (frame.ip < code.length && code[frame.ip] != 0xFC) {
+          _skipTestInstruction(code, frame);
+        }
+        if (frame.ip < code.length) {
+          frame.ip++; // skip closing 0xFC
+        }
+        break;
+
+      case 0xFD: // NOT
+        frame.ip++; // skip 0xFD
+        _skipTestInstruction(code, frame);
+        break;
+
+      default:
+        frame.ip++;
+        break;
+    }
+  }
+
+  void _skipTestsUntil(Uint8List code, AgiCallFrame frame, int terminator) {
+    while (frame.ip < code.length && code[frame.ip] != terminator) {
+      _skipTestInstruction(code, frame);
+    }
+  }
+
   void _execIf(Uint8List code, AgiCallFrame frame) {
-    frame.ip++; // skip 0xFF
+    frame.ip++; // skip opening 0xFF
     var conditionPassed = true;
 
-    // Evaluate test stream until closing 0xFF
+    // Evaluate test stream until closing 0xFF with short-circuit evaluation
     while (frame.ip < code.length && code[frame.ip] != 0xFF) {
       final result = _evalTestSection(code, frame);
-      conditionPassed = conditionPassed && result;
+      if (!result) {
+        // Short-circuit: in AND mode, once a test fails, skip remaining tests until 0xFF
+        conditionPassed = false;
+        _skipTestsUntil(code, frame, 0xFF);
+        break;
+      }
     }
 
     if (frame.ip >= code.length) {
@@ -327,13 +398,21 @@ class AgiLogicInterpreter {
         return obj.x >= x1 && obj.x <= x2 && obj.y >= y1 && obj.y <= y2;
 
       case 0xFC: // OR (...)
-        frame.ip++;
+        frame.ip++; // skip opening 0xFC
         var orPassed = false;
         while (frame.ip < code.length && code[frame.ip] != 0xFC) {
           final res = _evalTestSection(code, frame);
-          orPassed = orPassed || res;
+          if (res) {
+            // Short-circuit: in OR mode, once a test succeeds, skip remaining tests until 0xFC
+            orPassed = true;
+            _skipTestsUntil(code, frame, 0xFC);
+            break;
+          }
         }
-        if (frame.ip < code.length) frame.ip++; // skip closing 0xFC
+        if (frame.ip >= code.length) {
+          throw const AgiException('Unclosed OR test section: missing closing 0xFC.');
+        }
+        frame.ip++; // skip closing 0xFC
         return orPassed;
 
       case 0xFD: // NOT (...)
@@ -623,6 +702,9 @@ class AgiLogicInterpreter {
           objV41.loop = 0;
           objV41.cel = 0;
         }
+        if (objV41.number == 0) {
+          memory.setVar(16, newV41);
+        }
         frame.ip += 3;
         break;
 
@@ -633,6 +715,9 @@ class AgiLogicInterpreter {
           objV42.view = newV42;
           objV42.loop = 0;
           objV42.cel = 0;
+        }
+        if (objV42.number == 0) {
+          memory.setVar(16, newV42);
         }
         frame.ip += 3;
         break;
@@ -755,8 +840,23 @@ class AgiLogicInterpreter {
         break;
 
       case 64: // object.on.water(o)
+        final o64 = getObj(code[frame.ip + 1]);
+        o64.onWater = true;
+        o64.onLand = false;
+        frame.ip += 2;
+        break;
+
       case 65: // object.on.land(o)
+        final o65 = getObj(code[frame.ip + 1]);
+        o65.onLand = true;
+        o65.onWater = false;
+        frame.ip += 2;
+        break;
+
       case 66: // object.on.anything(o)
+        final o66 = getObj(code[frame.ip + 1]);
+        o66.onWater = false;
+        o66.onLand = false;
         frame.ip += 2;
         break;
 
@@ -797,9 +897,11 @@ class AgiLogicInterpreter {
 
       case 73: // end.of.loop(o, f)
         final o = getObj(code[frame.ip + 1]);
+        final flagNum = code[frame.ip + 2];
         o.cycleMode = 2;
-        o.endOfLoopFlag = code[frame.ip + 2];
+        o.endOfLoopFlag = flagNum;
         o.isCycling = true;
+        memory.resetFlag(flagNum);
         frame.ip += 3;
         break;
 
@@ -812,9 +914,11 @@ class AgiLogicInterpreter {
 
       case 75: // reverse.loop(o, f)
         final o = getObj(code[frame.ip + 1]);
+        final flagNum = code[frame.ip + 2];
         o.cycleMode = 3;
-        o.endOfLoopFlag = code[frame.ip + 2];
+        o.endOfLoopFlag = flagNum;
         o.isCycling = true;
+        memory.resetFlag(flagNum);
         frame.ip += 3;
         break;
 

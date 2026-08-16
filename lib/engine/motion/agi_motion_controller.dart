@@ -176,8 +176,11 @@ class AgiMotionController {
         }
         if (obj.cel >= celCount - 1) {
           obj.isCycling = false;
+          obj.cycleMode = 0;
+          obj.direction = 0;
           if (obj.endOfLoopFlag != null) {
             memory.setFlag(obj.endOfLoopFlag!);
+            obj.endOfLoopFlag = null;
           }
         }
         break;
@@ -188,8 +191,11 @@ class AgiMotionController {
         }
         if (obj.cel <= 0) {
           obj.isCycling = false;
+          obj.cycleMode = 0;
+          obj.direction = 0;
           if (obj.endOfLoopFlag != null) {
             memory.setFlag(obj.endOfLoopFlag!);
+            obj.endOfLoopFlag = null;
           }
         }
         break;
@@ -631,6 +637,8 @@ class AgiMotionController {
       x: egoObj.x,
       y: egoObj.y,
       width: width,
+      onWater: egoObj.onWater,
+      onLand: egoObj.onLand,
     );
     if (onWater) {
       memory.setFlag(0);

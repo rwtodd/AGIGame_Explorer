@@ -673,12 +673,25 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       } catch (_) {}
     }
 
-    // Flag 0: EGO entirely on water (pri 3)
+    // Flag 0: EGO on water surface (pri 3)
     var onWater = true;
-    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-      if (bx < 0 || bx >= 160 || egoObj.y < 0 || egoObj.y >= 168 || priBuf.priorityAt(bx, egoObj.y) != 3) {
-        onWater = false;
-        break;
+    if (egoObj.onLand) {
+      onWater = false;
+    } else if (egoObj.onWater) {
+      var anyWater = false;
+      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+        if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 3) {
+          anyWater = true;
+          break;
+        }
+      }
+      onWater = anyWater;
+    } else {
+      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+        if (bx < 0 || bx >= 160 || egoObj.y < 0 || egoObj.y >= 168 || priBuf.priorityAt(bx, egoObj.y) != 3) {
+          onWater = false;
+          break;
+        }
       }
     }
     if (onWater) {
@@ -926,20 +939,28 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       case 2: // end_of_loop
         if (obj.cel < celCount - 1) {
           obj.cel++;
-        } else {
+        }
+        if (obj.cel >= celCount - 1) {
           obj.isCycling = false;
+          obj.cycleMode = 0;
+          obj.direction = 0;
           if (obj.endOfLoopFlag != null) {
             memory.setFlag(obj.endOfLoopFlag!);
+            obj.endOfLoopFlag = null;
           }
         }
         break;
       case 3: // reverse_loop
         if (obj.cel > 0) {
           obj.cel--;
-        } else {
+        }
+        if (obj.cel <= 0) {
           obj.isCycling = false;
+          obj.cycleMode = 0;
+          obj.direction = 0;
           if (obj.endOfLoopFlag != null) {
             memory.setFlag(obj.endOfLoopFlag!);
+            obj.endOfLoopFlag = null;
           }
         }
         break;
@@ -1029,8 +1050,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(4, 0);
     memory.setVar(5, 0);
     _displayedTexts.clear();
-    _isUserControl = true;
-    _isInputEnabled = true;
+    // Update variable 16 with current Ego view (matching Sierra NEWROOM.C var[CURRENT_EGO] = ego->view)
+    memory.setVar(16, ego.view);
 
     // Unload non-Ego animated objects and reset Ego per-room state
     ego.resetForNewRoom();
@@ -1043,6 +1064,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       currentPic = resourceLoader!.loadPic(roomNumber);
       currentPic?.preloadGpuTextures();
     }
+
+    // Update Ego flags (water surface / signal) for new position & picture
+    _updateEgoFlags(currentPic?.priorityBuffer);
 
     // Load root room logic (LOGIC 0) for rescan
     if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
@@ -1338,6 +1362,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
       currentPic = resourceLoader!.loadPic(picNumber);
       currentPic?.preloadGpuTextures();
+      _updateEgoFlags(currentPic?.priorityBuffer);
       notifyListeners();
     }
   }
