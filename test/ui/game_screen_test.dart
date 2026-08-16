@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
@@ -178,6 +179,98 @@ void main() {
       await tester.pump();
 
       expect(pic.cachedFlatVisualImage, isNotNull);
+    });
+
+    testWidgets('routes keyboard typing to prompt automatically while arrow keys move Ego', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      expect(engine.ego.direction, 0);
+
+      // Type 'open door' via keyboard events without clicking into TextField
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP, character: 'p');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyE, character: 'e');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN, character: 'n');
+      await tester.sendKeyEvent(LogicalKeyboardKey.space, character: ' ');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyD, character: 'd');
+      await tester.pump();
+
+      expect(find.text('open d'), findsOneWidget);
+
+      // Press Arrow Right (3) while typing -> moves Ego without clearing text
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(engine.ego.direction, 3);
+      expect(find.text('open d'), findsOneWidget);
+
+      // Press Arrow Right (3) again -> stops Ego (0)
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(engine.ego.direction, 0);
+      expect(find.text('open d'), findsOneWidget);
+
+      // Backspace removes character
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+      expect(find.text('open '), findsOneWidget);
+
+      // Escape clears prompt
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.text('open '), findsNothing);
+
+      // Type and submit with Enter
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyL, character: 'l');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK, character: 'k');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(engine.lastSubmittedCommand, 'look');
+      expect(engine.memory.getFlag(2), isTrue); // have.input = 1
+    });
+
+    testWidgets('maintains constant input bar height and stable playfield layout when input is disabled', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      final playfieldFinder = find.byType(GamePlayfieldWidget);
+      expect(playfieldFinder, findsOneWidget);
+      final initialPlayfieldSize = tester.getSize(playfieldFinder);
+
+      // Input is enabled initially
+      expect(find.text('Type a command (e.g. look around)...'), findsOneWidget);
+
+      // Script disables input (e.g. prevent.input)
+      engine.isInputEnabled = false;
+      await tester.pump();
+
+      // Input bar remains present in disabled state
+      expect(find.text('[INPUT DISABLED]'), findsOneWidget);
+
+      // Playfield size remains identical (no jumping or resizing)
+      final disabledPlayfieldSize = tester.getSize(playfieldFinder);
+      expect(disabledPlayfieldSize.height, initialPlayfieldSize.height);
+      expect(disabledPlayfieldSize.width, initialPlayfieldSize.width);
+
+      // Script re-enables input
+      engine.isInputEnabled = true;
+      await tester.pump();
+
+      expect(find.text('Type a command (e.g. look around)...'), findsOneWidget);
+      final reenabledPlayfieldSize = tester.getSize(playfieldFinder);
+      expect(reenabledPlayfieldSize.height, initialPlayfieldSize.height);
+      expect(reenabledPlayfieldSize.width, initialPlayfieldSize.width);
     });
   });
 }

@@ -119,6 +119,35 @@ void main() {
       expect(engine.ego.prevY, 100);
     });
 
+    test('toggles motion to stop (0) when pressing the current active direction', () {
+      expect(engine.ego.direction, 0);
+
+      // Start moving East (3)
+      engine.setEgoDirection(3);
+      expect(engine.ego.direction, 3);
+      expect(engine.memory.getVar(6), 3);
+
+      // Press East (3) again -> stops (0)
+      engine.setEgoDirection(3);
+      expect(engine.ego.direction, 0);
+      expect(engine.memory.getVar(6), 0);
+
+      // Start moving North (1)
+      engine.setEgoDirection(1);
+      expect(engine.ego.direction, 1);
+      expect(engine.memory.getVar(6), 1);
+
+      // Change direction to South (5) -> changes to South (5)
+      engine.setEgoDirection(5);
+      expect(engine.ego.direction, 5);
+      expect(engine.memory.getVar(6), 5);
+
+      // Press South (5) again -> stops (0)
+      engine.setEgoDirection(5);
+      expect(engine.ego.direction, 0);
+      expect(engine.memory.getVar(6), 0);
+    });
+
     test('clamps Ego to screen boundaries and sets border variables', () {
       // Move Left past boundary 0
       engine.ego.x = 1;

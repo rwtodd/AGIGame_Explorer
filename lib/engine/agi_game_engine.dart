@@ -116,6 +116,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   String? get lastError => _lastError;
   bool get isStatusLineEnabled => _isStatusLineEnabled;
   bool get isInputEnabled => _isInputEnabled;
+  set isInputEnabled(bool enabled) => onInputMode(enabled);
   List<AgiDisplayText> get displayedTexts => List.unmodifiable(_displayedTexts);
 
   AnimatedObject get ego => animatedObjects[0];
@@ -287,8 +288,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Sets Ego's motion direction (0..8) and synchronizes Variable 6.
-  void setEgoDirection(int direction) {
-    ego.direction = direction.clamp(0, 8);
+  /// If [toggleIfSame] is true and Ego is already moving in [direction] (and [direction] != 0),
+  /// Ego stops (direction 0).
+  void setEgoDirection(int direction, {bool toggleIfSame = true}) {
+    if (toggleIfSame && direction != 0 && ego.direction == direction) {
+      ego.direction = 0;
+    } else {
+      ego.direction = direction.clamp(0, 8);
+    }
     memory.setVar(6, ego.direction);
     if (ego.direction != 0) {
       ego.isCycling = true;

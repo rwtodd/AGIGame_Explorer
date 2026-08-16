@@ -92,7 +92,6 @@ class _GameScreenState extends State<GameScreen> {
       _engine.submitCommand(cmd);
       _promptController.clear();
     }
-    _promptFocusNode.requestFocus();
   }
 
   void _navigateHistory(int delta) {
@@ -132,7 +131,7 @@ class _GameScreenState extends State<GameScreen> {
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
-    // If modal dialog is open, Enter/Space/Escape dismisses it
+    // 1. If modal dialog is open, Enter/Space/Escape dismisses it
     if (_engine.activeDialog != null && _engine.activeDialog!.isModal) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter ||
@@ -143,59 +142,85 @@ class _GameScreenState extends State<GameScreen> {
       }
     }
 
-    // Direction controls and key events when prompt is not exclusively capturing text
-    final isPromptFocused = _promptFocusNode.hasFocus;
+    // 2. Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
+    _engine.handleKeyPress(_getKeyCode(event));
 
-    if (!isPromptFocused) {
-      // Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
-      _engine.handleKeyPress(_getKeyCode(event));
+    // 3. Direction controls ALWAYS control Ego
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.arrowUp:
+      case LogicalKeyboardKey.numpad8:
+        _engine.setEgoDirection(1);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.numpad9:
+        _engine.setEgoDirection(2);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowRight:
+      case LogicalKeyboardKey.numpad6:
+        _engine.setEgoDirection(3);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.numpad3:
+        _engine.setEgoDirection(4);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowDown:
+      case LogicalKeyboardKey.numpad2:
+        _engine.setEgoDirection(5);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.numpad1:
+        _engine.setEgoDirection(6);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowLeft:
+      case LogicalKeyboardKey.numpad4:
+        _engine.setEgoDirection(7);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.numpad7:
+        _engine.setEgoDirection(8);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.numpad5:
+        _engine.setEgoDirection(0); // Stop
+        return KeyEventResult.handled;
+    }
 
-      switch (event.logicalKey) {
-        case LogicalKeyboardKey.arrowUp:
-        case LogicalKeyboardKey.numpad8:
-          _engine.setEgoDirection(1);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.numpad9:
-          _engine.setEgoDirection(2);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.arrowRight:
-        case LogicalKeyboardKey.numpad6:
-          _engine.setEgoDirection(3);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.numpad3:
-          _engine.setEgoDirection(4);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.arrowDown:
-        case LogicalKeyboardKey.numpad2:
-          _engine.setEgoDirection(5);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.numpad1:
-          _engine.setEgoDirection(6);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.arrowLeft:
-        case LogicalKeyboardKey.numpad4:
-          _engine.setEgoDirection(7);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.numpad7:
-          _engine.setEgoDirection(8);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.numpad5:
-        case LogicalKeyboardKey.space:
-          _engine.setEgoDirection(0); // Stop
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.enter:
-        case LogicalKeyboardKey.numpadEnter:
-        case LogicalKeyboardKey.escape:
-          return KeyEventResult.handled;
-      }
-    } else {
-      // History recall when prompt is focused
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        _navigateHistory(-1);
+    // 4. Command history navigation via PageUp/PageDown or F3
+    if (event.logicalKey == LogicalKeyboardKey.pageUp ||
+        event.logicalKey == LogicalKeyboardKey.f3) {
+      _navigateHistory(-1);
+      return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.pageDown) {
+      _navigateHistory(1);
+      return KeyEventResult.handled;
+    }
+
+    // 5. Command prompt input (when input is enabled)
+    if (_engine.isInputEnabled) {
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+        _handleSubmitCommand(_promptController.text);
         return KeyEventResult.handled;
-      } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        _navigateHistory(1);
+      } else if (event.logicalKey == LogicalKeyboardKey.backspace) {
+        final text = _promptController.text;
+        if (text.isNotEmpty) {
+          _promptController.text = text.substring(0, text.length - 1);
+          _promptController.selection = TextSelection.fromPosition(
+            TextPosition(offset: _promptController.text.length),
+          );
+        }
         return KeyEventResult.handled;
+      } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _promptController.clear();
+        return KeyEventResult.handled;
+      } else if (event.character != null &&
+          event.character!.isNotEmpty &&
+          !HardwareKeyboard.instance.isControlPressed &&
+          !HardwareKeyboard.instance.isMetaPressed) {
+        final char = event.character!;
+        final code = char.codeUnitAt(0);
+        if (code >= 32 && code <= 126) {
+          _promptController.text = _promptController.text + char;
+          _promptController.selection = TextSelection.fromPosition(
+            TextPosition(offset: _promptController.text.length),
+          );
+          return KeyEventResult.handled;
+        }
       }
     }
 
@@ -239,7 +264,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
               ),
-              if (_engine.isInputEnabled) _buildCommandPromptBar(),
+              _buildCommandPromptBar(),
             ],
           ),
         ),
@@ -472,18 +497,25 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildCommandPromptBar() {
+    final isEnabled = _engine.isInputEnabled;
+
     return Container(
+      height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0D1117),
-        border: Border(top: BorderSide(color: AgiTheme.egaBorder)),
+      decoration: BoxDecoration(
+        color: isEnabled ? const Color(0xFF0D1117) : const Color(0xFF070A0E),
+        border: Border(
+          top: BorderSide(
+            color: isEnabled ? AgiTheme.egaBorder : const Color(0xFF1E293B),
+          ),
+        ),
       ),
       child: Row(
         children: [
-          const Text(
+          Text(
             '> ',
             style: TextStyle(
-              color: AgiTheme.egaWhite,
+              color: isEnabled ? AgiTheme.egaWhite : const Color(0xFF475569),
               fontSize: 15,
               fontWeight: FontWeight.bold,
               fontFamily: 'Courier',
@@ -493,34 +525,40 @@ class _GameScreenState extends State<GameScreen> {
             child: TextField(
               controller: _promptController,
               focusNode: _promptFocusNode,
-              style: const TextStyle(
-                color: AgiTheme.egaWhite,
+              enabled: isEnabled,
+              style: TextStyle(
+                color: isEnabled ? AgiTheme.egaWhite : const Color(0xFF475569),
                 fontSize: 14,
                 fontFamily: 'Courier',
               ),
-              cursorColor: AgiTheme.egaCyan,
+              cursorColor: isEnabled ? AgiTheme.egaCyan : Colors.transparent,
               cursorWidth: 8,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 4),
+                contentPadding: const EdgeInsets.symmetric(vertical: 4),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
                 filled: false,
-                hintText: 'Type a command (e.g. look around)...',
+                hintText: isEnabled ? 'Type a command (e.g. look around)...' : '[INPUT DISABLED]',
                 hintStyle: TextStyle(
-                  color: Color(0xFF4B5563),
+                  color: isEnabled ? const Color(0xFF4B5563) : const Color(0xFF334155),
                   fontSize: 13,
                   fontFamily: 'Courier',
                 ),
               ),
-              onSubmitted: _handleSubmitCommand,
+              onSubmitted: isEnabled ? _handleSubmitCommand : null,
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.send, size: 16, color: AgiTheme.egaCyan),
-            onPressed: () => _handleSubmitCommand(_promptController.text),
-            tooltip: 'Send Command (Enter)',
+            icon: Icon(
+              Icons.send,
+              size: 16,
+              color: isEnabled ? AgiTheme.egaCyan : const Color(0xFF334155),
+            ),
+            onPressed: isEnabled ? () => _handleSubmitCommand(_promptController.text) : null,
+            tooltip: isEnabled ? 'Send Command (Enter)' : 'Input Disabled',
           ),
         ],
       ),
