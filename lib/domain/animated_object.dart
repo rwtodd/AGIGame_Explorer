@@ -58,6 +58,16 @@ class AnimatedObject {
     return calculatePriorityForY(y);
   }
 
+  /// Calculates the effective Y coordinate used for sprite z-ordering per Sierra OBJLIST.C / ScummVM sprite.cpp.
+  /// If priority is fixed, this maps priority P to its baseline band coordinate (P - 5) * 12 + 48.
+  /// If priority is automatic, this uses the actor's actual base Y coordinate.
+  int get effectiveSortY {
+    if (fixedPriority && priority > 0) {
+      return (priority - 5) * 12 + 48;
+    }
+    return y;
+  }
+
   /// Calculates standard AGI priority band for a given Y coordinate.
   static int calculatePriorityForY(int by) {
     if (by <= 47) return 4;

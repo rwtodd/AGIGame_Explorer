@@ -386,6 +386,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       }
     }
 
+    // Synchronize Ego motion direction from %v6 (var[EGODIR]) per Sierra MAIN.C:102
+    if (_isUserControl && ego.motionType == 0) {
+      ego.direction = memory.getVar(6);
+      if (ego.direction != 0) {
+        ego.isCycling = true;
+      }
+    }
+
     // ----------------------------------------------------
     // Post-Scan: Clock update & transient flags cleanup
     // ----------------------------------------------------
@@ -680,9 +688,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Flag 0: EGO on water surface (pri 3)
     var onWater = true;
-    if (egoObj.onLand) {
-      onWater = false;
-    } else if (egoObj.onWater) {
+    if (egoObj.onWater) {
       var anyWater = false;
       for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
         if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 3) {
@@ -789,12 +795,23 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         final egoObj = animatedObjects[0];
         final diffX = egoObj.x - obj.x;
         final diffY = egoObj.y - obj.y;
-        if (diffX.abs() > obj.stepSize || diffY.abs() > obj.stepSize) {
+        final step = obj.stepDistance > 0 ? obj.stepDistance : obj.stepSize;
+        if (diffX.abs() <= step && diffY.abs() <= step) {
+          obj.direction = 0;
+          obj.motionType = 0;
+          if (obj.targetFlag != null) {
+            memory.setFlag(obj.targetFlag!);
+            obj.targetFlag = null;
+          }
+          if (obj.number == 0) {
+            memory.setVar(6, 0);
+            _isUserControl = true;
+          }
+          return;
+        } else {
           final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
           final dirY = diffY > 0 ? 1 : (diffY < 0 ? -1 : 0);
           obj.direction = _vectorToDirection(dirX, dirY);
-        } else {
-          obj.direction = 0;
         }
         break;
 
@@ -911,6 +928,46 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           obj.isCycling = false;
         }
         return;
+      }
+    }
+
+    // Object-to-object collision check (baseline intersection & crossing per Sierra COLLIDE.C)
+    if (!obj.ignoreObjects) {
+      for (final other in animatedObjects) {
+        if (other.number == obj.number) continue;
+        if (!other.isDrawn || !other.isAnimated || other.ignoreObjects) continue;
+        if (obj.motionType == 2 && other.number == 0) continue;
+
+        int otherWidth = 4;
+        if (resourceLoader != null) {
+          try {
+            final v = resourceLoader!.loadView(other.view);
+            final cel = v.getCel(other.loop, other.cel);
+            if (cel != null) {
+              otherWidth = cel.width;
+            }
+          } catch (_) {}
+        }
+
+        final aLeft = clampedX;
+        final aRight = clampedX + objWidth - 1;
+        final bLeft = other.x;
+        final bRight = other.x + otherWidth - 1;
+
+        if (aRight >= bLeft && aLeft <= bRight) {
+          if (clampedY == other.y ||
+              (clampedY > other.y && obj.prevY < other.prevY) ||
+              (clampedY < other.y && obj.prevY > other.prevY)) {
+            if (obj.motionType == 1) {
+              obj.direction = _rng.nextInt(9);
+            } else if (obj.number == 0 && obj.motionType == 0) {
+              obj.direction = 0;
+              memory.setVar(6, 0);
+              obj.isCycling = false;
+            }
+            return;
+          }
+        }
       }
     }
 
@@ -1045,6 +1102,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       memory.setVar(0, roomNumber); // %v0 = current room
     }
     memory.setFlag(5); // %f5 = new room first execution
+    memory.resetFlag(0); // %f0 = on water
+    memory.resetFlag(1); // %f1 = ego obscured
+    memory.resetFlag(3); // %f3 = signal trigger line
 
     // Reposition Ego based on border crossed (%v2)
     final borderHit = memory.getVar(2);
@@ -1055,6 +1115,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(4, 0);
     memory.setVar(5, 0);
     _displayedTexts.clear();
+    _isUserControl = true;
     // Update variable 16 with current Ego view (matching Sierra NEWROOM.C var[CURRENT_EGO] = ego->view)
     memory.setVar(16, ego.view);
 
@@ -1069,9 +1130,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       currentPic = resourceLoader!.loadPic(roomNumber);
       currentPic?.preloadGpuTextures();
     }
-
-    // Update Ego flags (water surface / signal) for new position & picture
-    _updateEgoFlags(currentPic?.priorityBuffer);
 
     // Load root room logic (LOGIC 0) for rescan
     if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
@@ -1367,7 +1425,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
       currentPic = resourceLoader!.loadPic(picNumber);
       currentPic?.preloadGpuTextures();
-      _updateEgoFlags(currentPic?.priorityBuffer);
       notifyListeners();
     }
   }

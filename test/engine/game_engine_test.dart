@@ -394,6 +394,14 @@ void main() {
       expect(npc.y, 0);
     });
 
+    test('changeRoom restores isUserControl to true', () {
+      engine.onUserControl(false);
+      expect(engine.isUserControl, isFalse);
+
+      engine.changeRoom(25);
+      expect(engine.isUserControl, isTrue);
+    });
+
     test('onSetHorizon updates room horizon and clamps motion and border triggers', () {
       engine.ego.isAnimated = true;
       engine.ego.isDrawn = true;

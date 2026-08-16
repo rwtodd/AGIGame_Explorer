@@ -638,7 +638,6 @@ class AgiMotionController {
       y: egoObj.y,
       width: width,
       onWater: egoObj.onWater,
-      onLand: egoObj.onLand,
     );
     if (onWater) {
       memory.setFlag(0);
@@ -698,7 +697,13 @@ class AgiMotionController {
       obj.targetX = targetX;
       obj.targetY = targetY;
       obj.stepDistance = stepDistance > 0 ? stepDistance : 1;
+      if (stepDistance > 0) {
+        obj.stepSize = stepDistance;
+      }
       obj.targetFlag = targetFlag;
+      if (targetFlag != null) {
+        memory.resetFlag(targetFlag);
+      }
     }
   }
 
@@ -709,6 +714,9 @@ class AgiMotionController {
       obj.motionType = 2;
       obj.stepDistance = stepDistance > 0 ? stepDistance : 1;
       obj.targetFlag = targetFlag;
+      if (targetFlag != null) {
+        memory.resetFlag(targetFlag);
+      }
     }
   }
 

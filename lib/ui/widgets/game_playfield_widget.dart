@@ -196,7 +196,8 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           actors.add(
             AgiActorSprite(
               priority: obj.effectivePriority,
-              baselineY: obj.y,
+              baselineY: obj.effectiveSortY,
+              objectNumber: obj.number,
               image: cachedImage,
               position: Offset(renderX, renderY),
             ),

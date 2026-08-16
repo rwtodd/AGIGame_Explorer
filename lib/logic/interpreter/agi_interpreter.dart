@@ -965,17 +965,21 @@ class AgiLogicInterpreter {
         o.motionType = 3;
         o.targetX = code[frame.ip + 2];
         o.targetY = code[frame.ip + 3];
-        o.stepDistance = code[frame.ip + 4];
-        o.targetFlag = code[frame.ip + 5];
+        final step81 = code[frame.ip + 4];
+        o.stepDistance = step81;
+        if (step81 != 0) {
+          o.stepSize = step81;
+        }
+        final targetFlag81 = code[frame.ip + 5];
+        o.targetFlag = targetFlag81;
+        memory.resetFlag(targetFlag81);
         if (objNum81 == 0) {
           if (o.x == o.targetX && o.y == o.targetY) {
             o.motionType = 0;
             o.direction = 0;
             memory.setVar(6, 0);
-            if (o.targetFlag != null) {
-              memory.setFlag(o.targetFlag!);
-              o.targetFlag = null;
-            }
+            memory.setFlag(targetFlag81);
+            o.targetFlag = null;
             delegate.onUserControl(true);
           } else {
             delegate.onUserControl(false);
@@ -990,17 +994,21 @@ class AgiLogicInterpreter {
         o.motionType = 3;
         o.targetX = memory.getVar(code[frame.ip + 2]);
         o.targetY = memory.getVar(code[frame.ip + 3]);
-        o.stepDistance = memory.getVar(code[frame.ip + 4]);
-        o.targetFlag = code[frame.ip + 5];
+        final step82 = memory.getVar(code[frame.ip + 4]);
+        o.stepDistance = step82;
+        if (step82 != 0) {
+          o.stepSize = step82;
+        }
+        final targetFlag82 = code[frame.ip + 5];
+        o.targetFlag = targetFlag82;
+        memory.resetFlag(targetFlag82);
         if (objNum82 == 0) {
           if (o.x == o.targetX && o.y == o.targetY) {
             o.motionType = 0;
             o.direction = 0;
             memory.setVar(6, 0);
-            if (o.targetFlag != null) {
-              memory.setFlag(o.targetFlag!);
-              o.targetFlag = null;
-            }
+            memory.setFlag(targetFlag82);
+            o.targetFlag = null;
             delegate.onUserControl(true);
           } else {
             delegate.onUserControl(false);
@@ -1014,7 +1022,9 @@ class AgiLogicInterpreter {
         final o = getObj(objNum83);
         o.motionType = 2;
         o.stepDistance = code[frame.ip + 2];
-        o.targetFlag = code[frame.ip + 3];
+        final targetFlag83 = code[frame.ip + 3];
+        o.targetFlag = targetFlag83;
+        memory.resetFlag(targetFlag83);
         if (objNum83 == 0) {
           delegate.onUserControl(false);
         }
@@ -1556,6 +1566,11 @@ class AgiLogicInterpreter {
     memory.setVar(1, memory.getVar(0)); // %v1 = previous room (%v0)
     memory.setVar(0, room); // %v0 = new room
     memory.setFlag(5); // %f5 = new room first execution
+    memory.resetFlag(0); // %f0 = on water
+    memory.resetFlag(1); // %f1 = obscured
+    memory.resetFlag(2); // %f2 = input entered
+    memory.resetFlag(3); // %f3 = signal touched
+    memory.resetFlag(4); // %f4 = said accepted
     callStack.clear(); // unroll call stack
     _newRoomRequested = true;
     delegate.onNewRoom(room);

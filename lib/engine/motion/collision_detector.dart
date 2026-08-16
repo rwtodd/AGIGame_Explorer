@@ -196,7 +196,6 @@ class CollisionDetector {
     return false;
   }
 
-  /// Tests collision between two objects given their bounding boxes and baselines.
   bool checkObjectCollision(
     AnimatedObject a,
     int ax,
@@ -212,31 +211,21 @@ class CollisionDetector {
     if (a.ignoreObjects || b.ignoreObjects) return false;
 
     final aW = math.max(1, aWidth);
-    final aH = math.max(1, aHeight);
     final bW = math.max(1, bWidth);
-    final bH = math.max(1, bHeight);
 
-    // Baseline collision test (AGI actor collision is primarily baseline intersection)
+    // Baseline collision test (AGI actor collision is strictly baseline intersection & crossing)
     final aLeft = ax;
     final aRight = ax + aW - 1;
     final bLeft = bx;
     final bRight = bx + bW - 1;
 
-    // Same baseline Y row (or overlapping base lines)
-    if (ay == by && aRight >= bLeft && aLeft <= bRight) {
-      return true;
+    if (aRight >= bLeft && aLeft <= bRight) {
+      if (ay == by) return true;
+      if (ay > by && a.prevY < b.prevY) return true;
+      if (ay < by && a.prevY > b.prevY) return true;
     }
 
-    // 2D bounding box intersection (bottom-anchored sprites)
-    final aTop = ay - aH + 1;
-    final aBottom = ay;
-    final bTop = by - bH + 1;
-    final bBottom = by;
-
-    return aRight >= bLeft &&
-        aLeft <= bRight &&
-        aBottom >= bTop &&
-        aTop <= bBottom;
+    return false;
   }
 
   /// Checks if an object at `(x, y)` touches or crosses any screen border.
@@ -316,16 +305,12 @@ class CollisionDetector {
   /// In Sierra AGI:
   /// - When not yet on water, every pixel along baseline must be priority 3 to enter water.
   /// - When [onWater] is true (`object.on.water`), Ego remains on water as long as water is present under the sprite.
-  /// - When [onLand] is true (`object.on.land`), returns false.
   bool isWaterAtBaseline({
     required int x,
     required int y,
     required int width,
     bool onWater = false,
-    bool onLand = false,
   }) {
-    if (onLand) return false;
-
     final effectiveWidth = math.max(1, width);
     if (onWater) {
       for (var i = 0; i < effectiveWidth; i++) {

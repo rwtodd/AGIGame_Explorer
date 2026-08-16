@@ -25,12 +25,14 @@ enum AgiPictureRenderMode {
 class AgiActorSprite {
   final int priority;
   final int baselineY;
+  final int objectNumber;
   final ui.Image image;
   final Offset position;
 
   const AgiActorSprite({
     required this.priority,
     required this.baselineY,
+    this.objectNumber = 0,
     required this.image,
     required this.position,
   });
@@ -150,15 +152,9 @@ class AgiPicturePainter extends CustomPainter {
   void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat) {
     bool drawnAny = false;
 
-    // 1. Draw Base Priority 15 (Sky / Unconditional background drawn behind all bands)
-    final baseSlice = picture.getSlice(15);
-    if (baseSlice != null && baseSlice.hasVisiblePixels && baseSlice.cachedUiImage != null) {
-      canvas.drawImage(baseSlice.cachedUiImage!, Offset.zero, paint);
-      drawnAny = true;
-    }
-
-    // 2. Interleave priority slices (0..14) with actor sprites
-    for (int p = 0; p <= 14; p++) {
+    // Interleave priority slices (0..15) with actor sprites in authentic Painter's Algorithm order.
+    // In AGI, priority 4 is furthest background (horizon) and 15 is closest foreground overlay.
+    for (int p = 0; p <= 15; p++) {
       final slice = picture.getSlice(p);
       if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
         canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
@@ -167,7 +163,11 @@ class AgiPicturePainter extends CustomPainter {
 
       if (actors.isNotEmpty) {
         final bandActors = actors.where((a) => a.priority == p).toList()
-          ..sort((a, b) => a.baselineY.compareTo(b.baselineY));
+          ..sort((a, b) {
+            final cmp = a.baselineY.compareTo(b.baselineY);
+            if (cmp != 0) return cmp;
+            return a.objectNumber.compareTo(b.objectNumber);
+          });
 
         for (final actor in bandActors) {
           canvas.drawImage(actor.image, actor.position, paint);
@@ -175,17 +175,7 @@ class AgiPicturePainter extends CustomPainter {
       }
     }
 
-    // 3. Draw any actors assigned to unconditional priority 15
-    if (actors.isNotEmpty) {
-      final pri15Actors = actors.where((a) => a.priority == 15).toList()
-        ..sort((a, b) => a.baselineY.compareTo(b.baselineY));
-
-      for (final actor in pri15Actors) {
-        canvas.drawImage(actor.image, actor.position, paint);
-      }
-    }
-
-    // 4. Seamless fallback to flat visual background if slices are still loading
+    // Seamless fallback to flat visual background if slices are still loading
     if (!drawnAny && fallbackFlat != null) {
       canvas.drawImage(fallbackFlat, Offset.zero, paint);
     }

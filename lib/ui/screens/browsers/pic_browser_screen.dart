@@ -824,7 +824,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
                             ),
                           ),
                           title: Text(
-                            p == 15 ? 'Base 15 (Sky)' : 'Depth Band $p',
+                            p == 15 ? 'Priority 15 (Foreground)' : 'Depth Band $p',
                             style: TextStyle(
                               fontSize: 12,
                               color: hasPixels ? AgiTheme.egaWhite : AgiTheme.egaMuted,

@@ -8,8 +8,8 @@ import 'package:flutter_agigame/domain/priority_buffer.dart';
 /// In accordance with the Impeller Painter's Algorithm strategy:
 /// 1. Slices are standardized on 320x200 (pixel-doubled horizontally from 160 units).
 /// 2. Playfield occupies lines 0 to 167; lines 168 to 199 remain transparent.
-/// 3. Priority 15 represents the unconditional background base (Sky/Horizon).
-/// 4. Priorities 0 to 14 represent depth bands.
+/// 3. Priorities 4 to 14 represent progressive depth bands from background (4) to foreground (14).
+/// 4. Priority 15 represents the absolute foreground overlay band (pillars, foreground walls, overlays).
 /// 5. Control line pixels (< 4) have their visual color assigned to the underlying effective
 ///    depth priority slice so actors walking near or over them are occluded accurately.
 class PictureSlicer {

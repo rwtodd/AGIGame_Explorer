@@ -5,8 +5,8 @@ import 'package:flutter_agigame/core/constants/ega_colors.dart';
 ///
 /// Priority values in AGI serve dual purposes:
 /// - Values 0 to 3 are **Control Lines** (collision barriers, water, script triggers).
-/// - Values 4 to 14 are **Depth Priority Bands** (Z-sorting depth planes sloping toward the camera).
-/// - Value 15 is **Unconditional Background** (sky, horizon, drawn behind everything).
+/// - Values 4 to 14 are **Depth Priority Bands** (Z-sorting depth planes sloping toward the camera from horizon to bottom).
+/// - Value 15 is **Foreground Overlay** (pillars, walls, foreground objects drawn in front of all actors).
 ///
 /// When an actor or visual element sits on a control line (< 4), its visual depth
 /// is derived by scanning down the column to find the underlying depth band (>= 4).
