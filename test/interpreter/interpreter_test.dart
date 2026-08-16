@@ -38,6 +38,13 @@ class MockInterpreterDelegate extends DefaultAgiInterpreterDelegate {
     lastSaidChecked = wordGroupIds;
     return nextSaidResult;
   }
+
+  List<int>? configuredScreenParams;
+
+  @override
+  void onConfigureScreen(int playTop, int inputLine, int statusLine) {
+    configuredScreenParams = [playTop, inputLine, statusLine];
+  }
 }
 
 void main() {
@@ -306,6 +313,22 @@ void main() {
       final val = memory.getVar(5);
       expect(val, greaterThanOrEqualTo(10));
       expect(val, lessThanOrEqualTo(20));
+    });
+
+    test('executes configure.screen opcode (111 / 0x6F)', () {
+      // configure.screen(1, 23, 0), return
+      final script = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0x6F, 0x01, 0x17, 0x00, // configure.screen(1, 23, 0)
+          0x00,
+        ]),
+        messages: const [],
+      );
+
+      vm.loadRootScript(script);
+      vm.executeCycle();
+
+      expect(delegate.configuredScreenParams, [1, 23, 0]);
     });
   });
 }

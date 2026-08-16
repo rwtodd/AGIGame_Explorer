@@ -1224,6 +1224,11 @@ class AgiLogicInterpreter {
         break;
 
       case 111: // configure.screen(playTop, inputLine, statusLine)
+        delegate.onConfigureScreen(
+          code[frame.ip + 1],
+          code[frame.ip + 2],
+          code[frame.ip + 3],
+        );
         frame.ip += 4;
         break;
 

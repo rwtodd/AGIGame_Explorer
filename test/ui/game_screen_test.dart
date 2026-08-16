@@ -20,19 +20,19 @@ void main() {
       engine.dispose();
     });
 
-    testWidgets('renders status bar, playfield, and command prompt', (tester) async {
-      engine.memory.setVar(3, 15); // Score = 15
-      engine.memory.setVar(7, 100); // Max Score = 100
-
+    testWidgets('renders left sidebar, playfield, and command prompt', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GameScreen(engine: engine),
         ),
       );
 
-      // Verify Status Bar
-      expect(find.text('Score: 15 of 100'), findsOneWidget);
-      expect(find.text('Sound: ON'), findsOneWidget);
+      // Verify Left Sidebar workbench tools
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      expect(find.byIcon(Icons.pause), findsOneWidget);
+      expect(find.byIcon(Icons.save_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.speed), findsOneWidget);
+      expect(find.byIcon(Icons.volume_up), findsOneWidget);
 
       // Verify Playfield Widget
       expect(find.byType(GamePlayfieldWidget), findsOneWidget);
@@ -88,7 +88,7 @@ void main() {
       expect(engine.activeDialog, isNull);
     });
 
-    testWidgets('toggles sound on status bar tap', (tester) async {
+    testWidgets('toggles sound on sidebar button tap', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GameScreen(engine: engine),
@@ -96,15 +96,15 @@ void main() {
       );
 
       expect(engine.memory.getFlag(9), isTrue);
-      expect(find.text('Sound: ON'), findsOneWidget);
+      expect(find.byIcon(Icons.volume_up), findsOneWidget);
 
-      // Tap sound toggle in status bar
-      final soundToggle = find.text('Sound: ON');
+      // Tap sound toggle in left sidebar
+      final soundToggle = find.byIcon(Icons.volume_up);
       await tester.tap(soundToggle);
       await tester.pump();
 
       expect(engine.memory.getFlag(9), isFalse);
-      expect(find.text('Sound: OFF'), findsOneWidget);
+      expect(find.byIcon(Icons.volume_off), findsOneWidget);
     });
 
     testWidgets('switches render modes in game toolbar and loads textures', (tester) async {

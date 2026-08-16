@@ -313,66 +313,71 @@ class _GameScreenState extends State<GameScreen> {
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
-          child: Column(
+          child: Row(
             children: [
-              _buildTopToolbar(),
-              if (_engine.isStatusLineEnabled) _buildStatusBar(),
+              _buildLeftSidebar(),
               Expanded(
-                child: Center(
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      GamePlayfieldWidget(
-                        engine: _engine,
-                        renderMode: _renderMode,
-                        showCrtShader: _showCrtShader,
-                        showPixelGrid: _showPixelGrid,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            GamePlayfieldWidget(
+                              engine: _engine,
+                              renderMode: _renderMode,
+                              showCrtShader: _showCrtShader,
+                              showPixelGrid: _showPixelGrid,
+                            ),
+
+                            // Modal Dialog Popup Overlay
+                            if (_engine.activeDialog != null && _engine.activeDialog!.isModal)
+                              Positioned.fill(
+                                child: DialogBoxWidget(
+                                  dialogState: _engine.activeDialog!,
+                                  onDismiss: _engine.dismissDialog,
+                                ),
+                              ),
+
+                            // Modal Input Prompt Popup Overlay
+                            if (_engine.activeInputPrompt != null)
+                              Positioned.fill(
+                                child: InputPromptDialog(
+                                  promptState: _engine.activeInputPrompt!,
+                                  onChanged: _engine.updateInputPrompt,
+                                  onSubmit: _engine.submitInputPrompt,
+                                  onCancel: _engine.cancelInputPrompt,
+                                ),
+                              ),
+
+                            // Inventory Dialog Overlay
+                            if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
+                              Positioned.fill(
+                                child: InventoryDialog(
+                                  engine: _engine,
+                                  onClose: _engine.closeInventory,
+                                  onInspect: (itemIdx) => _engine.inspectObject(itemIdx),
+                                ),
+                              ),
+
+                            // Object Inspection Dialog Overlay
+                            if (_engine.inspectingObjectNumber != null)
+                              Positioned.fill(
+                                child: ObjectInspectionDialog(
+                                  engine: _engine,
+                                  objectNumber: _engine.inspectingObjectNumber!,
+                                  onClose: _engine.closeObjectInspection,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-
-                      // Modal Dialog Popup Overlay
-                      if (_engine.activeDialog != null && _engine.activeDialog!.isModal)
-                        Positioned.fill(
-                          child: DialogBoxWidget(
-                            dialogState: _engine.activeDialog!,
-                            onDismiss: _engine.dismissDialog,
-                          ),
-                        ),
-
-                      // Modal Input Prompt Popup Overlay
-                      if (_engine.activeInputPrompt != null)
-                        Positioned.fill(
-                          child: InputPromptDialog(
-                            promptState: _engine.activeInputPrompt!,
-                            onChanged: _engine.updateInputPrompt,
-                            onSubmit: _engine.submitInputPrompt,
-                            onCancel: _engine.cancelInputPrompt,
-                          ),
-                        ),
-
-                      // Inventory Dialog Overlay
-                      if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
-                        Positioned.fill(
-                          child: InventoryDialog(
-                            engine: _engine,
-                            onClose: _engine.closeInventory,
-                            onInspect: (itemIdx) => _engine.inspectObject(itemIdx),
-                          ),
-                        ),
-
-                      // Object Inspection Dialog Overlay
-                      if (_engine.inspectingObjectNumber != null)
-                        Positioned.fill(
-                          child: ObjectInspectionDialog(
-                            engine: _engine,
-                            objectNumber: _engine.inspectingObjectNumber!,
-                            onClose: _engine.closeObjectInspection,
-                          ),
-                        ),
-                    ],
-                  ),
+                    ),
+                    _buildCommandPromptBar(),
+                  ],
                 ),
               ),
-              _buildCommandPromptBar(),
             ],
           ),
         ),
@@ -380,15 +385,20 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildTopToolbar() {
+  Widget _buildLeftSidebar() {
+    final soundOn = _engine.memory.getFlag(9);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      width: 42,
       decoration: const BoxDecoration(
         color: AgiTheme.egaDarkSurface,
-        border: Border(bottom: BorderSide(color: AgiTheme.egaBorder)),
+        border: Border(right: BorderSide(color: AgiTheme.egaBorder)),
       ),
-      child: Row(
+      child: Column(
         children: [
+          const SizedBox(height: 4),
+
+          // Exit Game
           IconButton(
             icon: const Icon(Icons.arrow_back, size: 18, color: AgiTheme.egaCyan),
             visualDensity: VisualDensity.compact,
@@ -396,17 +406,8 @@ class _GameScreenState extends State<GameScreen> {
             onPressed: () => Navigator.of(context).pop(),
             tooltip: 'Exit Game',
           ),
-          const SizedBox(width: 4),
-          const Text(
-            'AGI',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: AgiTheme.egaWhite,
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(width: 6),
+
+          const Divider(height: 10, thickness: 1, color: AgiTheme.egaBorder),
 
           // Pause / Play toggle
           IconButton(
@@ -463,29 +464,14 @@ class _GameScreenState extends State<GameScreen> {
             tooltip: 'Restart Game (F9)',
           ),
 
-          const Spacer(),
+          const Divider(height: 10, thickness: 1, color: AgiTheme.egaBorder),
 
           // Speed Selection
           PopupMenuButton<double>(
             initialValue: _engine.speedHz,
-            tooltip: 'Cycle Speed',
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: AgiTheme.egaBorder),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.speed, size: 13, color: AgiTheme.egaAmber),
-                  const SizedBox(width: 3),
-                  Text(
-                    '${_engine.speedHz.toInt()} Hz',
-                    style: const TextStyle(fontSize: 10, color: AgiTheme.egaAmber),
-                  ),
-                ],
-              ),
-            ),
+            tooltip: 'Cycle Speed (${_engine.speedHz.toInt()} Hz)',
+            icon: const Icon(Icons.speed, size: 18, color: AgiTheme.egaAmber),
+            padding: EdgeInsets.zero,
             onSelected: (hz) => _engine.setSpeedHz(hz),
             itemBuilder: (_) => const [
               PopupMenuItem(value: 10.0, child: Text('Slow (10 Hz)')),
@@ -494,7 +480,19 @@ class _GameScreenState extends State<GameScreen> {
               PopupMenuItem(value: 60.0, child: Text('Fastest (60 Hz)')),
             ],
           ),
-          const SizedBox(width: 4),
+
+          // Sound Toggle (F2)
+          IconButton(
+            icon: Icon(
+              soundOn ? Icons.volume_up : Icons.volume_off,
+              size: 18,
+              color: soundOn ? AgiTheme.egaCyan : AgiTheme.egaMuted,
+            ),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => _engine.toggleSound(),
+            tooltip: 'Sound: ${soundOn ? "ON" : "OFF"} (F2)',
+          ),
 
           // CRT Toggle
           IconButton(
@@ -529,29 +527,13 @@ class _GameScreenState extends State<GameScreen> {
             },
             tooltip: 'Toggle Pixel Grid',
           ),
-          const SizedBox(width: 2),
 
           // Render Mode View Toggle
           PopupMenuButton<AgiPictureRenderMode>(
             initialValue: _renderMode,
-            tooltip: 'View Layer Mode',
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: AgiTheme.egaBorder),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.layers, size: 13, color: AgiTheme.egaCyan),
-                  const SizedBox(width: 3),
-                  Text(
-                    _renderMode.name.toUpperCase(),
-                    style: const TextStyle(fontSize: 10, color: AgiTheme.egaCyan),
-                  ),
-                ],
-              ),
-            ),
+            tooltip: 'Layer: ${_renderMode.name}',
+            icon: const Icon(Icons.layers, size: 18, color: AgiTheme.egaCyan),
+            padding: EdgeInsets.zero,
             onSelected: (mode) {
               setState(() {
                 _renderMode = mode;
@@ -576,9 +558,19 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ],
           ),
-          const SizedBox(width: 4),
 
-          // Debug Inspector & Checkpoint button
+          const Spacer(),
+
+          // Inventory (Tab)
+          IconButton(
+            icon: const Icon(Icons.backpack_outlined, size: 18, color: AgiTheme.egaAmber),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => _engine.openInventory(),
+            tooltip: 'Inventory (Tab)',
+          ),
+
+          // Debug Inspector & Checkpoint button (F12)
           IconButton(
             icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
             visualDensity: VisualDensity.compact,
@@ -586,60 +578,8 @@ class _GameScreenState extends State<GameScreen> {
             onPressed: () => DebugInspectorDialog.show(context, _engine),
             tooltip: 'Debug Inspector & Checkpoints (F12)',
           ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildStatusBar() {
-    final score = _engine.memory.getVar(3);
-    final maxScore = _engine.memory.getVar(7);
-    final soundOn = _engine.memory.getFlag(9);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: const BoxDecoration(
-        color: Color(0xFFE2E8F0), // Classic light gray EGA status bar
-        border: Border(
-          bottom: BorderSide(color: Color(0xFF94A3B8), width: 1.5),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'Score: $score of $maxScore',
-            style: const TextStyle(
-              color: Color(0xFF0F172A),
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-              fontFamily: 'Courier',
-            ),
-          ),
-          InkWell(
-            onTap: () => _engine.toggleSound(),
-            child: Row(
-              children: [
-                Icon(
-                  soundOn ? Icons.volume_up : Icons.volume_off,
-                  size: 14,
-                  color: soundOn ? const Color(0xFF0284C7) : const Color(0xFF64748B),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Sound: ${soundOn ? "ON" : "OFF"}',
-                  style: TextStyle(
-                    color: soundOn ? const Color(0xFF0284C7) : const Color(0xFF64748B),
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Courier',
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 6),
         ],
       ),
     );

@@ -187,6 +187,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool get isPaused => _isPaused;
   bool get isInventoryOpen => _isInventoryOpen;
   int? get inspectingObjectNumber => _inspectingObjectNumber;
+  int _playfieldRow = 1;
+  int _inputRow = 23;
+  int _statusRow = 0;
+
   double get speedHz => _speedHz;
   int get cycleCount => _cycleCount;
   List<int> get parsedWordIds => List.unmodifiable(_parsedWordIds);
@@ -202,6 +206,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool get isTextScreen => _isTextScreen;
   int get textFgColor => _textFgColor;
   int get textBgColor => _textBgColor;
+  int get playfieldRow => _playfieldRow;
+  int get inputRow => _inputRow;
+  int get statusRow => _statusRow;
   int get currentRoom => memory.getVar(0);
   AnimatedObject get ego => animatedObjects[0];
 
@@ -1430,6 +1437,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void onShakeScreen(int count) {}
+
+  @override
+  void onConfigureScreen(int playTop, int inputLine, int statusLine) {
+    _playfieldRow = playTop;
+    _inputRow = inputLine;
+    _statusRow = statusLine;
+    notifyListeners();
+  }
 
   void _onSoundFinished() {
     if (_activeSoundEndFlag != null) {

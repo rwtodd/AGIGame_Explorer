@@ -66,6 +66,9 @@ abstract class AgiInterpreterDelegate {
   /// Called when `shake.screen` is executed.
   void onShakeScreen(int count) {}
 
+  /// Called when `configure.screen` is executed.
+  void onConfigureScreen(int playTop, int inputLine, int statusLine) {}
+
   /// Called when `sound` action begins playing a sound resource.
   void onSound(int soundNumber, int completionFlag) {}
 

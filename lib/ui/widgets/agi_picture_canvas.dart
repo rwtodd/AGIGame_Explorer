@@ -57,6 +57,7 @@ class AgiPicturePainter extends CustomPainter {
   final ui.Image? priorityMapImage;
   final ui.Image? controlMapImage;
   final int? isolatedPrioritySlice;
+  final int playfieldRow;
   final bool showPixelGrid;
 
   AgiPicturePainter({
@@ -67,6 +68,7 @@ class AgiPicturePainter extends CustomPainter {
     this.isTextScreen = false,
     this.textFgColor = 15,
     this.textBgColor = 0,
+    this.playfieldRow = 1,
     this.showCursor = false,
     this.cursorRow,
     this.cursorCol,
@@ -100,11 +102,16 @@ class AgiPicturePainter extends CustomPainter {
       final effectiveCtrl = controlMapImage ?? pic?.cachedControlMapImage;
 
       if (isolatedPrioritySlice != null && pic != null) {
+        canvas.save();
+        canvas.translate(0.0, playfieldRow * 8.0);
         final slice = pic.getSlice(isolatedPrioritySlice!);
         if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
           canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
         }
+        canvas.restore();
       } else if (pic != null) {
+        canvas.save();
+        canvas.translate(0.0, playfieldRow * 8.0);
         switch (renderMode) {
           case AgiPictureRenderMode.compositedSlices:
             _paintCompositedSlices(canvas, paint, effectiveFlat, pic);
@@ -139,6 +146,7 @@ class AgiPicturePainter extends CustomPainter {
             }
             break;
         }
+        canvas.restore();
       }
 
       if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
@@ -395,6 +403,7 @@ class AgiPicturePainter extends CustomPainter {
         oldDelegate.cursorRow != cursorRow ||
         oldDelegate.cursorCol != cursorCol ||
         oldDelegate.cursorPromptText != cursorPromptText ||
+        oldDelegate.playfieldRow != playfieldRow ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||
         oldDelegate.showPixelGrid != showPixelGrid;
   }

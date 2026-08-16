@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -123,12 +124,14 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           return GestureDetector(
             onTapUp: (details) {
               if (widget.onCanvasTap != null && constraints.maxWidth > 0 && constraints.maxHeight > 0) {
-                // Convert screen coordinates to native AGI 160x168 space
+                // Convert 320x200 viewport coordinates to native AGI 160x168 space
                 final localPos = details.localPosition;
-                final scaleX = localPos.dx / constraints.maxWidth;
-                final scaleY = localPos.dy / constraints.maxHeight;
-                final agiX = (scaleX * AgiPic.nativeWidth).clamp(0, AgiPic.nativeWidth - 1).toDouble();
-                final agiY = (scaleY * AgiPic.nativeHeight).clamp(0, AgiPic.nativeHeight - 1).toDouble();
+                final normX = localPos.dx / constraints.maxWidth;
+                final normY = localPos.dy / constraints.maxHeight;
+                final screenX = normX * AgiDisplay.renderedWidth;
+                final screenY = normY * AgiDisplay.renderedHeight;
+                final agiX = (screenX / 2.0).clamp(0.0, (AgiPic.nativeWidth - 1).toDouble());
+                final agiY = (screenY - widget.engine.playfieldRow * 8.0).clamp(0.0, (AgiPic.nativeHeight - 1).toDouble());
                 widget.onCanvasTap!(Offset(agiX, agiY));
               }
             },
@@ -147,6 +150,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                         isTextScreen: widget.engine.isTextScreen,
                         textFgColor: widget.engine.textFgColor,
                         textBgColor: widget.engine.textBgColor,
+                        playfieldRow: widget.engine.playfieldRow,
                         showCursor: _cursorBlink && (widget.engine.activeInputPrompt?.row != null),
                         cursorRow: widget.engine.activeInputPrompt?.row,
                         cursorCol: widget.engine.activeInputPrompt?.col ?? 0,
