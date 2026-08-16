@@ -1136,7 +1136,12 @@ class AgiLogicInterpreter {
         frame.ip++;
         break;
 
-      case 121: // set.key(scancode, ascii, ctl)
+      case 121: // set.key(ascii_low, scancode_high, ctl)
+        delegate.onSetKey(
+          code[frame.ip + 2], // scancode (high byte)
+          code[frame.ip + 1], // ascii (low byte)
+          code[frame.ip + 3], // controller code
+        );
         frame.ip += 4;
         break;
 
@@ -1172,10 +1177,12 @@ class AgiLogicInterpreter {
         break;
 
       case 125: // save.game()
+        delegate.onSaveGame();
         frame.ip++;
         break;
 
       case 126: // restore.game()
+        delegate.onRestoreGame();
         frame.ip++;
         break;
 
@@ -1184,6 +1191,7 @@ class AgiLogicInterpreter {
         break;
 
       case 128: // restart.game()
+        delegate.onRestartGame();
         frame.ip++;
         break;
 
