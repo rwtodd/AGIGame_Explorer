@@ -1,3 +1,4 @@
+import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
@@ -148,9 +149,22 @@ class AgiSaidMatcher {
 /// An [AgiInterpreterDelegate] implementation wired to an [AgiSaidMatcher].
 class SaidMatchingInterpreterDelegate extends DefaultAgiInterpreterDelegate {
   final AgiSaidMatcher matcher;
+  final AgiDictionary? _dictionary;
 
-  SaidMatchingInterpreterDelegate(this.matcher);
+  SaidMatchingInterpreterDelegate(this.matcher, [this._dictionary]);
+
+  @override
+  AgiDictionary? get dictionary => _dictionary;
 
   @override
   bool checkSaid(List<int> wordGroupIds) => matcher.checkSaid(wordGroupIds);
+
+  @override
+  void onParse(String input) {
+    if (_dictionary != null) {
+      final parser = AgiTextParser(_dictionary);
+      final result = parser.parse(input);
+      matcher.setInputFromResult(result);
+    }
+  }
 }

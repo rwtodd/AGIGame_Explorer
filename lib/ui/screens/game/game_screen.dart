@@ -8,6 +8,7 @@ import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/ui/widgets/debug_inspector_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
+import 'package:flutter_agigame/ui/widgets/input_prompt_dialog.dart';
 
 /// Main Playable Game Screen for Sierra AGI games.
 ///
@@ -268,6 +269,16 @@ class _GameScreenState extends State<GameScreen> {
                           child: DialogBoxWidget(
                             dialogState: _engine.activeDialog!,
                             onDismiss: _engine.dismissDialog,
+                          ),
+                        ),
+
+                      // Modal Input Prompt Popup Overlay
+                      if (_engine.activeInputPrompt != null)
+                        Positioned.fill(
+                          child: InputPromptDialog(
+                            promptState: _engine.activeInputPrompt!,
+                            onSubmit: _engine.submitInputPrompt,
+                            onCancel: _engine.cancelInputPrompt,
                           ),
                         ),
                     ],

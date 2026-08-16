@@ -1,4 +1,6 @@
+import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
+import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 
 /// Delegate interface allowing the AGI logic interpreter to interact with
@@ -11,6 +13,31 @@ abstract class AgiInterpreterDelegate {
 
   /// Loads a referenced logic script for `call` / `call.v`.
   AgiLogicScript? loadLogic(int logicNumber) => null;
+
+  /// Retrieves an active or cached VIEW resource by [viewNumber].
+  AgiView? getView(int viewNumber) => null;
+
+  /// The vocabulary dictionary (WORDS.TOK) associated with the current game.
+  AgiDictionary? get dictionary => null;
+
+  /// Converts a vocabulary word group ID [wordId] into its primary text string.
+  String? wordToString(int wordId) {
+    final dict = dictionary;
+    if (dict != null) {
+      final words = dict.idToWords(wordId);
+      if (words.isNotEmpty) return words.first;
+    }
+    return null;
+  }
+
+  /// Parses user command string [input] through vocabulary tokenizer and feeds into said matcher.
+  void onParse(String input) {}
+
+  /// Prompts the player for a text string input with message [prompt] (e.g. `get.string`).
+  Future<String?> onGetString(String prompt, int row, int col, int maxLen) async => null;
+
+  /// Prompts the player for a numeric input with message [prompt] (e.g. `get.num`).
+  Future<int?> onGetNum(String prompt) async => null;
 
   /// Called when `print` or `print.v` is executed.
   void onPrint(String message) {}

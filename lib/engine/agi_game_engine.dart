@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
@@ -15,6 +16,33 @@ import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
+
+/// Represents the type of user input requested by an input prompt dialog.
+enum AgiInputPromptType {
+  string,
+  number,
+}
+
+/// Represents active modal string/number prompt dialog state (`get.string`, `get.num`).
+class AgiInputPromptState {
+  final AgiInputPromptType type;
+  final String prompt;
+  final int? row;
+  final int? col;
+  final int maxLen;
+  final Completer<String?>? stringCompleter;
+  final Completer<int?>? numCompleter;
+
+  const AgiInputPromptState({
+    required this.type,
+    required this.prompt,
+    this.row,
+    this.col,
+    this.maxLen = 40,
+    this.stringCompleter,
+    this.numCompleter,
+  });
+}
 
 /// Represents active modal or positional dialog box state.
 class AgiDialogState {
@@ -69,6 +97,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   AgiPic? currentPic;
   AgiDialogState? activeDialog;
+  AgiInputPromptState? activeInputPrompt;
 
   bool _isRunning = false;
   bool _isPaused = false;
@@ -91,20 +120,24 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int horizon = CollisionDetector.defaultHorizon;
   AgiBlockArea? activeBlock;
 
+  final AgiDictionary? _customDictionary;
+
   AgiGameEngine({
     this.resourceLoader,
     this.soundPlayer,
+    AgiDictionary? dictionary,
     AgiMemory? memory,
     List<AnimatedObject>? animatedObjects,
     this._speedHz = 20.0,
     int? randomSeed,
     int maxAnimatedObjects = 64,
-  })  : memory = memory ?? AgiMemory(),
+  })  : _customDictionary = dictionary,
+        memory = memory ?? AgiMemory(),
         animatedObjects = animatedObjects ??
             List.generate(maxAnimatedObjects, (i) => AnimatedObject(number: i)),
         _rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
-    if (this.soundPlayer != null) {
-      this.soundPlayer!.onFinished = _onSoundFinished;
+    if (soundPlayer != null) {
+      soundPlayer!.onFinished = _onSoundFinished;
     }
 
     interpreter = AgiLogicInterpreter(
@@ -358,7 +391,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Tokenizes a user string into recognized word group IDs using [AgiTextParser].
   List<int> tokenizeCommand(String rawText) {
-    final dict = resourceLoader?.dictionary ?? AgiDictionary();
+    final dict = dictionary ?? AgiDictionary();
     final parser = AgiTextParser(dict);
     final result = parser.parse(rawText);
 
@@ -432,6 +465,38 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (dialog != null) {
       dialog.dismissCompleter?.complete();
       activeDialog = null;
+      notifyListeners();
+    }
+  }
+
+  /// Submits the current active input prompt value and completes the awaiting future.
+  void submitInputPrompt(String value) {
+    final prompt = activeInputPrompt;
+    if (prompt != null) {
+      if (prompt.type == AgiInputPromptType.string) {
+        final clamped = prompt.maxLen > 0 && value.length > prompt.maxLen
+            ? value.substring(0, prompt.maxLen)
+            : value;
+        prompt.stringCompleter?.complete(clamped);
+      } else {
+        final num = int.tryParse(value) ?? 0;
+        prompt.numCompleter?.complete(num.clamp(0, 255));
+      }
+      activeInputPrompt = null;
+      notifyListeners();
+    }
+  }
+
+  /// Cancels the current active input prompt without submitting a value.
+  void cancelInputPrompt() {
+    final prompt = activeInputPrompt;
+    if (prompt != null) {
+      if (prompt.type == AgiInputPromptType.string) {
+        prompt.stringCompleter?.complete(null);
+      } else {
+        prompt.numCompleter?.complete(null);
+      }
+      activeInputPrompt = null;
       notifyListeners();
     }
   }
@@ -956,6 +1021,64 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return resourceLoader!.loadLogic(logicNumber);
     }
     return null;
+  }
+
+  @override
+  AgiView? getView(int viewNumber) {
+    if (resourceLoader != null && resourceLoader!.presentViewNumbers.contains(viewNumber)) {
+      try {
+        return resourceLoader!.loadView(viewNumber);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  @override
+  AgiDictionary? get dictionary => resourceLoader?.dictionary ?? _customDictionary;
+
+  @override
+  String? wordToString(int wordId) {
+    final dict = dictionary;
+    if (dict != null) {
+      final words = dict.idToWords(wordId);
+      if (words.isNotEmpty) return words.first;
+    }
+    return null;
+  }
+
+  @override
+  void onParse(String input) {
+    submitCommand(input);
+  }
+
+  @override
+  Future<String?> onGetString(String prompt, int row, int col, int maxLen) {
+    final completer = Completer<String?>();
+    activeInputPrompt = AgiInputPromptState(
+      type: AgiInputPromptType.string,
+      prompt: formatMessage(prompt),
+      row: row,
+      col: col,
+      maxLen: maxLen,
+      stringCompleter: completer,
+    );
+    notifyListeners();
+    return completer.future;
+  }
+
+  @override
+  Future<int?> onGetNum(String prompt) {
+    final completer = Completer<int?>();
+    activeInputPrompt = AgiInputPromptState(
+      type: AgiInputPromptType.number,
+      prompt: formatMessage(prompt),
+      maxLen: 3,
+      numCompleter: completer,
+    );
+    notifyListeners();
+    return completer.future;
   }
 
   @override

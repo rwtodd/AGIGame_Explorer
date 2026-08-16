@@ -659,8 +659,14 @@ class AgiLogicInterpreter {
         break;
 
       case 49: // last.cel(o, %v)
-        // Set to cel by default
-        memory.setVar(code[frame.ip + 2], getObj(code[frame.ip + 1]).cel);
+        final obj = getObj(code[frame.ip + 1]);
+        final view = delegate.getView(obj.view);
+        final loop = view?.getLoop(obj.loop);
+        if (loop != null && loop.celCount > 0) {
+          memory.setVar(code[frame.ip + 2], loop.celCount - 1);
+        } else {
+          memory.setVar(code[frame.ip + 2], obj.cel);
+        }
         frame.ip += 3;
         break;
 
@@ -680,7 +686,9 @@ class AgiLogicInterpreter {
         break;
 
       case 53: // number.of.loops(o, %v)
-        memory.setVar(code[frame.ip + 2], 1);
+        final obj = getObj(code[frame.ip + 1]);
+        final view = delegate.getView(obj.view);
+        memory.setVar(code[frame.ip + 2], view?.loopCount ?? 1);
         frame.ip += 3;
         break;
 
@@ -1074,18 +1082,47 @@ class AgiLogicInterpreter {
         break;
 
       case 115: // get.string(s, m, row, col, maxLen)
+        final s = code[frame.ip + 1];
+        final m = code[frame.ip + 2];
+        final row = code[frame.ip + 3];
+        final col = code[frame.ip + 4];
+        final maxLen = code[frame.ip + 5];
+        final prompt = frame.script.getMessage(m);
+        final future = delegate.onGetString(prompt, row, col, maxLen);
+        future.then((value) {
+          if (value != null) {
+            final clamped = maxLen > 0 && value.length > maxLen ? value.substring(0, maxLen) : value;
+            memory.setString(s, clamped);
+          }
+        });
         frame.ip += 6;
         break;
 
       case 116: // word.to.string(w, s)
+        final w = code[frame.ip + 1];
+        final s = code[frame.ip + 2];
+        final word = delegate.wordToString(w) ?? (delegate.dictionary?.idToWords(w).firstOrNull ?? '');
+        memory.setString(s, word);
         frame.ip += 3;
         break;
 
       case 117: // parse(s)
+        final s = code[frame.ip + 1];
+        final str = memory.getString(s);
+        delegate.onParse(str);
         frame.ip += 2;
         break;
 
       case 118: // get.num(m, %v)
+        final m = code[frame.ip + 1];
+        final v = code[frame.ip + 2];
+        final prompt = frame.script.getMessage(m);
+        final future = delegate.onGetNum(prompt);
+        future.then((value) {
+          if (value != null) {
+            memory.setVar(v, value.clamp(0, 255));
+          }
+        });
         frame.ip += 3;
         break;
 
