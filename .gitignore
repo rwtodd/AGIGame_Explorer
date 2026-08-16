@@ -1,6 +1,8 @@
 # Custom references
 reference_docs/
+reference_docs
 reference_games/
+reference_games
 
 # Miscellaneous
 *.class

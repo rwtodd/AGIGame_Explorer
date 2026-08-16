@@ -59,5 +59,33 @@ void main() {
       expect(parsed.objects.first.name, equals('gold coin'));
       expect(parsed.objects.first.startingRoom, equals(5));
     });
+
+    test('auto-detects unencrypted vs encrypted OBJECT table', () {
+      final key = ascii.encode('key');
+      final plain = Uint8List.fromList([
+        3, 0, 16,
+        3, 0, 7,
+        ...key, 0,
+      ]);
+
+      // Unencrypted auto-detect
+      final unenc = ObjectsParser.parse(plain);
+      expect(unenc.maxAnimated, equals(16));
+      expect(unenc.objects.length, equals(1));
+      expect(unenc.objects.first.name, equals('key'));
+      expect(unenc.objects.first.startingRoom, equals(7));
+
+      // Encrypted auto-detect
+      final encrypted = Uint8List.fromList(plain);
+      for (var i = 0; i < encrypted.length; i++) {
+        final k = [65, 118, 105, 115, 32, 68, 117, 114, 103, 97, 110];
+        encrypted[i] ^= k[i % k.length];
+      }
+      final autoEnc = ObjectsParser.parse(encrypted);
+      expect(autoEnc.maxAnimated, equals(16));
+      expect(autoEnc.objects.length, equals(1));
+      expect(autoEnc.objects.first.name, equals('key'));
+      expect(autoEnc.objects.first.startingRoom, equals(7));
+    });
   });
 }

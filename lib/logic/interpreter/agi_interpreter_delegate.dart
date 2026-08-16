@@ -96,6 +96,9 @@ abstract class AgiInterpreterDelegate {
   /// Called when `add.to.pic` or `add.to.pic.v` is executed.
   void onAddToPic(int view, int loop, int cel, int x, int y, int pri, int boxPri) {}
 
+  /// Called when `status` is executed.
+  void onStatus() {}
+
   /// Called when `show.obj` or `show.obj.v` is executed.
   void onShowObj(int objNumber) {}
 
