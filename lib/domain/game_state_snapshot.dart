@@ -496,9 +496,9 @@ class AgiGameStateSnapshot {
       engine.resume();
     }
 
-    // If room changed, reload room resources if loader is present
-    if (engine.currentRoom != roomNumber && engine.resourceLoader != null) {
-      engine.changeRoom(roomNumber);
+    // If room loader is present, reload room picture and logic without wiping objects
+    if (engine.resourceLoader != null) {
+      engine.reloadRoomForRestore(roomNumber);
     }
   }
 

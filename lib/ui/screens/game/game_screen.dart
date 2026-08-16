@@ -8,6 +8,7 @@ import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/ui/widgets/debug_inspector_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
+import 'package:flutter_agigame/ui/widgets/save_load_dialog.dart';
 
 /// Main Playable Game Screen for Sierra AGI games.
 ///
@@ -61,6 +62,10 @@ class _GameScreenState extends State<GameScreen> {
       _engine.initializeGame(startingRoom: widget.startingRoom);
       _engine.start();
     }
+
+    _engine.onSaveGameRequested = () => SaveLoadDialog.showSave(context, _engine);
+    _engine.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, _engine);
+    _engine.onRestartGameRequested = () => SaveLoadDialog.showRestartConfirmation(context, _engine);
 
     _engine.addListener(_onEngineUpdated);
   }
@@ -153,9 +158,38 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     // 3. Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
-    _engine.handleKeyPress(_getKeyCode(event));
+    // (Only when prompt is not actively receiving text input)
+    if (!_promptFocusNode.hasFocus) {
+      _engine.handleKeyPress(_getKeyCode(event));
+    }
 
-    // 3. Direction controls ALWAYS control Ego
+    // 4. Trigger registered controller shortcuts via set.key mappings
+    // (Only if not typing regular printable characters in the prompt)
+    if (!_promptFocusNode.hasFocus ||
+        event.logicalKey.keyId >= 0x1100000000 || // Function keys, modifiers, etc.
+        HardwareKeyboard.instance.isAltPressed ||
+        HardwareKeyboard.instance.isControlPressed) {
+      final controllerTriggered = _engine.controllerManager.handleKeyEvent(event, _engine.memory);
+      if (controllerTriggered) {
+        return KeyEventResult.handled;
+      }
+    }
+
+    // If prompt is focused, allow cursor navigation and typing to reach TextField
+    if (_promptFocusNode.hasFocus) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+          event.logicalKey == LogicalKeyboardKey.arrowRight ||
+          event.logicalKey == LogicalKeyboardKey.space ||
+          (event.character != null &&
+              event.character!.isNotEmpty &&
+              !HardwareKeyboard.instance.isControlPressed &&
+              !HardwareKeyboard.instance.isAltPressed &&
+              !HardwareKeyboard.instance.isMetaPressed)) {
+        return KeyEventResult.ignored;
+      }
+    }
+
+    // 5. Direction controls ALWAYS control Ego
     switch (event.logicalKey) {
       case LogicalKeyboardKey.arrowUp:
       case LogicalKeyboardKey.numpad8:
@@ -190,7 +224,7 @@ class _GameScreenState extends State<GameScreen> {
         return KeyEventResult.handled;
     }
 
-    // 4. Command history navigation via PageUp/PageDown or F3
+    // 6. Command history navigation via PageUp/PageDown or F3
     if (event.logicalKey == LogicalKeyboardKey.pageUp ||
         event.logicalKey == LogicalKeyboardKey.f3) {
       _navigateHistory(-1);
@@ -200,8 +234,8 @@ class _GameScreenState extends State<GameScreen> {
       return KeyEventResult.handled;
     }
 
-    // 5. Command prompt input (when input is enabled)
-    if (_engine.isInputEnabled) {
+    // 7. Command prompt input (when prompt is NOT focused, allow typing directly to prompt)
+    if (_engine.isInputEnabled && !_promptFocusNode.hasFocus) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter) {
         _handleSubmitCommand(_promptController.text);
@@ -221,7 +255,8 @@ class _GameScreenState extends State<GameScreen> {
       } else if (event.character != null &&
           event.character!.isNotEmpty &&
           !HardwareKeyboard.instance.isControlPressed &&
-          !HardwareKeyboard.instance.isMetaPressed) {
+          !HardwareKeyboard.instance.isMetaPressed &&
+          !HardwareKeyboard.instance.isAltPressed) {
         final char = event.character!;
         final code = char.codeUnitAt(0);
         if (code >= 32 && code <= 126) {
@@ -338,13 +373,31 @@ class _GameScreenState extends State<GameScreen> {
             tooltip: 'Step Single Cycle',
           ),
 
-          // Restart
+          // Save Game (F5)
+          IconButton(
+            icon: const Icon(Icons.save_outlined, size: 18, color: Color(0xFF22C55E)),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => SaveLoadDialog.showSave(context, _engine),
+            tooltip: 'Save Game (F5)',
+          ),
+
+          // Restore Game (F7)
+          IconButton(
+            icon: const Icon(Icons.folder_open_outlined, size: 18, color: AgiTheme.egaCyan),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => SaveLoadDialog.showRestore(context, _engine),
+            tooltip: 'Restore Game (F7)',
+          ),
+
+          // Restart Game (F9)
           IconButton(
             icon: const Icon(Icons.replay, size: 18, color: AgiTheme.egaRed),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: () => _engine.initializeGame(startingRoom: widget.startingRoom),
-            tooltip: 'Restart Game',
+            onPressed: () => SaveLoadDialog.showRestartConfirmation(context, _engine),
+            tooltip: 'Restart Game (F9)',
           ),
 
           const Spacer(),

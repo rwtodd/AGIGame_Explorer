@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
@@ -9,7 +10,9 @@ import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
+import 'package:flutter_agigame/engine/controllers/agi_controller_manager.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
+import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
@@ -91,6 +94,21 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int horizon = CollisionDetector.defaultHorizon;
   AgiBlockArea? activeBlock;
 
+  /// Manages keyboard shortcut and function key mappings (`set.key`).
+  final AgiControllerManager controllerManager = AgiControllerManager();
+
+  /// Optional override directory for saving and loading `.sav` game slots.
+  Directory? saveDirectory;
+
+  /// Callback triggered when `save.game()` opcode executes.
+  VoidCallback? onSaveGameRequested;
+
+  /// Callback triggered when `restore.game()` opcode executes.
+  VoidCallback? onRestoreGameRequested;
+
+  /// Callback triggered when `restart.game()` opcode executes.
+  VoidCallback? onRestartGameRequested;
+
   AgiGameEngine({
     this.resourceLoader,
     this.soundPlayer,
@@ -103,8 +121,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         animatedObjects = animatedObjects ??
             List.generate(maxAnimatedObjects, (i) => AnimatedObject(number: i)),
         _rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
-    if (this.soundPlayer != null) {
-      this.soundPlayer!.onFinished = _onSoundFinished;
+    if (soundPlayer != null) {
+      soundPlayer!.onFinished = _onSoundFinished;
     }
 
     interpreter = AgiLogicInterpreter(
@@ -145,15 +163,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
-  /// Pauses the game loop.
+  /// Pauses the game loop and sound playback.
   void pause() {
     _isPaused = true;
+    soundPlayer?.pause();
     notifyListeners();
   }
 
-  /// Resumes a paused game loop.
+  /// Resumes a paused game loop and sound playback.
   void resume() {
     _isPaused = false;
+    soundPlayer?.resume();
     notifyListeners();
   }
 
@@ -913,6 +933,29 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
+  /// Reloads room picture and root logic (LOGIC 0) after state restoration
+  /// without resetting or wiping restored animated objects.
+  void reloadRoomForRestore(int roomNumber) {
+    onStopSound();
+    horizon = CollisionDetector.defaultHorizon;
+    activeBlock = null;
+    _displayedTexts.clear();
+
+    // Load room picture if available
+    if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(roomNumber)) {
+      currentPic = resourceLoader!.loadPic(roomNumber);
+      currentPic?.preloadGpuTextures();
+    }
+
+    // Load root room logic (LOGIC 0) for execution scan
+    if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
+      final logic0 = resourceLoader!.loadLogic(0);
+      interpreter.loadRootScript(logic0, scriptNumber: 0);
+    }
+
+    notifyListeners();
+  }
+
   void _repositionEgoForBorder(int border) {
     int egoWidth = 4;
     if (resourceLoader != null) {
@@ -1232,6 +1275,153 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (kDebugMode) {
       print('[AGI LOG] $message');
     }
+  }
+
+  @override
+  void onSetKey(int scancode, int ascii, int controllerCode) {
+    controllerManager.setKey(scancode, ascii, controllerCode);
+  }
+
+  @override
+  void onSaveGame() {
+    if (onSaveGameRequested != null) {
+      onSaveGameRequested!();
+    } else {
+      saveGameState(slot: 1);
+    }
+  }
+
+  @override
+  void onRestoreGame() {
+    if (onRestoreGameRequested != null) {
+      onRestoreGameRequested!();
+    } else {
+      restoreGameState(slot: 1);
+    }
+  }
+
+  @override
+  void onRestartGame() {
+    if (onRestartGameRequested != null) {
+      onRestartGameRequested!();
+    } else {
+      restartGame();
+    }
+  }
+
+  /// Triggers controller action by [controllerCode] (0..49) and notifies listeners.
+  void triggerController(int controllerCode) {
+    controllerManager.triggerController(controllerCode, memory);
+    notifyListeners();
+  }
+
+  /// Saves current game state to save slot [slot] (1..12).
+  Future<File> saveGameState({
+    int slot = 1,
+    String description = '',
+    Directory? directory,
+  }) async {
+    return GameStateSerializer.saveToSlot(
+      this,
+      slot,
+      description: description,
+      directory: directory ?? saveDirectory,
+    );
+  }
+
+  /// Restores game state from save slot [slot] (1..12).
+  Future<bool> restoreGameState({
+    int slot = 1,
+    Directory? directory,
+  }) async {
+    final success = await GameStateSerializer.restoreFromSlot(
+      this,
+      slot,
+      directory: directory ?? saveDirectory,
+    );
+    if (success) {
+      notifyListeners();
+    }
+    return success;
+  }
+
+  /// Restores state from an existing [AgiGameStateSnapshot].
+  void restoreFromSnapshot(AgiGameStateSnapshot snapshot) {
+    snapshot.restore(this);
+    memory.setFlag(12);
+    notifyListeners();
+  }
+
+  /// Restarts the game, resetting variables, flags, strings, inventory to initial game state,
+  /// reloading starting room and root Logic 0, and raising Flag 5, Flag 6, and Flag 11.
+  void restartGame({int startingRoom = 0}) {
+    memory.reset();
+
+    // System variables
+    memory.setVar(0, 0); // %v0 = current.room
+    memory.setVar(1, 0); // %v1 = previous.room
+    memory.setVar(8, 10); // %v8 = free memory pages
+    memory.setVar(20, 0); // %v20 = computer type (IBM PC)
+    memory.setVar(22, 1); // %v22 = sound voices
+    memory.setVar(24, 41); // %v24 = max input length
+    memory.setVar(26, 0); // %v26 = monitor type
+
+    // System flags
+    memory.setFlag(5); // %f5 = new room init
+    memory.setFlag(6); // %f6 = restart in progress
+    memory.setFlag(9); // %f9 = sound on
+    memory.setFlag(11); // %f11 = logic 0 first run
+
+    for (final obj in animatedObjects) {
+      obj.reset();
+    }
+
+    if (resourceLoader != null) {
+      // Reload initial inventory object locations
+      for (int i = 0; i < resourceLoader!.initialObjects.length; i++) {
+        final item = resourceLoader!.initialObjects[i];
+        memory.itemRooms[i] = item.startingRoom;
+      }
+
+      // Reload root Logic 0
+      if (resourceLoader!.presentLogicNumbers.contains(0)) {
+        final logic0 = resourceLoader!.loadLogic(0);
+        interpreter.loadRootScript(logic0, scriptNumber: 0);
+      }
+    }
+
+    _cycleCount = 0;
+    _clockTicks = 0;
+    _parsedWordIds.clear();
+    _lastSubmittedCommand = null;
+    _displayedTexts.clear();
+
+    if (startingRoom != 0) {
+      changeRoom(startingRoom);
+    }
+
+    // Run initial startup scan
+    if (interpreter.currentFrame != null) {
+      try {
+        interpreter.executeCycle();
+      } catch (e) {
+        _lastError = 'Restart error: $e';
+        if (kDebugMode) {
+          print(_lastError);
+        }
+      }
+    }
+
+    memory.resetFlag(5);
+    memory.resetFlag(6);
+
+    notifyListeners();
+  }
+
+  /// Cancels restart by setting Flag 16.
+  void cancelRestart() {
+    memory.setFlag(16);
+    notifyListeners();
   }
 
   @override

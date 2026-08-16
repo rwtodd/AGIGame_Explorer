@@ -99,6 +99,18 @@ abstract class AgiInterpreterDelegate {
   /// Called when `log` is executed.
   void onLog(String message) {}
 
+  /// Called when `set.key` is executed to register a key-to-controller mapping.
+  void onSetKey(int scancode, int ascii, int controllerCode) {}
+
+  /// Called when `save.game` is executed.
+  void onSaveGame() {}
+
+  /// Called when `restore.game` is executed.
+  void onRestoreGame() {}
+
+  /// Called when `restart.game` is executed.
+  void onRestartGame() {}
+
   /// Evaluates whether a key was pressed (for test opcode 0x0D `have.key()`).
   bool haveKey() => false;
 
@@ -108,3 +120,4 @@ abstract class AgiInterpreterDelegate {
 
 /// Default no-op delegate implementation (useful for tests and headless execution).
 class DefaultAgiInterpreterDelegate extends AgiInterpreterDelegate {}
+
