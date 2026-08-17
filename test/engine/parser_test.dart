@@ -334,7 +334,7 @@ class _RecordingSaidDelegate extends DefaultAgiInterpreterDelegate {
   bool checkSaid(List<int> wordGroupIds) => matcher.checkSaid(wordGroupIds);
 
   @override
-  void onPrint(String message) {
+  void onPrint(String message, {bool isModal = true, int timeoutHalfSeconds = 0}) {
     printedMessages.add(message);
   }
 }

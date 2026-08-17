@@ -29,8 +29,31 @@ class AgiMemory {
   /// Custom aliases for flag symbols (e.g. from community .flg files).
   final Map<int, String> customFlagNames = {};
 
-  /// Instruction pointer where scan execution begins (default 0, altered by set.scan.start).
-  int scanStartIp = 0;
+  /// Instruction pointers where scan execution begins per logic script number
+  /// (default 0, altered by set.scan.start and reset.scan.start).
+  final Map<int, int> scanStarts = {};
+
+  /// Instruction pointer where Logic 0 scan execution begins (default 0, altered by set.scan.start).
+  int get scanStartIp => getScanStart(0);
+  set scanStartIp(int value) => setScanStart(0, value);
+
+  /// Gets the scan start IP for [scriptNumber] (default 0).
+  int getScanStart(int scriptNumber) => scanStarts[scriptNumber] ?? 0;
+
+  /// Sets the scan start IP for [scriptNumber].
+  void setScanStart(int scriptNumber, int ip) {
+    scanStarts[scriptNumber] = ip;
+  }
+
+  /// Resets the scan start IP for [scriptNumber] to 0.
+  void resetScanStart(int scriptNumber) {
+    scanStarts.remove(scriptNumber);
+  }
+
+  /// Clears scan start offsets for all non-root logics upon entering a new room.
+  void clearNonZeroScanStarts() {
+    scanStarts.removeWhere((k, v) => k != 0);
+  }
 
   AgiMemory() {
     reset();
@@ -43,7 +66,7 @@ class AgiMemory {
     strings.fillRange(0, 24, '');
     controllers.fillRange(0, 50, false);
     itemRooms.clear();
-    scanStartIp = 0;
+    scanStarts.clear();
 
     // By default in AGI, flag 5 is set on entering a new room
     flags[5] = true;

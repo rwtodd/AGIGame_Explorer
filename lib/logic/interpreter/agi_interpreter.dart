@@ -88,8 +88,10 @@ class AgiLogicInterpreter {
   void loadRootScript(AgiLogicScript script, {int scriptNumber = 0}) {
     _rootScript = script;
     _rootScriptNumber = scriptNumber;
+    _pendingYield = false;
+    _pendingInputCallback = null;
     callStack.clear();
-    pushScript(script, scriptNumber: scriptNumber, startIp: memory.scanStartIp);
+    pushScript(script, scriptNumber: scriptNumber, startIp: memory.getScanStart(scriptNumber));
   }
 
   /// Retrieves animated object [which], throwing [AgiException] if out of bounds.
@@ -105,6 +107,7 @@ class AgiLogicInterpreter {
   /// Implements Sierra's rescan loop: when `new.room()` executes, `LOGIC 0` is
   /// automatically rescanned in the same tick cycle with the new room active.
   InterpreterStatus executeCycle() {
+    if (hasPendingYield) return InterpreterStatus.yielded;
     if (_rootScript == null && currentFrame == null) return InterpreterStatus.completed;
 
     int rescanCount = 0;
@@ -112,11 +115,11 @@ class AgiLogicInterpreter {
 
     while (rescanCount < maxRescans) {
       if (callStack.isEmpty && _rootScript != null) {
-        pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.scanStartIp);
+        pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.getScanStart(_rootScriptNumber));
       }
 
       // Reset scan start for current cycle
-      ip = memory.scanStartIp;
+      ip = memory.getScanStart(_rootScriptNumber);
       isHalted = false;
       _newRoomRequested = false;
 
@@ -131,7 +134,7 @@ class AgiLogicInterpreter {
         rescanCount++;
         // If onNewRoom was executed, re-push root script if callStack is empty and rescan LOGIC 0
         if (callStack.isEmpty && _rootScript != null) {
-          pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.scanStartIp);
+          pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.getScanStart(_rootScriptNumber));
         }
         continue;
       }
@@ -143,12 +146,17 @@ class AgiLogicInterpreter {
   }
 
   void Function(String?)? _pendingInputCallback;
+  bool _pendingYield = false;
+
+  /// Returns true if the interpreter is currently yielded waiting for modal dialog or player input.
+  bool get hasPendingYield => _pendingYield || _pendingInputCallback != null;
 
   /// Returns true if the interpreter is currently yielded waiting for player input.
   bool get hasPendingInput => _pendingInputCallback != null;
 
-  /// Resumes interpreter execution after a yielded input prompt (`get.string` or `get.num`).
-  InterpreterStatus resumeWithInput(String? value) {
+  /// Resumes interpreter execution after a yielded input prompt (`get.string` or `get.num`) or modal dialog.
+  InterpreterStatus resume([String? value]) {
+    _pendingYield = false;
     if (_pendingInputCallback != null) {
       final cb = _pendingInputCallback!;
       _pendingInputCallback = null;
@@ -169,7 +177,7 @@ class AgiLogicInterpreter {
       if (_newRoomRequested) {
         rescanCount++;
         if (callStack.isEmpty && _rootScript != null) {
-          pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.scanStartIp);
+          pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.getScanStart(_rootScriptNumber));
         }
         continue;
       }
@@ -179,6 +187,9 @@ class AgiLogicInterpreter {
 
     return InterpreterStatus.completed;
   }
+
+  /// Resumes interpreter execution after a yielded input prompt (`get.string` or `get.num`).
+  InterpreterStatus resumeWithInput(String? value) => resume(value);
 
   /// Executes exactly one bytecode instruction from the active script frame.
   InterpreterStatus stepInstruction() {
@@ -1167,13 +1178,36 @@ class AgiLogicInterpreter {
         break;
 
       case 101: // print(m)
-        delegate.onPrint(frame.script.getMessage(code[frame.ip + 1]));
+        final m = code[frame.ip + 1];
         frame.ip += 2;
+        final leaveWin = memory.getFlag(15);
+        if (leaveWin) {
+          memory.resetFlag(15);
+          delegate.onPrint(frame.script.getMessage(m), isModal: false);
+        } else {
+          final timeout = memory.getVar(21);
+          memory.setVar(21, 0);
+          delegate.onPrint(frame.script.getMessage(m), isModal: true, timeoutHalfSeconds: timeout);
+          _pendingYield = true;
+          return InterpreterStatus.yielded;
+        }
         break;
 
       case 102: // print.v(%v)
-        delegate.onPrint(frame.script.getMessage(memory.getVar(code[frame.ip + 1])));
+        final v = code[frame.ip + 1];
+        final msgNum = memory.getVar(v);
         frame.ip += 2;
+        final leaveWin = memory.getFlag(15);
+        if (leaveWin) {
+          memory.resetFlag(15);
+          delegate.onPrint(frame.script.getMessage(msgNum), isModal: false);
+        } else {
+          final timeout = memory.getVar(21);
+          memory.setVar(21, 0);
+          delegate.onPrint(frame.script.getMessage(msgNum), isModal: true, timeoutHalfSeconds: timeout);
+          _pendingYield = true;
+          return InterpreterStatus.yielded;
+        }
         break;
 
       case 103: // display(row, col, m)
@@ -1445,12 +1479,12 @@ class AgiLogicInterpreter {
         break;
 
       case 145: // set.scan.start()
-        memory.scanStartIp = frame.ip + 1;
+        memory.setScanStart(frame.scriptNumber, frame.ip + 1);
         frame.ip++;
         break;
 
       case 146: // reset.scan.start()
-        memory.scanStartIp = 0;
+        memory.resetScanStart(frame.scriptNumber);
         frame.ip++;
         break;
 
@@ -1482,18 +1516,38 @@ class AgiLogicInterpreter {
         final x = code[frame.ip + 2];
         final y = code[frame.ip + 3];
         final w = numArgs == 4 ? code[frame.ip + 4] : 0;
-        delegate.onPrintAt(frame.script.getMessage(m), x, y, w);
         frame.ip += 1 + numArgs;
+        final leaveWin = memory.getFlag(15);
+        if (leaveWin) {
+          memory.resetFlag(15);
+          delegate.onPrintAt(frame.script.getMessage(m), x, y, w, isModal: false);
+        } else {
+          final timeout = memory.getVar(21);
+          memory.setVar(21, 0);
+          delegate.onPrintAt(frame.script.getMessage(m), x, y, w, isModal: true, timeoutHalfSeconds: timeout);
+          _pendingYield = true;
+          return InterpreterStatus.yielded;
+        }
         break;
 
-      case 152: // print.at.v(m, %vx, %vy, %vw)
+      case 152: // print.at.v(%vm, x, y, width)
         final numArgs = (version < 2.401) ? 3 : 4;
-        final m = code[frame.ip + 1];
-        final x = memory.getVar(code[frame.ip + 2]);
-        final y = memory.getVar(code[frame.ip + 3]);
-        final w = numArgs == 4 ? memory.getVar(code[frame.ip + 4]) : 0;
-        delegate.onPrintAt(frame.script.getMessage(m), x, y, w);
+        final msgNum = memory.getVar(code[frame.ip + 1]);
+        final x = code[frame.ip + 2];
+        final y = code[frame.ip + 3];
+        final w = numArgs == 4 ? code[frame.ip + 4] : 0;
         frame.ip += 1 + numArgs;
+        final leaveWin = memory.getFlag(15);
+        if (leaveWin) {
+          memory.resetFlag(15);
+          delegate.onPrintAt(frame.script.getMessage(msgNum), x, y, w, isModal: false);
+        } else {
+          final timeout = memory.getVar(21);
+          memory.setVar(21, 0);
+          delegate.onPrintAt(frame.script.getMessage(msgNum), x, y, w, isModal: true, timeoutHalfSeconds: timeout);
+          _pendingYield = true;
+          return InterpreterStatus.yielded;
+        }
         break;
 
       case 153: // discard.view.v(%v)
@@ -1586,6 +1640,7 @@ class AgiLogicInterpreter {
         break;
 
       case 169: // close.window()
+        delegate.onCloseWindow();
         frame.ip++;
         break;
 
@@ -1617,6 +1672,7 @@ class AgiLogicInterpreter {
     memory.resetFlag(3); // %f3 = signal touched
     memory.resetFlag(4); // %f4 = said accepted
     callStack.clear(); // unroll call stack
+    memory.clearNonZeroScanStarts();
     _newRoomRequested = true;
     delegate.onNewRoom(room);
   }
@@ -1624,7 +1680,7 @@ class AgiLogicInterpreter {
   void _doCall(int scriptNum) {
     final subScript = delegate.loadLogic(scriptNum);
     if (subScript != null) {
-      pushScript(subScript, scriptNumber: scriptNum);
+      pushScript(subScript, scriptNumber: scriptNum, startIp: memory.getScanStart(scriptNum));
     }
   }
 }

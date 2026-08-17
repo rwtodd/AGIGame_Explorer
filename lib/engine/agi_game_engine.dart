@@ -78,6 +78,8 @@ class AgiDialogState {
   final int? width;
   final bool isModal;
   final Completer<void>? dismissCompleter;
+  final int? autoCloseHalfSeconds;
+  final int? autoCloseTicks;
 
   const AgiDialogState({
     required this.message,
@@ -88,6 +90,8 @@ class AgiDialogState {
     this.width,
     this.isModal = true,
     this.dismissCompleter,
+    this.autoCloseHalfSeconds,
+    this.autoCloseTicks,
   });
 }
 
@@ -130,6 +134,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int? _inspectingObjectNumber;
   double _speedHz;
   Timer? _gameLoopTimer;
+  Timer? _dialogAutoCloseTimer;
+  int? _dialogAutoCloseTicks;
+  double shakeOffsetX = 0.0;
+  double shakeOffsetY = 0.0;
+  int _shakeTicksRemaining = 0;
+  int _shakeCount = 0;
+  int get shakeCount => _shakeCount;
 
   int _cycleCount = 0;
   int _clockTicks = 0;
@@ -452,7 +463,33 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(19, 0);
     _keyPressedThisCycle = false;
 
+    // Decrement modal dialog auto-close ticks if active
+    if (_dialogAutoCloseTicks != null && _dialogAutoCloseTicks! > 0) {
+      _dialogAutoCloseTicks = _dialogAutoCloseTicks! - 1;
+      if (_dialogAutoCloseTicks! <= 0) {
+        dismissDialog();
+      }
+    }
+
+    _updateShake();
+
     notifyListeners();
+  }
+
+  void _updateShake() {
+    if (_shakeTicksRemaining > 0) {
+      _shakeTicksRemaining--;
+      if (_shakeTicksRemaining % 2 == 0) {
+        shakeOffsetY = (_shakeTicksRemaining % 4 == 0) ? -3.0 : 3.0;
+        shakeOffsetX = (_shakeTicksRemaining % 3 == 0) ? 2.0 : -2.0;
+      } else {
+        shakeOffsetY = 0.0;
+        shakeOffsetX = 0.0;
+      }
+    } else {
+      shakeOffsetX = 0.0;
+      shakeOffsetY = 0.0;
+    }
   }
 
   /// Sets Ego's motion direction (0..8) and synchronizes Variable 6.
@@ -647,10 +684,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Dismisses active modal dialog box and resumes gameplay.
   void dismissDialog() {
+    _dialogAutoCloseTimer?.cancel();
+    _dialogAutoCloseTimer = null;
+    _dialogAutoCloseTicks = null;
+
     final dialog = activeDialog;
     if (dialog != null) {
       dialog.dismissCompleter?.complete();
       activeDialog = null;
+      if (interpreter.hasPendingYield) {
+        interpreter.resume();
+      }
       notifyListeners();
     }
   }
@@ -1404,26 +1448,69 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onPrint(String message) {
+  void onPrint(String message, {bool isModal = true, int timeoutHalfSeconds = 0}) {
+    _showDialog(
+      message: message,
+      isModal: isModal,
+      timeoutHalfSeconds: timeoutHalfSeconds,
+    );
+  }
+
+  @override
+  void onPrintAt(String message, int x, int y, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {
+    _showDialog(
+      message: message,
+      x: x,
+      y: y,
+      width: width,
+      isModal: isModal,
+      timeoutHalfSeconds: timeoutHalfSeconds,
+    );
+  }
+
+  void _showDialog({
+    required String message,
+    int? row,
+    int? col,
+    int? x,
+    int? y,
+    int? width,
+    bool isModal = true,
+    int timeoutHalfSeconds = 0,
+  }) {
+    _dialogAutoCloseTimer?.cancel();
+    _dialogAutoCloseTimer = null;
+
+    final completer = Completer<void>();
     activeDialog = AgiDialogState(
       message: formatMessage(message),
-      isModal: true,
-      dismissCompleter: Completer<void>(),
+      row: row,
+      col: col,
+      x: x,
+      y: y,
+      width: width,
+      isModal: isModal,
+      dismissCompleter: completer,
+      autoCloseHalfSeconds: timeoutHalfSeconds > 0 ? timeoutHalfSeconds : null,
+      autoCloseTicks: timeoutHalfSeconds > 0 ? timeoutHalfSeconds * 10 : null,
     );
+
+    if (timeoutHalfSeconds > 0) {
+      _dialogAutoCloseTicks = timeoutHalfSeconds * 10;
+      final ms = timeoutHalfSeconds * 500;
+      _dialogAutoCloseTimer = Timer(Duration(milliseconds: ms), () {
+        dismissDialog();
+      });
+    } else {
+      _dialogAutoCloseTicks = null;
+    }
+
     notifyListeners();
   }
 
   @override
-  void onPrintAt(String message, int x, int y, int width) {
-    activeDialog = AgiDialogState(
-      message: formatMessage(message),
-      x: x,
-      y: y,
-      width: width,
-      isModal: true,
-      dismissCompleter: Completer<void>(),
-    );
-    notifyListeners();
+  void onCloseWindow() {
+    dismissDialog();
   }
 
   @override
@@ -1522,7 +1609,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onShakeScreen(int count) {}
+  void onShakeScreen(int count) {
+    _shakeCount = count;
+    _shakeTicksRemaining = (count * 8).clamp(8, 40);
+    notifyListeners();
+  }
 
   @override
   void onConfigureScreen(int playTop, int inputLine, int statusLine) {
@@ -1902,6 +1993,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void dispose() {
+    _dialogAutoCloseTimer?.cancel();
+    _dialogAutoCloseTimer = null;
     onStopSound();
     stop();
     super.dispose();

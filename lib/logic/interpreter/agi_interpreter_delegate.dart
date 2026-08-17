@@ -40,13 +40,16 @@ abstract class AgiInterpreterDelegate {
   Future<int?> onGetNum(String prompt) async => null;
 
   /// Called when `print` or `print.v` is executed.
-  void onPrint(String message) {}
+  void onPrint(String message, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
 
   /// Called when `display` or `display.v` is executed.
   void onDisplay(int row, int col, String message) {}
 
   /// Called when `print.at` or `print.at.v` is executed.
-  void onPrintAt(String message, int x, int y, int width) {}
+  void onPrintAt(String message, int x, int y, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
+
+  /// Called when `close.window` is executed.
+  void onCloseWindow() {}
 
   /// Called when `clear.lines` is executed.
   void onClearLines(int top, int bottom, int color) {}

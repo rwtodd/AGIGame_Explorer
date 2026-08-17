@@ -14,7 +14,7 @@ class MockInterpreterDelegate extends DefaultAgiInterpreterDelegate {
   bool nextSaidResult = false;
 
   @override
-  void onPrint(String message) {
+  void onPrint(String message, {bool isModal = true, int timeoutHalfSeconds = 0}) {
     printedMessages.add(message);
   }
 

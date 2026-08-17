@@ -122,6 +122,7 @@ class GameStateSerializer {
       'isInputEnabled': engine.isInputEnabled,
       'isUserControl': engine.isUserControl,
       'scanStartIp': mem.scanStartIp,
+      'scanStarts': mem.scanStarts.map((k, v) => MapEntry(k.toString(), v)),
       'lastSubmittedCommand': engine.lastSubmittedCommand ?? '',
       'variables': variablesList,
       'flags': flagsList,
@@ -227,9 +228,21 @@ class GameStateSerializer {
       }
     }
 
-    // 6. Restore Scan Start IP
-    final scanStartIp = (data['scanStartIp'] as num?)?.toInt() ?? 0;
-    mem.scanStartIp = scanStartIp;
+    // 6. Restore Scan Starts
+    mem.scanStarts.clear();
+    if (data['scanStarts'] is Map) {
+      (data['scanStarts'] as Map).forEach((k, v) {
+        final idx = int.tryParse(k.toString());
+        if (idx != null && v is num) {
+          mem.setScanStart(idx, v.toInt());
+        }
+      });
+    } else {
+      final scanStartIp = (data['scanStartIp'] as num?)?.toInt() ?? 0;
+      if (scanStartIp != 0) {
+        mem.scanStartIp = scanStartIp;
+      }
+    }
 
     // 7. Restore Animated Objects
     for (final obj in engine.animatedObjects) {

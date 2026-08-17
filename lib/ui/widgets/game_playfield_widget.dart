@@ -161,10 +161,12 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         }
 
         return Center(
-          child: SizedBox(
-            width: playfieldWidth,
-            height: playfieldHeight,
-            child: GestureDetector(
+          child: Transform.translate(
+            offset: Offset(widget.engine.shakeOffsetX, widget.engine.shakeOffsetY),
+            child: SizedBox(
+              width: playfieldWidth,
+              height: playfieldHeight,
+              child: GestureDetector(
               onTapUp: (details) {
                 if (widget.onCanvasTap != null && playfieldWidth > 0 && playfieldHeight > 0) {
                   // Convert viewport coordinates to native AGI 160x168 space
@@ -233,7 +235,8 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               ),
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }

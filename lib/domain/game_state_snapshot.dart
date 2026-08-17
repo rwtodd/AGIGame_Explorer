@@ -335,6 +335,9 @@ class AgiGameStateSnapshot {
 
   final int scanStartIp;
 
+  /// Per-script scan start offsets (logic number -> IP).
+  final Map<String, int> scanStarts;
+
   const AgiGameStateSnapshot({
     required this.timestamp,
     this.label = '',
@@ -357,6 +360,7 @@ class AgiGameStateSnapshot {
     required this.objects,
     required this.callStack,
     required this.scanStartIp,
+    this.scanStarts = const {},
   });
 
   /// Captures a complete snapshot from live [AgiGameEngine].
@@ -440,6 +444,7 @@ class AgiGameStateSnapshot {
       objects: objects,
       callStack: callStack,
       scanStartIp: mem.scanStartIp,
+      scanStarts: mem.scanStarts.map((k, v) => MapEntry(k.toString(), v)),
     );
   }
 
@@ -486,7 +491,17 @@ class AgiGameStateSnapshot {
       }
     });
 
-    mem.scanStartIp = scanStartIp;
+    mem.scanStarts.clear();
+    if (scanStarts.isNotEmpty) {
+      scanStarts.forEach((k, v) {
+        final idx = int.tryParse(k);
+        if (idx != null) {
+          mem.scanStarts[idx] = v;
+        }
+      });
+    } else if (scanStartIp != 0) {
+      mem.scanStartIp = scanStartIp;
+    }
 
     // Restore objects
     for (final obj in engine.animatedObjects) {
@@ -538,6 +553,7 @@ class AgiGameStateSnapshot {
         'objects': objects.map((o) => o.toJson()).toList(),
         'callStack': callStack.map((c) => c.toJson()).toList(),
         'scanStartIp': scanStartIp,
+        'scanStarts': scanStarts,
       };
 
   /// Formats snapshot as a JSON string.
@@ -575,6 +591,9 @@ class AgiGameStateSnapshot {
         .map((c) => AgiCallFrameSnapshot.fromJson((c as Map).cast<String, dynamic>()))
         .toList();
 
+    final scanStartsRaw = (json['scanStarts'] as Map?) ?? {};
+    final scanStarts = scanStartsRaw.map((k, v) => MapEntry(k.toString(), v as int));
+
     return AgiGameStateSnapshot(
       timestamp: json['timestamp'] as String? ?? '',
       label: json['label'] as String? ?? '',
@@ -596,7 +615,8 @@ class AgiGameStateSnapshot {
       strings: strings,
       objects: objects,
       callStack: callStack,
-      scanStartIp: json['scanStartIp'] as int? ?? 0,
+      scanStartIp: json['scanStartIp'] as int? ?? (scanStarts['0'] ?? 0),
+      scanStarts: scanStarts,
     );
   }
 

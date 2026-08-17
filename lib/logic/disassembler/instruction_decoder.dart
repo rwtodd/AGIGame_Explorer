@@ -21,7 +21,7 @@ class InstructionDecoder {
     code152PrintAtV = BasicInstruction.template(
       'print.at.v',
       (version < 2.401) ? 3 : 4,
-      (version < 2.401) ? 0x449 : 0x4449,
+      (version < 2.401) ? 0x114 : 0x1114,
     );
     code176Unknown = BasicInstruction.template(
       'unknown176',
@@ -459,7 +459,7 @@ class InstructionDecoder {
     BasicInstruction.template('trace.on', 0, 0x0),
     BasicInstruction.template('trace.info', 3, 0x111), // 150
     BasicInstruction.template('print.at', 4, 0x1119), // 151 (overridden by version)
-    BasicInstruction.template('print.at.v', 4, 0x4449), // 152 (overridden by version)
+    BasicInstruction.template('print.at.v', 4, 0x1114), // 152 (overridden by version)
     BasicInstruction.template('discard.view.v', 1, 0x4),
     BasicInstruction.template('clear.text.rect', 5, 0x11111),
     BasicInstruction.template('set.upper.left', 2, 0x00), // 155
