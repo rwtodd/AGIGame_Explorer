@@ -178,7 +178,76 @@ class _GameScreenState extends State<GameScreen> {
       return KeyEventResult.ignored;
     }
 
-    // 4. Tab opens Inventory screen
+    // 4. If full text screen is active (e.g. Help or About screen), any key sends keypress and ticks engine
+    if (_engine.isTextScreen) {
+      _engine.handleKeyPress(_getKeyCode(event));
+      _engine.tick();
+      return KeyEventResult.handled;
+    }
+
+    // 4. If Menu system is open, route navigation and item selection
+    if (_engine.isMenuOpen) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _engine.closeMenu();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _engine.navigateMenuLeft();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _engine.navigateMenuRight();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _engine.navigateMenuUp();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _engine.navigateMenuDown();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.home) {
+        _engine.menuManager.navigateHome();
+        setState(() {});
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.end) {
+        _engine.menuManager.navigateEnd();
+        setState(() {});
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.pageUp) {
+        _engine.menuManager.navigatePageUp();
+        setState(() {});
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.pageDown) {
+        _engine.menuManager.navigatePageDown();
+        setState(() {});
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.space) {
+        _engine.selectMenuItem();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.handled;
+    }
+
+    // 5. ESC opens Menu Bar (if menu is available and enabled)
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      if (_promptController.text.isNotEmpty) {
+        _promptController.clear();
+        return KeyEventResult.handled;
+      } else if (_engine.menuManager.isAvailable && _engine.memory.getFlag(14)) {
+        _engine.openMenu();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // 6. Tab opens Inventory screen
     if (event.logicalKey == LogicalKeyboardKey.tab) {
       _engine.openInventory();
       return KeyEventResult.handled;
@@ -383,8 +452,8 @@ class _GameScreenState extends State<GameScreen> {
                               Positioned.fill(
                                 child: InventoryDialog(
                                   engine: _engine,
-                                  onClose: _engine.closeInventory,
-                                  onInspect: (itemIdx) => _engine.inspectObject(itemIdx),
+                                  onClose: () => _engine.closeInventory(),
+                                  onSelect: (selectedObj) => _engine.closeInventory(selectedObj),
                                 ),
                               ),
 
@@ -494,15 +563,15 @@ class _GameScreenState extends State<GameScreen> {
           // Speed Selection
           PopupMenuButton<double>(
             initialValue: _engine.speedHz,
-            tooltip: 'Cycle Speed (${_engine.speedHz.toInt()} Hz)',
+            tooltip: 'Cycle Speed (${_engine.speedHz.toStringAsFixed(1)} Hz)',
             icon: const Icon(Icons.speed, size: 18, color: AgiTheme.egaAmber),
             padding: EdgeInsets.zero,
             onSelected: (hz) => _engine.setSpeedHz(hz),
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 10.0, child: Text('Slow (10 Hz)')),
-              PopupMenuItem(value: 20.0, child: Text('Normal (20 Hz)')),
-              PopupMenuItem(value: 40.0, child: Text('Fast (40 Hz)')),
-              PopupMenuItem(value: 60.0, child: Text('Fastest (60 Hz)')),
+              PopupMenuItem(value: 10.0, child: Text('Slow (10 Hz / delay 3)')),
+              PopupMenuItem(value: 20.0, child: Text('Normal (20 Hz / delay 2)')),
+              PopupMenuItem(value: 30.0, child: Text('Fast (30 Hz / delay 1)')),
+              PopupMenuItem(value: 60.0, child: Text('Fastest (60 Hz / delay 0)')),
             ],
           ),
 

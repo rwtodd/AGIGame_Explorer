@@ -11,11 +11,13 @@ class AgiCallFrame {
   final AgiLogicScript script;
   final int scriptNumber;
   int ip;
+  bool testedHaveKeyWithoutKey;
 
   AgiCallFrame({
     required this.script,
     required this.scriptNumber,
     this.ip = 0,
+    this.testedHaveKeyWithoutKey = false,
   });
 }
 
@@ -208,8 +210,7 @@ class AgiLogicInterpreter {
     final opcode = code[frame.ip];
     switch (opcode) {
       case 0xFE: // GOTO
-        _execGoto(code, frame);
-        return InterpreterStatus.running;
+        return _execGoto(code, frame);
 
       case 0xFF: // IF
         _execIf(code, frame);
@@ -220,13 +221,19 @@ class AgiLogicInterpreter {
     }
   }
 
-  void _execGoto(Uint8List code, AgiCallFrame frame) {
+  InterpreterStatus _execGoto(Uint8List code, AgiCallFrame frame) {
     if (frame.ip + 2 >= code.length) {
       throw const AgiException('Truncated GOTO instruction.');
     }
     var target = code[frame.ip + 1] | (code[frame.ip + 2] << 8);
     if (target >= 0x8000) target -= 0x10000;
     frame.ip += target + 3;
+
+    if (target < 0 && frame.testedHaveKeyWithoutKey) {
+      frame.testedHaveKeyWithoutKey = false;
+      return InterpreterStatus.yielded;
+    }
+    return InterpreterStatus.running;
   }
 
   void _skipTestInstruction(Uint8List code, AgiCallFrame frame) {
@@ -413,7 +420,11 @@ class AgiLogicInterpreter {
 
       case 0x0D: // have.key()
         frame.ip++;
-        return delegate.haveKey();
+        final hasKey = delegate.haveKey();
+        if (!hasKey) {
+          frame.testedHaveKeyWithoutKey = true;
+        }
+        return hasKey;
 
       case 0x0E: // said(count, w1, w2, ...)
         final count = code[frame.ip + 1];
@@ -1373,9 +1384,15 @@ class AgiLogicInterpreter {
         break;
 
       case 124: // status()
-        delegate.onStatus();
         frame.ip++;
-        break;
+        _pendingInputCallback = (value) {
+          if (memory.getFlag(13)) {
+            final selected = int.tryParse(value ?? '') ?? 255;
+            memory.setVar(25, selected);
+          }
+        };
+        delegate.onStatus();
+        return InterpreterStatus.yielded;
 
       case 125: // save.game()
         delegate.onSaveGame();
@@ -1397,9 +1414,11 @@ class AgiLogicInterpreter {
         break;
 
       case 129: // show.obj(i)
-        delegate.onShowObj(code[frame.ip + 1]);
+        final obj = code[frame.ip + 1];
         frame.ip += 2;
-        break;
+        _pendingInputCallback = (_) {};
+        delegate.onShowObj(obj);
+        return InterpreterStatus.yielded;
 
       case 130: // random(lower, upper, %v)
         final lower = code[frame.ip + 1];
@@ -1571,33 +1590,44 @@ class AgiLogicInterpreter {
         break;
 
       case 156: // set.menu(m)
+        delegate.onSetMenu(frame.script.getMessage(code[frame.ip + 1]));
         frame.ip += 2;
         break;
 
       case 157: // set.menu.item(m, ctl)
+        delegate.onSetMenuItem(
+          frame.script.getMessage(code[frame.ip + 1]),
+          code[frame.ip + 2],
+        );
         frame.ip += 3;
         break;
 
       case 158: // submit.menu()
+        delegate.onSubmitMenu();
         frame.ip++;
         break;
 
       case 159: // enable.item(ctl)
+        delegate.onEnableItem(code[frame.ip + 1]);
         frame.ip += 2;
         break;
 
       case 160: // disable.item(ctl)
+        delegate.onDisableItem(code[frame.ip + 1]);
         frame.ip += 2;
         break;
 
       case 161: // menu.input()
+        delegate.onMenuInput();
         frame.ip++;
         break;
 
       case 162: // show.obj.v(%v)
-        delegate.onShowObj(memory.getVar(code[frame.ip + 1]));
+        final obj = memory.getVar(code[frame.ip + 1]);
         frame.ip += 2;
-        break;
+        _pendingInputCallback = (_) {};
+        delegate.onShowObj(obj);
+        return InterpreterStatus.yielded;
 
       case 163: // open.dialogue()
         frame.ip++;

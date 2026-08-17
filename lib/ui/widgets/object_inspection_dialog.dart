@@ -60,10 +60,11 @@ class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
 
   AgiObject? _resolveObject() {
     if (widget.object != null) return widget.object;
-    if (widget.engine != null &&
-        widget.objectNumber >= 0 &&
-        widget.objectNumber < widget.engine!.objects.length) {
-      return widget.engine!.objects[widget.objectNumber];
+    if (widget.engine != null) {
+      final objects = widget.engine!.objects;
+      if (widget.objectNumber >= 0 && widget.objectNumber < objects.length) {
+        return objects[widget.objectNumber];
+      }
     }
     return null;
   }
@@ -73,15 +74,23 @@ class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
     final effectiveLoader = widget.loader ?? widget.engine?.resourceLoader;
     if (effectiveLoader == null) return null;
 
+    final viewNum = widget.objectNumber;
+    try {
+      if (effectiveLoader.presentViewNumbers.contains(viewNum)) {
+        return effectiveLoader.loadView(viewNum);
+      }
+    } catch (_) {}
+
+    // Fallback: If viewNum is an object index, attempt ObjectViewResolver
     final targetObj = resolvedObject ?? const AgiObject(name: '', startingRoom: 0);
     try {
-      final viewNum = ObjectViewResolver.resolveViewNumber(
+      final fallbackNum = ObjectViewResolver.resolveViewNumber(
         objectIndex: widget.objectNumber,
         object: targetObj,
         loader: effectiveLoader,
       );
-      if (effectiveLoader.presentViewNumbers.contains(viewNum)) {
-        return effectiveLoader.loadView(viewNum);
+      if (effectiveLoader.presentViewNumbers.contains(fallbackNum)) {
+        return effectiveLoader.loadView(fallbackNum);
       }
     } catch (_) {}
     return null;
@@ -92,7 +101,8 @@ class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
     final resolvedObj = _resolveObject();
     final resolvedView = _resolveView(resolvedObj);
 
-    final rawName = resolvedObj?.name ?? 'Object #${widget.objectNumber}';
+    final rawName = resolvedObj?.name ??
+        (resolvedView?.description != null ? 'OBJECT VIEW' : 'View #${widget.objectNumber}');
     final displayName = rawName.trim();
     final effectiveDescription = widget.description ??
         ((resolvedView?.description != null && resolvedView!.description!.trim().isNotEmpty)

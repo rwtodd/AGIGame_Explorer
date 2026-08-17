@@ -150,6 +150,24 @@ abstract class AgiInterpreterDelegate {
   /// Called when `restart.game` is executed.
   void onRestartGame() {}
 
+  /// Called when `set.menu` is executed.
+  void onSetMenu(String menuName) {}
+
+  /// Called when `set.menu.item` is executed.
+  void onSetMenuItem(String itemName, int controllerSlot) {}
+
+  /// Called when `submit.menu` is executed.
+  void onSubmitMenu() {}
+
+  /// Called when `enable.item` is executed.
+  void onEnableItem(int controllerSlot) {}
+
+  /// Called when `disable.item` is executed.
+  void onDisableItem(int controllerSlot) {}
+
+  /// Called when `menu.input` is executed.
+  void onMenuInput() {}
+
   /// Evaluates whether a key was pressed (for test opcode 0x0D `have.key()`).
   bool haveKey() => false;
 
