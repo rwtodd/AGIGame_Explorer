@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
+import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
@@ -59,6 +60,7 @@ class AgiPicturePainter extends CustomPainter {
   final int? isolatedPrioritySlice;
   final int playfieldRow;
   final bool showPixelGrid;
+  final AgiMenuManager? menuManager;
 
   AgiPicturePainter({
     this.picture,
@@ -79,6 +81,7 @@ class AgiPicturePainter extends CustomPainter {
     this.controlMapImage,
     this.isolatedPrioritySlice,
     this.showPixelGrid = false,
+    this.menuManager,
   });
 
   @override
@@ -156,6 +159,10 @@ class AgiPicturePainter extends CustomPainter {
       if (showCursor) {
         _paintCursor(canvas);
       }
+    }
+
+    if (menuManager != null && menuManager!.isOpen) {
+      _paintMenu(canvas, menuManager!);
     }
 
     if (showPixelGrid) {
@@ -384,6 +391,114 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
+  void _paintMenu(Canvas canvas, AgiMenuManager menuMgr) {
+    // 1. Menu Bar Header across top line (Row 0: 320x8 pixels)
+    final barBgPaint = Paint()
+      ..color = EgaColors.palette[15] // White background
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(const Rect.fromLTWH(0, 0, 320.0, 8.0), barBgPaint);
+
+    for (int i = 0; i < menuMgr.menus.length; i++) {
+      final m = menuMgr.menus[i];
+      final isSelected = i == menuMgr.activeMenuIndex;
+
+      if (isSelected) {
+        // Highlighted active menu category (Inverted black bar)
+        final selBgPaint = Paint()
+          ..color = EgaColors.palette[0]
+          ..style = PaintingStyle.fill;
+        final startX = (m.column - 0.5) * 8.0;
+        final width = (m.name.length + 1) * 8.0;
+        canvas.drawRect(Rect.fromLTWH(startX, 0, width, 8.0), selBgPaint);
+        _paintTextRun(canvas, m.name, m.column, 0, 15);
+      } else {
+        _paintTextRun(canvas, m.name, m.column, 0, 0);
+      }
+    }
+
+    // 2. Dropdown popup box for the currently active menu category
+    final activeMenu = menuMgr.activeMenu;
+    if (activeMenu != null && activeMenu.items.isNotEmpty) {
+      final maxLen = max(activeMenu.maxItemTextLength, 10);
+      final col = activeMenu.items.first.column;
+      final boxWidth = (maxLen + 2) * 8.0;
+      final boxHeight = (activeMenu.items.length + 1) * 8.0;
+      final left = ((col - 1) * 8.0).clamp(0.0, 320.0 - boxWidth);
+      const top = 8.0;
+
+      // Dropdown Box Background
+      final boxBgPaint = Paint()
+        ..color = EgaColors.palette[15]
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(Rect.fromLTWH(left, top, boxWidth, boxHeight), boxBgPaint);
+
+      // Dropdown Box Outer Frame
+      final borderPaint = Paint()
+        ..color = EgaColors.palette[0]
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawRect(Rect.fromLTWH(left, top, boxWidth, boxHeight), borderPaint);
+
+      // Draw Menu Items
+      for (int idx = 0; idx < activeMenu.items.length; idx++) {
+        final item = activeMenu.items[idx];
+        final itemY = top + (idx + 0.5) * 8.0;
+
+        if (item.isSeparator) {
+          final sepPaint = Paint()
+            ..color = EgaColors.palette[8]
+            ..strokeWidth = 1.0;
+          canvas.drawLine(
+            Offset(left + 4.0, itemY + 3.5),
+            Offset(left + boxWidth - 4.0, itemY + 3.5),
+            sepPaint,
+          );
+        } else if (idx == activeMenu.selectedItemIndex) {
+          // Highlight selected item
+          final selItemBgPaint = Paint()
+            ..color = EgaColors.palette[0]
+            ..style = PaintingStyle.fill;
+          canvas.drawRect(
+            Rect.fromLTWH(left + 2.0, top + idx * 8.0 + 2.0, boxWidth - 4.0, 8.0),
+            selItemBgPaint,
+          );
+
+          // Draw item text in white
+          final itemTextPainter = TextPainter(
+            text: TextSpan(
+              text: item.text,
+              style: _monospaceStyle(15),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+
+          final sx = _getHorizontalScale(15);
+          canvas.save();
+          canvas.translate(left + 8.0, top + idx * 8.0 + 2.0);
+          canvas.scale(sx, 1.0);
+          itemTextPainter.paint(canvas, Offset.zero);
+          canvas.restore();
+        } else {
+          final fgColor = item.isEnabled ? 0 : 8;
+          final itemTextPainter = TextPainter(
+            text: TextSpan(
+              text: item.text,
+              style: _monospaceStyle(fgColor),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+
+          final sx = _getHorizontalScale(fgColor);
+          canvas.save();
+          canvas.translate(left + 8.0, top + idx * 8.0 + 2.0);
+          canvas.scale(sx, 1.0);
+          itemTextPainter.paint(canvas, Offset.zero);
+          canvas.restore();
+        }
+      }
+    }
+  }
+
   @override
   bool shouldRepaint(covariant AgiPicturePainter oldDelegate) {
     return oldDelegate.picture != picture ||
@@ -405,7 +520,10 @@ class AgiPicturePainter extends CustomPainter {
         oldDelegate.cursorPromptText != cursorPromptText ||
         oldDelegate.playfieldRow != playfieldRow ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||
-        oldDelegate.showPixelGrid != showPixelGrid;
+        oldDelegate.showPixelGrid != showPixelGrid ||
+        oldDelegate.menuManager?.isOpen != menuManager?.isOpen ||
+        oldDelegate.menuManager?.activeMenuIndex != menuManager?.activeMenuIndex ||
+        oldDelegate.menuManager?.activeMenu?.selectedItemIndex != menuManager?.activeMenu?.selectedItemIndex;
   }
 }
 

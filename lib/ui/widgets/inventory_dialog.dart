@@ -3,24 +3,29 @@ import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
-import 'package:flutter_agigame/ui/core/theme.dart';
 
 /// Modal Inventory Screen widget (`status()` / Opcode 124).
 ///
-/// Features:
-/// - Filters items currently in room 255 (carried in inventory)
-/// - Clean EGA styled card with Unicode-capable typography
-/// - Empty state ("You are carrying nothing.")
-/// - Full keyboard navigation (Up/Down arrow keys, Enter to inspect, Esc/Space to close)
-/// - Mouse selection, double-click to inspect, and clickable action buttons
+/// Behavior follows authentic Sierra AGI interpreter mechanics:
+/// - When Flag 13 is `false` (standard inventory viewing via Tab or "inventory" command):
+///   - Displays carried items ("YOU ARE CARRYING").
+///   - Clean viewing mode with keyboard navigation.
+///   - Enter, Space, Escape, or "Close" button dismisses inventory and returns to the game.
+/// - When Flag 13 is `true` (item selection mode e.g. "See Object", Black Cauldron "New Object", Gold Rush):
+///   - Displays item selection prompt ("SELECT AN OBJECT").
+///   - Enter, double-click, or "Select" button selects the item and returns its ID to Variable 25.
+///   - Escape or "Cancel" button aborts selection (Variable 25 = 255).
+///   - The game's logic scripts then decide what to do (e.g. calling `show.obj.v(selected + offset)`).
 class InventoryDialog extends StatefulWidget {
   final AgiGameEngine? engine;
   final List<CarriedItem>? items;
   final List<AgiObject>? objects;
   final AgiMemory? memory;
-  final ValueChanged<int>? onInspect;
   final VoidCallback? onClose;
   final ValueChanged<int>? onItemSelected;
+  final ValueChanged<int>? onSelect;
+  final bool? isSelectionMode;
+  final int? initialSelectedObject;
 
   const InventoryDialog({
     super.key,
@@ -28,9 +33,11 @@ class InventoryDialog extends StatefulWidget {
     this.items,
     this.objects,
     this.memory,
-    this.onInspect,
     this.onClose,
     this.onItemSelected,
+    this.onSelect,
+    this.isSelectionMode,
+    this.initialSelectedObject,
   });
 
   @override
@@ -42,9 +49,29 @@ class _InventoryDialogState extends State<InventoryDialog> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
 
+  bool get _isSelectionMode =>
+      widget.isSelectionMode ??
+      widget.engine?.memory.getFlag(13) ??
+      widget.memory?.getFlag(13) ??
+      false;
+
   @override
   void initState() {
     super.initState();
+    final isSelect = _isSelectionMode;
+    if (isSelect) {
+      final initialObj =
+          widget.initialSelectedObject ??
+          widget.engine?.memory.getVar(25) ??
+          widget.memory?.getVar(25);
+      if (initialObj != null && initialObj != 255) {
+        final carried = _resolveCarriedItems();
+        final found = carried.indexWhere((c) => c.index == initialObj);
+        if (found >= 0) {
+          _selectedIndex = found;
+        }
+      }
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _focusNode.requestFocus();
@@ -93,27 +120,29 @@ class _InventoryDialogState extends State<InventoryDialog> {
     }
   }
 
-  void _handleInspectCurrent(List<CarriedItem> carried) {
+  void _handleSelectCurrent(List<CarriedItem> carried) {
     if (carried.isNotEmpty && _selectedIndex >= 0 && _selectedIndex < carried.length) {
       final selectedItem = carried[_selectedIndex];
-      widget.onInspect?.call(selectedItem.index);
+      widget.onSelect?.call(selectedItem.index);
     }
+    widget.onClose?.call();
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     final carried = _resolveCarriedItems();
+    final isSelect = _isSelectionMode;
 
-    if (event.logicalKey == LogicalKeyboardKey.escape ||
-        event.logicalKey == LogicalKeyboardKey.space) {
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
       widget.onClose?.call();
       return KeyEventResult.handled;
     }
 
     if (carried.isEmpty) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.space) {
         widget.onClose?.call();
         return KeyEventResult.handled;
       }
@@ -128,7 +157,14 @@ class _InventoryDialogState extends State<InventoryDialog> {
       return KeyEventResult.handled;
     } else if (event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-      _handleInspectCurrent(carried);
+      if (isSelect) {
+        _handleSelectCurrent(carried);
+      } else {
+        widget.onClose?.call();
+      }
+      return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.space && !isSelect) {
+      widget.onClose?.call();
       return KeyEventResult.handled;
     }
 
@@ -141,13 +177,14 @@ class _InventoryDialogState extends State<InventoryDialog> {
     if (_selectedIndex >= carried.length) {
       _selectedIndex = carried.isNotEmpty ? carried.length - 1 : 0;
     }
+    final isSelect = _isSelectionMode;
 
     return Focus(
       focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: _handleKeyEvent,
       child: GestureDetector(
-        onTap: widget.onClose,
+        onTap: () => widget.onClose?.call(),
         child: Container(
           color: Colors.black.withValues(alpha: 0.70),
           alignment: Alignment.center,
@@ -179,27 +216,27 @@ class _InventoryDialogState extends State<InventoryDialog> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Header Bar
+                  // Title Bar
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: const BoxDecoration(
                       color: Color(0xFF1E293B),
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFF334155), width: 2),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: AgiTheme.egaCyan,
-                            shape: BoxShape.circle,
-                          ),
+                        const Icon(
+                          Icons.backpack,
+                          color: Color(0xFF55FFFF),
+                          size: 18,
                         ),
                         const SizedBox(width: 8),
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            'YOU ARE CARRYING',
-                            style: TextStyle(
+                            isSelect ? 'SELECT AN OBJECT' : 'YOU ARE CARRYING',
+                            style: const TextStyle(
                               color: Color(0xFF55FFFF),
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
@@ -231,11 +268,11 @@ class _InventoryDialogState extends State<InventoryDialog> {
                   Flexible(
                     child: carried.isEmpty
                         ? _buildEmptyState()
-                        : _buildItemList(carried),
+                        : _buildItemList(carried, isSelect),
                   ),
 
                   // Footer Actions Bar
-                  _buildFooter(carried),
+                  _buildFooter(carried, isSelect),
                 ],
               ),
             ),
@@ -271,7 +308,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
     );
   }
 
-  Widget _buildItemList(List<CarriedItem> carried) {
+  Widget _buildItemList(List<CarriedItem> carried, bool isSelect) {
     return Scrollbar(
       controller: _scrollController,
       thumbVisibility: true,
@@ -293,7 +330,11 @@ class _InventoryDialogState extends State<InventoryDialog> {
             },
             onDoubleTap: () {
               setState(() => _selectedIndex = index);
-              widget.onInspect?.call(item.index);
+              if (isSelect) {
+                _handleSelectCurrent(carried);
+              } else {
+                widget.onClose?.call();
+              }
             },
             borderRadius: BorderRadius.circular(4),
             child: AnimatedContainer(
@@ -356,10 +397,10 @@ class _InventoryDialogState extends State<InventoryDialog> {
                     ),
                   ),
 
-                  // Inspect Action Hint for selected item
-                  if (isSelected)
+                  // Action Hint for selected item in selection mode
+                  if (isSelected && isSelect)
                     const Text(
-                      'Enter to inspect',
+                      'Enter to select',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
@@ -375,7 +416,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
     );
   }
 
-  Widget _buildFooter(List<CarriedItem> carried) {
+  Widget _buildFooter(List<CarriedItem> carried, bool isSelect) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: const BoxDecoration(
@@ -399,8 +440,10 @@ class _InventoryDialogState extends State<InventoryDialog> {
                 Expanded(
                   child: Text(
                     carried.isEmpty
-                        ? 'Enter / Space / Esc to close'
-                        : '↑/↓ Navigate  •  Enter Inspect  •  Esc Close',
+                        ? (isSelect ? 'Enter / Esc to cancel' : 'Enter / Space / Esc to close')
+                        : (isSelect
+                            ? '↑/↓ Navigate  •  Enter Select  •  Esc Cancel'
+                            : '↑/↓ Navigate  •  Enter / Space / Esc Close'),
                     style: const TextStyle(
                       fontSize: 11,
                       color: Color(0xFF64748B),
@@ -416,9 +459,9 @@ class _InventoryDialogState extends State<InventoryDialog> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (carried.isNotEmpty) ...[
+              if (carried.isNotEmpty && isSelect) ...[
                 ElevatedButton(
-                  onPressed: () => _handleInspectCurrent(carried),
+                  onPressed: () => _handleSelectCurrent(carried),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0284C7),
                     foregroundColor: Colors.white,
@@ -429,7 +472,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
                     ),
                   ),
                   child: const Text(
-                    'Inspect',
+                    'Select',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -439,7 +482,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
                 const SizedBox(width: 8),
               ],
               OutlinedButton(
-                onPressed: widget.onClose,
+                onPressed: () => widget.onClose?.call(),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF334155),
                   side: const BorderSide(color: Color(0xFF94A3B8)),
@@ -449,7 +492,9 @@ class _InventoryDialogState extends State<InventoryDialog> {
                   ),
                 ),
                 child: Text(
-                  carried.isEmpty ? 'OK' : 'Close',
+                  isSelect
+                      ? 'Cancel'
+                      : (carried.isEmpty ? 'OK' : 'Close'),
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,

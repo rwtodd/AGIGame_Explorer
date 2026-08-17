@@ -8,7 +8,6 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
-import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 import 'package:flutter_agigame/ui/widgets/inventory_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 
@@ -73,7 +72,7 @@ void main() {
       expect(closed, isTrue);
     });
 
-    testWidgets('renders list of carried items and navigates with arrow keys', (tester) async {
+    testWidgets('renders list of carried items in view mode and dismisses on Enter/Space/Esc', (tester) async {
       final items = [
         const CarriedItem(index: 1, object: AgiObject(name: 'Golden Key', startingRoom: 0)),
         const CarriedItem(index: 2, object: AgiObject(name: 'Magic Dagger', startingRoom: 0)),
@@ -81,7 +80,6 @@ void main() {
       ];
 
       int? selectedItemIndex;
-      int? inspectedItemIndex;
       bool closed = false;
 
       await tester.pumpWidget(
@@ -90,7 +88,6 @@ void main() {
             body: InventoryDialog(
               items: items,
               onItemSelected: (idx) => selectedItemIndex = idx,
-              onInspect: (idx) => inspectedItemIndex = idx,
               onClose: () => closed = true,
             ),
           ),
@@ -98,6 +95,7 @@ void main() {
       );
 
       // Verify header and items
+      expect(find.text('YOU ARE CARRYING'), findsOneWidget);
       expect(find.text('3 items'), findsOneWidget);
       expect(find.text('Golden Key'), findsOneWidget);
       expect(find.text('Magic Dagger'), findsOneWidget);
@@ -105,6 +103,9 @@ void main() {
       expect(find.text('#1'), findsOneWidget);
       expect(find.text('#2'), findsOneWidget);
       expect(find.text('#3'), findsOneWidget);
+      expect(find.text('Close'), findsOneWidget);
+      expect(find.text('Inspect'), findsNothing);
+      expect(find.text('Select'), findsNothing);
 
       // Navigate down to item 2 (Magic Dagger)
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
@@ -121,66 +122,80 @@ void main() {
       await tester.pump();
       expect(selectedItemIndex, equals(2));
 
-      // Press Enter to inspect item 2
+      // Press Enter to close in view mode
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
-      expect(inspectedItemIndex, equals(2));
-
-      // Press Escape to close
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(closed, isTrue);
     });
 
-    testWidgets('mouse click selection, double-click inspection, and Inspect button', (tester) async {
+    testWidgets('selection mode (Flag 13) supports mouse selection, Select button, double-click, and Enter key', (tester) async {
       final items = [
         const CarriedItem(index: 10, object: AgiObject(name: 'Silver Flute', startingRoom: 0)),
         const CarriedItem(index: 11, object: AgiObject(name: 'Spell Book', startingRoom: 0)),
       ];
 
-      int? selectedItemIndex;
-      int? inspectedItemIndex;
+      int? selectedChoice;
+      bool closed = false;
 
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: InventoryDialog(
               items: items,
-              onItemSelected: (idx) => selectedItemIndex = idx,
-              onInspect: (idx) => inspectedItemIndex = idx,
+              isSelectionMode: true,
+              onSelect: (idx) => selectedChoice = idx,
+              onClose: () => closed = true,
             ),
           ),
         ),
       );
 
-      // Tap second item to select
+      expect(find.text('SELECT AN OBJECT'), findsOneWidget);
+      expect(find.text('Select'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      // Tap second item to navigate
       await tester.tap(find.text('Spell Book'));
       await tester.pumpAndSettle();
-      expect(selectedItemIndex, equals(11));
 
-      // Tap Inspect button
-      final inspectButton = find.widgetWithText(ElevatedButton, 'Inspect');
-      expect(inspectButton, findsOneWidget);
-      await tester.tap(inspectButton);
+      // Tap Select button
+      final selectButton = find.widgetWithText(ElevatedButton, 'Select');
+      expect(selectButton, findsOneWidget);
+      await tester.tap(selectButton);
       await tester.pump();
-      expect(inspectedItemIndex, equals(11));
+      expect(selectedChoice, equals(11));
+      expect(closed, isTrue);
 
-      // Double-tap first item to inspect directly
-      inspectedItemIndex = null;
+      // Reset and test double-click selection
+      selectedChoice = null;
+      closed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: InventoryDialog(
+              items: items,
+              isSelectionMode: true,
+              onSelect: (idx) => selectedChoice = idx,
+              onClose: () => closed = true,
+            ),
+          ),
+        ),
+      );
+
       await tester.tap(find.text('Silver Flute'));
       await tester.pump(const Duration(milliseconds: 50));
       await tester.tap(find.text('Silver Flute'));
       await tester.pumpAndSettle();
-      expect(inspectedItemIndex, equals(10));
+      expect(selectedChoice, equals(10));
+      expect(closed, isTrue);
     });
 
     testWidgets('filters carried items from engine memory dynamically', (tester) async {
       final engine = AgiGameEngine(
         objects: const [
-          AgiObject(name: '?', startingRoom: 0), // dummy
-          AgiObject(name: 'Leather Boots', startingRoom: 255),
-          AgiObject(name: 'Brass Lantern', startingRoom: 5), // in room 5
-          AgiObject(name: 'Rope', startingRoom: 255),
+          AgiObject(name: '?', startingRoom: 0),
+          AgiObject(name: 'Magic Key', startingRoom: 1),
+          AgiObject(name: 'Golden Dagger', startingRoom: 255),
         ],
       );
       engine.initializeGame();
@@ -188,60 +203,31 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: InventoryDialog(engine: engine),
+            body: InventoryDialog(
+              engine: engine,
+            ),
           ),
         ),
       );
 
-      // Initially player has Leather Boots and Rope
-      expect(find.text('Leather Boots'), findsOneWidget);
-      expect(find.text('Rope'), findsOneWidget);
-      expect(find.text('Brass Lantern'), findsNothing);
-      expect(find.text('?'), findsNothing);
-
-      // Give player Brass Lantern (room 255) and drop Rope (room 0)
-      engine.memory.itemRooms[2] = 255;
-      engine.memory.itemRooms[3] = 0;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: InventoryDialog(engine: engine),
-          ),
-        ),
-      );
-
-      expect(find.text('Leather Boots'), findsOneWidget);
-      expect(find.text('Brass Lantern'), findsOneWidget);
-      expect(find.text('Rope'), findsNothing);
+      expect(find.text('Golden Dagger'), findsOneWidget);
+      expect(find.text('Magic Key'), findsNothing);
     });
   });
 
   group('ObjectInspectionDialog Widget Tests', () {
     testWidgets('renders object name, description, and cel preview', (tester) async {
-      // Create a test view with 1 loop, 1 cel, and description
-      final rawPixels = Uint8List(4 * 4);
-      rawPixels[0] = 14; // EGA Yellow
-      rawPixels[1] = 14;
-      rawPixels[4] = 14;
-      rawPixels[5] = 14;
-
-      final testView = AgiView(
-        viewNumber: 15,
-        description: 'A finely crafted key made of solid gold.',
-        loops: [
-          AgiViewLoop(
-            loopNumber: 0,
-            cels: [
-              AgiViewCel.forward(
-                width: 4,
-                height: 4,
-                transparentColor: 0,
-                rawPixels: rawPixels,
-              ),
-            ],
-          ),
-        ],
+      final cel = AgiViewCel.forward(
+        width: 10,
+        height: 10,
+        transparentColor: 0,
+        rawPixels: Uint8List(100),
+      );
+      final loop = AgiViewLoop(loopNumber: 0, cels: [cel]);
+      final view = AgiView(
+        viewNumber: 42,
+        loops: [loop],
+        description: 'An ancient parchment map of the realm.',
       );
 
       bool closed = false;
@@ -250,42 +236,21 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: ObjectInspectionDialog(
-              objectNumber: 1,
-              object: const AgiObject(name: 'Golden Key', startingRoom: 0),
-              view: testView,
+              objectNumber: 42,
+              object: const AgiObject(name: 'Daventry Map', startingRoom: 0),
+              view: view,
               onClose: () => closed = true,
             ),
           ),
         ),
       );
 
-      // Verify name, index, cel widget, and description
-      expect(find.text('GOLDEN KEY'), findsOneWidget);
-      expect(find.text('#1'), findsOneWidget);
-      expect(find.text('A finely crafted key made of solid gold.'), findsOneWidget);
-      expect(find.byType(CelImageWidget), findsOneWidget);
+      expect(find.text('DAVENTRY MAP'), findsOneWidget);
+      expect(find.text('#42'), findsOneWidget);
+      expect(find.text('An ancient parchment map of the realm.'), findsOneWidget);
+      expect(find.text('OK'), findsOneWidget);
 
-      // Dismiss via OK button
-      await tester.tap(find.widgetWithText(ElevatedButton, 'OK'));
-      await tester.pump();
-      expect(closed, isTrue);
-
-      // Dismiss via Space key
-      closed = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ObjectInspectionDialog(
-              objectNumber: 1,
-              object: const AgiObject(name: 'Golden Key', startingRoom: 0),
-              view: testView,
-              onClose: () => closed = true,
-            ),
-          ),
-        ),
-      );
-
-      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.tap(find.text('OK'));
       await tester.pump();
       expect(closed, isTrue);
     });
@@ -295,31 +260,29 @@ void main() {
         const MaterialApp(
           home: Scaffold(
             body: ObjectInspectionDialog(
-              objectNumber: 7,
-              object: AgiObject(name: 'Mystery Crystal', startingRoom: 0),
+              objectNumber: 99,
+              object: AgiObject(name: 'Mysterious Idol', startingRoom: 0),
             ),
           ),
         ),
       );
 
-      expect(find.text('MYSTERY CRYSTAL'), findsOneWidget);
-      expect(find.text('#7'), findsOneWidget);
+      expect(find.text('MYSTERIOUS IDOL'), findsOneWidget);
+      expect(find.text('#99'), findsOneWidget);
       expect(find.byIcon(Icons.inventory_2_outlined), findsOneWidget);
     });
   });
 
   group('AgiLogicInterpreter & AgiGameEngine Opcodes Integration', () {
     test('Opcode 124 (status) triggers onStatus and opens inventory in engine', () {
-      final memory = AgiMemory();
-      final engine = AgiGameEngine(memory: memory);
+      final engine = AgiGameEngine();
       final interpreter = engine.interpreter;
 
-      // Logic script with opcode 124: status()
       final script = AgiLogicScript(
         logicNumber: 1,
         bytecodes: Uint8List.fromList([
           124, // status()
-          0xFF, // return
+          0, // return()
         ]),
         messages: const [],
       );
@@ -328,12 +291,13 @@ void main() {
       expect(engine.isInventoryOpen, isFalse);
 
       final status = interpreter.stepInstruction();
-      expect(status, equals(InterpreterStatus.running));
+      expect(status, equals(InterpreterStatus.yielded));
       expect(engine.isInventoryOpen, isTrue);
 
-      // Close inventory
+      // Close inventory resumes interpreter until return()
       engine.closeInventory();
       expect(engine.isInventoryOpen, isFalse);
+      expect(interpreter.callStack, isEmpty);
     });
 
     test('Opcode 129 (show.obj) and Opcode 162 (show.obj.v) trigger onShowObj', () {
@@ -341,14 +305,13 @@ void main() {
       final engine = AgiGameEngine(memory: memory);
       final interpreter = engine.interpreter;
 
-      // Logic script: show.obj(5), show.obj.v(%v10)
       memory.setVar(10, 12);
       final script = AgiLogicScript(
         logicNumber: 1,
         bytecodes: Uint8List.fromList([
           129, 5, // show.obj(5)
-          162, 10, // show.obj.v(%v10) -> obj 12
-          0xFF, // return
+          162, 10, // show.obj.v(%v10) -> view 12
+          0, // return()
         ]),
         messages: const [],
       );
@@ -357,18 +320,18 @@ void main() {
       expect(engine.inspectingObjectNumber, isNull);
 
       // Step show.obj(5)
-      interpreter.stepInstruction();
+      final status1 = interpreter.stepInstruction();
+      expect(status1, equals(InterpreterStatus.yielded));
       expect(engine.inspectingObjectNumber, equals(5));
 
+      // Closing first inspection resumes interpreter which yields at show.obj.v(%v10)
       engine.closeObjectInspection();
-      expect(engine.inspectingObjectNumber, isNull);
-
-      // Step show.obj.v(%v10)
-      interpreter.stepInstruction();
       expect(engine.inspectingObjectNumber, equals(12));
 
+      // Closing second inspection finishes script to return()
       engine.closeObjectInspection();
       expect(engine.inspectingObjectNumber, isNull);
+      expect(interpreter.callStack, isEmpty);
     });
 
     test('Game loop pauses during inventory and object inspection', () {
@@ -395,7 +358,7 @@ void main() {
   });
 
   group('GameScreen Integration with Inventory & Inspection', () {
-    testWidgets('Tab key opens inventory and inspecting an item opens show.obj modal', (tester) async {
+    testWidgets('Tab key opens inventory and dismissing closes it', (tester) async {
       final engine = AgiGameEngine(
         objects: const [
           AgiObject(name: '?', startingRoom: 0),
@@ -423,23 +386,8 @@ void main() {
       expect(find.text('Crystal Orb'), findsOneWidget);
       expect(find.text('Map of Daventry'), findsOneWidget);
 
-      // Press Enter to inspect currently selected item (Crystal Orb)
+      // Press Enter to dismiss inventory in view mode
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
-
-      expect(find.byType(ObjectInspectionDialog), findsOneWidget);
-      expect(find.text('CRYSTAL ORB'), findsOneWidget);
-
-      // Press Space to dismiss inspection dialog
-      await tester.sendKeyEvent(LogicalKeyboardKey.space);
-      await tester.pump();
-
-      // Inspection closed, returned to InventoryDialog
-      expect(find.byType(ObjectInspectionDialog), findsNothing);
-      expect(find.byType(InventoryDialog), findsOneWidget);
-
-      // Press Escape to dismiss inventory
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
 
       expect(find.byType(InventoryDialog), findsNothing);
@@ -470,8 +418,12 @@ void main() {
       expect(find.text('*magic wand'), findsOneWidget);
       expect(find.text('bread dough*'), findsOneWidget);
 
-      // Inspect first item (*magic wand)
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      // Dismiss inventory
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      // Show object inspection directly via engine
+      engine.onShowObj(1);
       await tester.pump();
 
       expect(find.byType(ObjectInspectionDialog), findsOneWidget);

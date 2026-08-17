@@ -10,6 +10,7 @@ import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
+import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/controllers/agi_controller_manager.dart';
@@ -129,6 +130,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool _isInventoryOpen = false;
   int? _inspectingObjectNumber;
   double _speedHz;
+  int _lastSynchronizedDelay = 2;
   Timer? _gameLoopTimer;
 
   int _cycleCount = 0;
@@ -138,7 +140,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   String? _lastSubmittedCommand;
   String? _lastError;
   bool _keyPressedThisCycle = false;
-  bool _isStatusLineEnabled = true;
+  bool _isStatusLineEnabled = false;
   bool _isInputEnabled = true;
   bool _isUserControl = true;
   final List<AgiDisplayText> _displayedTexts = [];
@@ -157,6 +159,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Manages keyboard shortcut and function key mappings (`set.key`).
   final AgiControllerManager controllerManager = AgiControllerManager();
+
+  /// Manages AGI menu bar and dropdown hierarchy.
+  final AgiMenuManager menuManager = AgiMenuManager();
+
+  int? _lastStatusScore;
+  int? _lastStatusMaxScore;
+  bool? _lastStatusSoundOn;
+  bool _statusLineNeedsRedraw = true;
 
   /// Optional override directory for saving and loading `.sav` game slots.
   Directory? saveDirectory;
@@ -229,6 +239,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int get inputRow => _inputRow;
   int get statusRow => _statusRow;
   int get currentRoom => memory.getVar(0);
+  int get score => memory.getVar(3);
+  int get maxScore => memory.getVar(7);
+  bool get isMenuOpen => menuManager.isOpen;
   AnimatedObject get ego => animatedObjects[0];
 
   /// All game objects defined for this game.
@@ -256,8 +269,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Closes the interactive inventory dialog and resumes game loop ticks.
-  void closeInventory() {
+  void closeInventory([int? selectedObjectNumber]) {
     _isInventoryOpen = false;
+    if (memory.getFlag(13)) {
+      final selected = selectedObjectNumber ?? 255;
+      memory.setVar(25, selected);
+    }
+    if (interpreter.hasPendingInput) {
+      final status = interpreter.resumeWithInput(selectedObjectNumber != null ? '$selectedObjectNumber' : null);
+      if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
+      }
+    }
     notifyListeners();
   }
 
@@ -269,6 +292,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// Closes the object inspection modal.
   void closeObjectInspection() {
     _inspectingObjectNumber = null;
+    if (interpreter.hasPendingInput) {
+      final status = interpreter.resumeWithInput(null);
+      if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
+      }
+    }
     notifyListeners();
   }
 
@@ -295,10 +324,40 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
-  /// Updates execution loop frequency in Hertz (default 20 Hz = 50ms per tick).
+  /// Maps Sierra AGI Variable 10 (animation delay in ticks) to execution frequency in Hertz.
+  static double delayToHz(int delay) {
+    switch (delay) {
+      case 0:
+        return 60.0; // Fastest: 60 Hz (~16.7ms / tick)
+      case 1:
+        return 30.0; // Fast: 30 Hz (~33.3ms / tick)
+      case 2:
+        return 20.0; // Normal: 20 Hz (50ms / tick)
+      case 3:
+        return 10.0; // Slow: 10 Hz (100ms / tick)
+      default:
+        final ms = (delay * 35).clamp(16, 1000);
+        return 1000.0 / ms;
+    }
+  }
+
+  /// Maps execution frequency in Hertz to Sierra AGI Variable 10 (animation delay).
+  static int hzToDelay(double hz) {
+    if (hz >= 45.0) return 0; // Fastest (60 Hz)
+    if (hz >= 25.0) return 1; // Fast (30 Hz)
+    if (hz >= 15.0) return 2; // Normal (20 Hz)
+    if (hz >= 8.0) return 3; // Slow (10 Hz)
+    final ms = (1000.0 / hz).round();
+    return (ms / 35.0).round().clamp(0, 255);
+  }
+
+  /// Updates execution loop frequency in Hertz (default 10 Hz / 20 Hz = 50-100ms per tick).
   void setSpeedHz(double hz) {
     if (hz <= 0) return;
     _speedHz = hz;
+    final delay = hzToDelay(hz);
+    _lastSynchronizedDelay = delay;
+    memory.setVar(10, delay);
     if (_isRunning) {
       _gameLoopTimer?.cancel();
       _scheduleLoop();
@@ -337,11 +396,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// and running the initial bootstrap scan.
   void initializeGame({int startingRoom = 0}) {
     memory.reset();
+    menuManager.reset();
+    _isStatusLineEnabled = false;
 
     // Authentic Sierra AGI system variable defaults
     memory.setVar(0, 0); // %v0 = current.room (0 on boot)
     memory.setVar(1, 0); // %v1 = previous.room (0 on boot)
     memory.setVar(8, 10); // %v8 = free heap space in 4KB pages
+    memory.setVar(10, 2); // %v10 = anim.delay: 2 = Normal speed (10 Hz)
+    _lastSynchronizedDelay = 2;
+    _speedHz = delayToHz(2);
     memory.setVar(20, 0); // %v20 = machine.type: 0 = IBM PC / compatibles
     memory.setVar(22, 1); // %v22 = sound voices: 1 = PC speaker
     memory.setVar(24, 41); // %v24 = max input length: MAXINPUT + 1 (40 + 1)
@@ -391,6 +455,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.resetFlag(6); // restart.in.progress reset
     memory.resetFlag(12); // restore.in.progress reset
 
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
+
     notifyListeners();
   }
 
@@ -414,7 +481,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // ----------------------------------------------------
     if (interpreter.rootScript != null || interpreter.currentFrame != null) {
       try {
-        interpreter.executeCycle();
+        final status = interpreter.executeCycle();
+        if (status == InterpreterStatus.yielded) {
+          notifyListeners();
+          return;
+        }
       } catch (e) {
         _lastError = 'Interpreter error in cycle $_cycleCount: $e';
         if (kDebugMode) {
@@ -434,7 +505,26 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // ----------------------------------------------------
     // Post-Scan: Clock update & transient flags cleanup
     // ----------------------------------------------------
+    _performPostScanCleanup();
+    notifyListeners();
+  }
+
+  void _performPostScanCleanup() {
     _updateClock();
+    updateStatusLine();
+
+    // Synchronize engine speed from Variable 10 (animation delay in ticks)
+    final currentDelay = memory.getVar(10);
+    if (currentDelay != _lastSynchronizedDelay) {
+      _lastSynchronizedDelay = currentDelay;
+      final targetHz = delayToHz(currentDelay);
+      if ((_speedHz - targetHz).abs() > 0.01) {
+        _speedHz = targetHz;
+        if (_isRunning) {
+          _scheduleLoop();
+        }
+      }
+    }
 
     // Reset transient per-cycle flags and parsed input tokens
     memory.resetFlag(1); // Ego completely obscured reset
@@ -451,8 +541,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(5, 0);
     memory.setVar(19, 0);
     _keyPressedThisCycle = false;
-
-    notifyListeners();
   }
 
   /// Sets Ego's motion direction (0..8) and synchronizes Variable 6.
@@ -691,7 +779,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         prompt.numCompleter?.complete(num);
       }
       activeInputPrompt = null;
-      interpreter.resumeWithInput(resultValue);
+      final status = interpreter.resumeWithInput(resultValue);
+      if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
+      }
       notifyListeners();
     }
   }
@@ -706,7 +797,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         prompt.numCompleter?.complete(null);
       }
       activeInputPrompt = null;
-      interpreter.resumeWithInput(null);
+      final status = interpreter.resumeWithInput(null);
+      if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
+      }
       notifyListeners();
     }
   }
@@ -1244,6 +1338,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(5, 0);
     _displayedTexts.clear();
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     _isTextScreen = false;
     _isUserControl = true;
     // Update variable 16 with current Ego view (matching Sierra NEWROOM.C var[CURRENT_EGO] = ego->view)
@@ -1462,6 +1558,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onStatusLine(bool enabled) {
     _isStatusLineEnabled = enabled;
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     notifyListeners();
   }
 
@@ -1518,6 +1616,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _isTextScreen = false;
     _displayedTexts.clear();
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     notifyListeners();
   }
 
@@ -1529,7 +1629,47 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _playfieldRow = playTop;
     _inputRow = inputLine;
     _statusRow = statusLine;
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     notifyListeners();
+  }
+
+  @override
+  void onSetMenu(String menuName) {
+    menuManager.addMenu(menuName);
+    notifyListeners();
+  }
+
+  @override
+  void onSetMenuItem(String itemName, int controllerSlot) {
+    menuManager.addMenuItem(itemName, controllerSlot);
+    notifyListeners();
+  }
+
+  @override
+  void onSubmitMenu() {
+    menuManager.submit();
+    memory.setFlag(14); // Flag 14 = Menu enabled
+    notifyListeners();
+  }
+
+  @override
+  void onEnableItem(int controllerSlot) {
+    menuManager.enableItem(controllerSlot);
+    notifyListeners();
+  }
+
+  @override
+  void onDisableItem(int controllerSlot) {
+    menuManager.disableItem(controllerSlot);
+    notifyListeners();
+  }
+
+  @override
+  void onMenuInput() {
+    if (memory.getFlag(14) && menuManager.isAvailable) {
+      openMenu();
+    }
   }
 
   void _onSoundFinished() {
@@ -1598,6 +1738,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       currentPic?.preloadGpuTextures();
       _displayedTexts.clear();
       textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+      _statusLineNeedsRedraw = true;
+      updateStatusLine(force: true);
       notifyListeners();
     }
   }
@@ -1607,6 +1749,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     currentPic?.preloadGpuTextures();
     _displayedTexts.clear();
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     notifyListeners();
   }
 
@@ -1789,6 +1933,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       directory: directory ?? saveDirectory,
     );
     if (success) {
+      menuManager.enableAllItems();
+      _statusLineNeedsRedraw = true;
+      updateStatusLine(force: true);
       notifyListeners();
     }
     return success;
@@ -1798,6 +1945,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void restoreFromSnapshot(AgiGameStateSnapshot snapshot) {
     snapshot.restore(this);
     memory.setFlag(12);
+    menuManager.enableAllItems();
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     notifyListeners();
   }
 
@@ -1864,6 +2014,91 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.resetFlag(5);
     memory.resetFlag(6);
 
+    menuManager.enableAllItems();
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
+
+    notifyListeners();
+  }
+
+  /// Refreshes the top status line in [textScreenBuffer] when score or sound state changes.
+  void updateStatusLine({bool force = false}) {
+    if (_isStatusLineEnabled && !menuManager.isOpen) {
+      final curScore = score;
+      final curMax = maxScore;
+      final curSound = isSoundOn;
+      if (force ||
+          _statusLineNeedsRedraw ||
+          curScore != _lastStatusScore ||
+          curMax != _lastStatusMaxScore ||
+          curSound != _lastStatusSoundOn) {
+        _lastStatusScore = curScore;
+        _lastStatusMaxScore = curMax;
+        _lastStatusSoundOn = curSound;
+        _statusLineNeedsRedraw = false;
+        textScreenBuffer.clearLines(_statusRow, _statusRow, 15);
+        textScreenBuffer.writeString(_statusRow, 1, 'Score: $curScore of $curMax', fg: 0, bg: 15);
+        textScreenBuffer.writeString(_statusRow, 30, curSound ? 'Sound:on' : 'Sound:off', fg: 0, bg: 15);
+        notifyListeners();
+      }
+    } else if (!_isStatusLineEnabled) {
+      if (_statusLineNeedsRedraw) {
+        textScreenBuffer.clearLines(_statusRow, _statusRow, 0);
+        _statusLineNeedsRedraw = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Opens the interactive menu system if available and enabled (Flag 14).
+  void openMenu({int? menuIndex}) {
+    if (!menuManager.isAvailable || !memory.getFlag(14)) return;
+    menuManager.openMenu(menuIndex: menuIndex);
+    notifyListeners();
+  }
+
+  /// Closes the interactive menu system and restores the status line.
+  void closeMenu() {
+    if (!menuManager.isOpen) return;
+    menuManager.closeMenu();
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
+    notifyListeners();
+  }
+
+  /// Selects the current or specified menu item and triggers its controller slot.
+  void selectMenuItem({int? controllerSlot}) {
+    final slot = controllerSlot ?? menuManager.selectCurrentItem();
+    if (slot != null) {
+      menuManager.closeMenu();
+      _statusLineNeedsRedraw = true;
+      updateStatusLine(force: true);
+      controllerManager.triggerController(slot, memory);
+      notifyListeners();
+    }
+  }
+
+  /// Navigates to the previous menu category.
+  void navigateMenuLeft() {
+    menuManager.navigateLeft();
+    notifyListeners();
+  }
+
+  /// Navigates to the next menu category.
+  void navigateMenuRight() {
+    menuManager.navigateRight();
+    notifyListeners();
+  }
+
+  /// Navigates to the previous item in the active menu.
+  void navigateMenuUp() {
+    menuManager.navigateUp();
+    notifyListeners();
+  }
+
+  /// Navigates to the next item in the active menu.
+  void navigateMenuDown() {
+    menuManager.navigateDown();
     notifyListeners();
   }
 

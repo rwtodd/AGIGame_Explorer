@@ -166,16 +166,92 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             height: playfieldHeight,
             child: GestureDetector(
               onTapUp: (details) {
-                if (widget.onCanvasTap != null && playfieldWidth > 0 && playfieldHeight > 0) {
-                  // Convert viewport coordinates to native AGI 160x168 space
+                if (playfieldWidth > 0 && playfieldHeight > 0) {
+                  // 0. If full text screen is active (e.g. Help or About screen), tap dismisses it
+                  if (widget.engine.isTextScreen) {
+                    widget.engine.handleKeyPress(13);
+                    widget.engine.tick();
+                    return;
+                  }
+
                   final localPos = details.localPosition;
                   final normX = localPos.dx / playfieldWidth;
                   final normY = localPos.dy / playfieldHeight;
                   final screenX = normX * AgiDisplay.renderedWidth;
                   final screenY = normY * AgiDisplay.renderedHeight;
-                  final agiX = (screenX / 2.0).clamp(0.0, (AgiPic.nativeWidth - 1).toDouble());
-                  final agiY = (screenY - widget.engine.playfieldRow * 8.0).clamp(0.0, (AgiPic.nativeHeight - 1).toDouble());
-                  widget.onCanvasTap!(Offset(agiX, agiY));
+                  final charCol = (screenX / 8.0).floor();
+                  final charRow = (screenY / 8.0).floor();
+
+                  // 1. Top Bar Tap Handling (Row 0: Status Line / Menu Bar)
+                  if (charRow == 0) {
+                    if (!widget.engine.isMenuOpen) {
+                      if (widget.engine.menuManager.isAvailable && widget.engine.memory.getFlag(14)) {
+                        int targetMenu = 0;
+                        for (int i = 0; i < widget.engine.menuManager.menus.length; i++) {
+                          final m = widget.engine.menuManager.menus[i];
+                          if (charCol >= m.column - 1 && charCol < m.column + m.name.length + 1) {
+                            targetMenu = i;
+                            break;
+                          }
+                        }
+                        widget.engine.openMenu(menuIndex: targetMenu);
+                      }
+                    } else {
+                      bool tappedHeader = false;
+                      for (int i = 0; i < widget.engine.menuManager.menus.length; i++) {
+                        final m = widget.engine.menuManager.menus[i];
+                        if (charCol >= m.column - 1 && charCol < m.column + m.name.length + 1) {
+                          widget.engine.menuManager.setActiveMenu(i);
+                          tappedHeader = true;
+                          break;
+                        }
+                      }
+                      if (!tappedHeader) {
+                        widget.engine.closeMenu();
+                      }
+                    }
+                    return;
+                  }
+
+                  // 2. Dropdown Menu Tap Handling (when menu is active)
+                  if (charRow > 0 && widget.engine.isMenuOpen) {
+                    final activeMenu = widget.engine.menuManager.activeMenu;
+                    if (activeMenu != null && activeMenu.items.isNotEmpty) {
+                      final maxLen = math.max(activeMenu.maxItemTextLength, 10);
+                      final col = activeMenu.items.first.column;
+                      final boxWidth = (maxLen + 2) * 8.0;
+                      final boxHeight = (activeMenu.items.length + 1) * 8.0;
+                      final left = ((col - 1) * 8.0).clamp(0.0, 320.0 - boxWidth);
+                      final right = left + boxWidth;
+                      const top = 8.0;
+                      final bottom = top + boxHeight;
+
+                      if (screenX >= left && screenX <= right && screenY >= top && screenY <= bottom) {
+                        final itemIndex = ((screenY - top) / 8.0).floor();
+                        if (itemIndex >= 0 && itemIndex < activeMenu.items.length) {
+                          final item = activeMenu.items[itemIndex];
+                          if (!item.isSeparator && item.isEnabled) {
+                            widget.engine.menuManager.setSelectedItemIndex(itemIndex);
+                            widget.engine.selectMenuItem();
+                            return;
+                          }
+                        }
+                      } else {
+                        widget.engine.closeMenu();
+                        return;
+                      }
+                    } else {
+                      widget.engine.closeMenu();
+                      return;
+                    }
+                  }
+
+                  // 3. Playfield Canvas Tap
+                  if (widget.onCanvasTap != null) {
+                    final agiX = (screenX / 2.0).clamp(0.0, (AgiPic.nativeWidth - 1).toDouble());
+                    final agiY = (screenY - widget.engine.playfieldRow * 8.0).clamp(0.0, (AgiPic.nativeHeight - 1).toDouble());
+                    widget.onCanvasTap!(Offset(agiX, agiY));
+                  }
                 }
               },
               child: Container(
@@ -206,6 +282,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           controlMapImage: currentPic?.cachedControlMapImage,
                           isolatedPrioritySlice: widget.isolatedPrioritySlice,
                           showPixelGrid: widget.showPixelGrid,
+                          menuManager: widget.engine.menuManager,
                         ),
                       )
                     else
