@@ -11,13 +11,13 @@ class AgiCallFrame {
   final AgiLogicScript script;
   final int scriptNumber;
   int ip;
-  bool testedHaveKeyWithoutKey;
+  int? lastFailedHaveKeyIp;
 
   AgiCallFrame({
     required this.script,
     required this.scriptNumber,
     this.ip = 0,
-    this.testedHaveKeyWithoutKey = false,
+    this.lastFailedHaveKeyIp,
   });
 }
 
@@ -227,10 +227,13 @@ class AgiLogicInterpreter {
     }
     var target = code[frame.ip + 1] | (code[frame.ip + 2] << 8);
     if (target >= 0x8000) target -= 0x10000;
-    frame.ip += target + 3;
+    final currentIp = frame.ip;
+    final targetIp = frame.ip + target + 3;
+    frame.ip = targetIp;
 
-    if (target < 0 && frame.testedHaveKeyWithoutKey) {
-      frame.testedHaveKeyWithoutKey = false;
+    final failedIp = frame.lastFailedHaveKeyIp;
+    if (target < 0 && failedIp != null && targetIp <= failedIp && failedIp <= currentIp) {
+      frame.lastFailedHaveKeyIp = null;
       return InterpreterStatus.yielded;
     }
     return InterpreterStatus.running;
@@ -419,10 +422,13 @@ class AgiLogicInterpreter {
         return memory.getController(c);
 
       case 0x0D: // have.key()
+        final currentIp = frame.ip;
         frame.ip++;
         final hasKey = delegate.haveKey();
         if (!hasKey) {
-          frame.testedHaveKeyWithoutKey = true;
+          frame.lastFailedHaveKeyIp = currentIp;
+        } else {
+          frame.lastFailedHaveKeyIp = null;
         }
         return hasKey;
 
