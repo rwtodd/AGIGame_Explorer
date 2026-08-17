@@ -1534,41 +1534,41 @@ class AgiLogicInterpreter {
         frame.ip += 4;
         break;
 
-      case 151: // print.at(m, x, y, width)
+      case 151: // print.at(m, row, col, width)
         final numArgs = (version < 2.401) ? 3 : 4;
         final m = code[frame.ip + 1];
-        final x = code[frame.ip + 2];
-        final y = code[frame.ip + 3];
+        final row = code[frame.ip + 2];
+        final col = code[frame.ip + 3];
         final w = numArgs == 4 ? code[frame.ip + 4] : 0;
         frame.ip += 1 + numArgs;
         final leaveWin = memory.getFlag(15);
         if (leaveWin) {
           memory.resetFlag(15);
-          delegate.onPrintAt(frame.script.getMessage(m), x, y, w, isModal: false);
+          delegate.onPrintAt(frame.script.getMessage(m), row, col, w, isModal: false);
         } else {
           final timeout = memory.getVar(21);
           memory.setVar(21, 0);
-          delegate.onPrintAt(frame.script.getMessage(m), x, y, w, isModal: true, timeoutHalfSeconds: timeout);
+          delegate.onPrintAt(frame.script.getMessage(m), row, col, w, isModal: true, timeoutHalfSeconds: timeout);
           _pendingYield = true;
           return InterpreterStatus.yielded;
         }
         break;
 
-      case 152: // print.at.v(%vm, x, y, width)
+      case 152: // print.at.v(%vm, row, col, width)
         final numArgs = (version < 2.401) ? 3 : 4;
         final msgNum = memory.getVar(code[frame.ip + 1]);
-        final x = code[frame.ip + 2];
-        final y = code[frame.ip + 3];
+        final row = code[frame.ip + 2];
+        final col = code[frame.ip + 3];
         final w = numArgs == 4 ? code[frame.ip + 4] : 0;
         frame.ip += 1 + numArgs;
         final leaveWin = memory.getFlag(15);
         if (leaveWin) {
           memory.resetFlag(15);
-          delegate.onPrintAt(frame.script.getMessage(msgNum), x, y, w, isModal: false);
+          delegate.onPrintAt(frame.script.getMessage(msgNum), row, col, w, isModal: false);
         } else {
           final timeout = memory.getVar(21);
           memory.setVar(21, 0);
-          delegate.onPrintAt(frame.script.getMessage(msgNum), x, y, w, isModal: true, timeoutHalfSeconds: timeout);
+          delegate.onPrintAt(frame.script.getMessage(msgNum), row, col, w, isModal: true, timeoutHalfSeconds: timeout);
           _pendingYield = true;
           return InterpreterStatus.yielded;
         }

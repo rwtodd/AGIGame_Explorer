@@ -8,6 +8,7 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
+import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 import 'package:flutter_agigame/ui/widgets/inventory_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 
@@ -27,13 +28,12 @@ void main() {
         ),
       );
 
-      // Verify Header and Empty State
-      expect(find.text('YOU ARE CARRYING'), findsOneWidget);
+      // Verify Empty State
       expect(find.text('You are carrying nothing.'), findsOneWidget);
-      expect(find.text('OK'), findsOneWidget);
+      expect(find.text('OK'), findsNothing);
 
-      // Dismiss via OK button
-      await tester.tap(find.text('OK'));
+      // Dismiss via tap
+      await tester.tap(find.byType(InventoryDialog));
       await tester.pump();
       expect(closed, isTrue);
 
@@ -72,7 +72,7 @@ void main() {
       expect(closed, isTrue);
     });
 
-    testWidgets('renders list of carried items in view mode and dismisses on Enter/Space/Esc', (tester) async {
+    testWidgets('renders list of carried items in 2-column view mode and supports 2D arrow navigation', (tester) async {
       final items = [
         const CarriedItem(index: 1, object: AgiObject(name: 'Golden Key', startingRoom: 0)),
         const CarriedItem(index: 2, object: AgiObject(name: 'Magic Dagger', startingRoom: 0)),
@@ -95,20 +95,15 @@ void main() {
       );
 
       // Verify header and items
-      expect(find.text('YOU ARE CARRYING'), findsOneWidget);
-      expect(find.text('3 items'), findsOneWidget);
+      expect(find.text('You are carrying:'), findsOneWidget);
       expect(find.text('Golden Key'), findsOneWidget);
       expect(find.text('Magic Dagger'), findsOneWidget);
       expect(find.text('Pouch of Diamonds'), findsOneWidget);
-      expect(find.text('#1'), findsOneWidget);
-      expect(find.text('#2'), findsOneWidget);
-      expect(find.text('#3'), findsOneWidget);
-      expect(find.text('Close'), findsOneWidget);
-      expect(find.text('Inspect'), findsNothing);
+      expect(find.text('Close'), findsNothing);
       expect(find.text('Select'), findsNothing);
 
-      // Navigate down to item 2 (Magic Dagger)
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      // Navigate right to item 2 (Magic Dagger) in 2-column grid
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       expect(selectedItemIndex, equals(2));
 
@@ -117,10 +112,10 @@ void main() {
       await tester.pump();
       expect(selectedItemIndex, equals(3));
 
-      // Navigate up back to item 2
+      // Navigate up back to item 1 (Golden Key)
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
       await tester.pump();
-      expect(selectedItemIndex, equals(2));
+      expect(selectedItemIndex, equals(1));
 
       // Press Enter to close in view mode
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -128,10 +123,18 @@ void main() {
       expect(closed, isTrue);
     });
 
-    testWidgets('selection mode (Flag 13) supports mouse selection, Select button, double-click, and Enter key', (tester) async {
+    testWidgets('selection mode (Flag 13) supports 2D navigation, double-click, and Enter key with auto-scrolling', (tester) async {
       final items = [
         const CarriedItem(index: 10, object: AgiObject(name: 'Silver Flute', startingRoom: 0)),
         const CarriedItem(index: 11, object: AgiObject(name: 'Spell Book', startingRoom: 0)),
+        const CarriedItem(index: 12, object: AgiObject(name: 'Magic Wand', startingRoom: 0)),
+        const CarriedItem(index: 13, object: AgiObject(name: 'Crystal Ball', startingRoom: 0)),
+        const CarriedItem(index: 14, object: AgiObject(name: 'Golden Chalice', startingRoom: 0)),
+        const CarriedItem(index: 15, object: AgiObject(name: 'Ancient Scroll', startingRoom: 0)),
+        const CarriedItem(index: 16, object: AgiObject(name: 'Dragon Scale', startingRoom: 0)),
+        const CarriedItem(index: 17, object: AgiObject(name: 'Elixir of Life', startingRoom: 0)),
+        const CarriedItem(index: 18, object: AgiObject(name: 'Phoenix Feather', startingRoom: 0)),
+        const CarriedItem(index: 19, object: AgiObject(name: 'Enchanted Mirror', startingRoom: 0)),
       ];
 
       int? selectedChoice;
@@ -150,20 +153,22 @@ void main() {
         ),
       );
 
-      expect(find.text('SELECT AN OBJECT'), findsOneWidget);
-      expect(find.text('Select'), findsOneWidget);
-      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Select an object:'), findsOneWidget);
+      expect(find.text('Enter to select, Esc to cancel'), findsOneWidget);
+      expect(find.text('Select'), findsNothing);
 
-      // Tap second item to navigate
-      await tester.tap(find.text('Spell Book'));
-      await tester.pumpAndSettle();
-
-      // Tap Select button
-      final selectButton = find.widgetWithText(ElevatedButton, 'Select');
-      expect(selectButton, findsOneWidget);
-      await tester.tap(selectButton);
+      // Navigate down through multiple rows (auto-scrolling triggered)
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pump();
-      expect(selectedChoice, equals(11));
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(selectedChoice, equals(17)); // 10 -> (+2) 12 -> (+2) 14 -> (+2) 16 -> (+1) 17
       expect(closed, isTrue);
 
       // Reset and test double-click selection
@@ -216,7 +221,7 @@ void main() {
   });
 
   group('ObjectInspectionDialog Widget Tests', () {
-    testWidgets('renders object name, description, and cel preview', (tester) async {
+    testWidgets('renders object description and cel preview, dismisses on tap or key', (tester) async {
       final cel = AgiViewCel.forward(
         width: 10,
         height: 10,
@@ -245,17 +250,17 @@ void main() {
         ),
       );
 
-      expect(find.text('DAVENTRY MAP'), findsOneWidget);
-      expect(find.text('#42'), findsOneWidget);
       expect(find.text('An ancient parchment map of the realm.'), findsOneWidget);
-      expect(find.text('OK'), findsOneWidget);
+      expect(find.byType(CelImageWidget), findsOneWidget);
+      expect(find.text('OK'), findsNothing);
 
-      await tester.tap(find.text('OK'));
+      // Dismiss on tap anywhere
+      await tester.tap(find.byType(ObjectInspectionDialog));
       await tester.pump();
       expect(closed, isTrue);
     });
 
-    testWidgets('renders fallback placeholder when no view is provided', (tester) async {
+    testWidgets('renders fallback placeholder and object name when no view description is provided', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
@@ -267,8 +272,7 @@ void main() {
         ),
       );
 
-      expect(find.text('MYSTERIOUS IDOL'), findsOneWidget);
-      expect(find.text('#99'), findsOneWidget);
+      expect(find.text('Mysterious Idol'), findsOneWidget);
       expect(find.byIcon(Icons.inventory_2_outlined), findsOneWidget);
     });
   });
@@ -427,7 +431,7 @@ void main() {
       await tester.pump();
 
       expect(find.byType(ObjectInspectionDialog), findsOneWidget);
-      expect(find.text('*MAGIC WAND'), findsOneWidget);
+      expect(find.text('*magic wand'), findsOneWidget);
     });
   });
 }

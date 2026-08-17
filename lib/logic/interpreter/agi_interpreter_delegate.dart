@@ -46,7 +46,7 @@ abstract class AgiInterpreterDelegate {
   void onDisplay(int row, int col, String message) {}
 
   /// Called when `print.at` or `print.at.v` is executed.
-  void onPrintAt(String message, int x, int y, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
+  void onPrintAt(String message, int row, int col, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
 
   /// Called when `close.window` is executed.
   void onCloseWindow() {}

@@ -39,6 +39,13 @@ class MockInterpreterDelegate extends DefaultAgiInterpreterDelegate {
     return nextSaidResult;
   }
 
+  List<dynamic>? lastPrintAtParams;
+
+  @override
+  void onPrintAt(String message, int row, int col, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {
+    lastPrintAtParams = [message, row, col, width, isModal, timeoutHalfSeconds];
+  }
+
   List<int>? configuredScreenParams;
 
   @override
@@ -329,6 +336,56 @@ void main() {
       vm.executeCycle();
 
       expect(delegate.configuredScreenParams, [1, 23, 0]);
+    });
+
+    test('executes print.at opcode (151 / 0x97) with row, col, width', () {
+      // print.at(1, 4, 12, 28)
+      final script = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0x97, 0x01, 0x04, 0x0C, 0x1C,
+          0x00,
+        ]),
+        messages: const ['Beware of the falling rocks!'],
+      );
+
+      vm.loadRootScript(script);
+      final status = vm.executeCycle();
+
+      expect(status, InterpreterStatus.yielded);
+      expect(delegate.lastPrintAtParams, [
+        'Beware of the falling rocks!',
+        4, // row
+        12, // col
+        28, // width
+        true, // isModal
+        0, // timeout
+      ]);
+    });
+
+    test('executes print.at.v opcode (152 / 0x98) with row, col, width', () {
+      // Set %v1 = 2 (message 2)
+      memory.setVar(1, 2);
+      // print.at.v(%v1, 8, 15, 30)
+      final script = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0x98, 0x01, 0x08, 0x0F, 0x1E,
+          0x00,
+        ]),
+        messages: const ['Msg1', 'The wizard appears!'],
+      );
+
+      vm.loadRootScript(script);
+      final status = vm.executeCycle();
+
+      expect(status, InterpreterStatus.yielded);
+      expect(delegate.lastPrintAtParams, [
+        'The wizard appears!',
+        8, // row
+        15, // col
+        30, // width
+        true, // isModal
+        0, // timeout
+      ]);
     });
   });
 }

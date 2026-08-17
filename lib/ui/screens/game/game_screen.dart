@@ -41,9 +41,8 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> {
   late final AgiGameEngine _engine;
-  final TextEditingController _promptController = TextEditingController();
-  final FocusNode _promptFocusNode = FocusNode();
   final FocusNode _gameFocusNode = FocusNode();
+  String _currentInputText = '';
 
   final List<String> _commandHistory = [];
   int _historyIndex = -1;
@@ -84,8 +83,6 @@ class _GameScreenState extends State<GameScreen> {
       _engine.soundPlayer?.dispose();
       _engine.dispose();
     }
-    _promptController.dispose();
-    _promptFocusNode.dispose();
     _gameFocusNode.dispose();
     super.dispose();
   }
@@ -96,14 +93,16 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
-  void _handleSubmitCommand(String text) {
-    final cmd = text.trim();
+  void _handleSubmitCommand([String? text]) {
+    final cmd = (text ?? _currentInputText).trim();
     if (cmd.isNotEmpty) {
       _commandHistory.remove(cmd);
       _commandHistory.add(cmd);
       _historyIndex = _commandHistory.length;
       _engine.submitCommand(cmd);
-      _promptController.clear();
+      setState(() {
+        _currentInputText = '';
+      });
     }
   }
 
@@ -113,14 +112,13 @@ class _GameScreenState extends State<GameScreen> {
     final newIndex = (_historyIndex + delta).clamp(0, _commandHistory.length);
     if (newIndex != _historyIndex) {
       _historyIndex = newIndex;
-      if (_historyIndex >= 0 && _historyIndex < _commandHistory.length) {
-        _promptController.text = _commandHistory[_historyIndex];
-        _promptController.selection = TextSelection.fromPosition(
-          TextPosition(offset: _promptController.text.length),
-        );
-      } else {
-        _promptController.clear();
-      }
+      setState(() {
+        if (_historyIndex >= 0 && _historyIndex < _commandHistory.length) {
+          _currentInputText = _commandHistory[_historyIndex];
+        } else {
+          _currentInputText = '';
+        }
+      });
     }
   }
 
@@ -278,8 +276,10 @@ class _GameScreenState extends State<GameScreen> {
 
     // 5. ESC opens Menu Bar (if menu is available and enabled)
     if (event.logicalKey == LogicalKeyboardKey.escape) {
-      if (_promptController.text.isNotEmpty) {
-        _promptController.clear();
+      if (_currentInputText.isNotEmpty) {
+        setState(() {
+          _currentInputText = '';
+        });
         return KeyEventResult.handled;
       } else if (_engine.menuManager.isAvailable && _engine.memory.getFlag(14)) {
         _engine.openMenu();
@@ -303,34 +303,15 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     // 3. Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
-    // (Only when prompt is not actively receiving text input)
-    if (!_promptFocusNode.hasFocus) {
-      _engine.handleKeyPress(_getKeyCode(event));
-    }
+    _engine.handleKeyPress(_getKeyCode(event));
 
     // 4. Trigger registered controller shortcuts via set.key mappings
-    // (Only if not typing regular printable characters in the prompt)
-    if (!_promptFocusNode.hasFocus ||
-        event.logicalKey.keyId >= 0x1100000000 || // Function keys, modifiers, etc.
+    if (event.logicalKey.keyId >= 0x1100000000 || // Function keys, modifiers, etc.
         HardwareKeyboard.instance.isAltPressed ||
         HardwareKeyboard.instance.isControlPressed) {
       final controllerTriggered = _engine.controllerManager.handleKeyEvent(event, _engine.memory);
       if (controllerTriggered) {
         return KeyEventResult.handled;
-      }
-    }
-
-    // If prompt is focused, allow cursor navigation and typing to reach TextField
-    if (_promptFocusNode.hasFocus) {
-      if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-          event.logicalKey == LogicalKeyboardKey.arrowRight ||
-          event.logicalKey == LogicalKeyboardKey.space ||
-          (event.character != null &&
-              event.character!.isNotEmpty &&
-              !HardwareKeyboard.instance.isControlPressed &&
-              !HardwareKeyboard.instance.isAltPressed &&
-              !HardwareKeyboard.instance.isMetaPressed)) {
-        return KeyEventResult.ignored;
       }
     }
 
@@ -379,23 +360,25 @@ class _GameScreenState extends State<GameScreen> {
       return KeyEventResult.handled;
     }
 
-    // 7. Command prompt input (when prompt is NOT focused, allow typing directly to prompt)
-    if (_engine.isInputEnabled && !_promptFocusNode.hasFocus) {
+    // 7. Command prompt input (when input is enabled)
+    if (_engine.isInputEnabled) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-        _handleSubmitCommand(_promptController.text);
+        _handleSubmitCommand();
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.backspace) {
-        final text = _promptController.text;
-        if (text.isNotEmpty) {
-          _promptController.text = text.substring(0, text.length - 1);
-          _promptController.selection = TextSelection.fromPosition(
-            TextPosition(offset: _promptController.text.length),
-          );
+        if (_currentInputText.isNotEmpty) {
+          setState(() {
+            _currentInputText = _currentInputText.substring(0, _currentInputText.length - 1);
+          });
         }
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-        _promptController.clear();
+        if (_currentInputText.isNotEmpty) {
+          setState(() {
+            _currentInputText = '';
+          });
+        }
         return KeyEventResult.handled;
       } else if (event.character != null &&
           event.character!.isNotEmpty &&
@@ -405,10 +388,9 @@ class _GameScreenState extends State<GameScreen> {
         final char = event.character!;
         final code = char.codeUnitAt(0);
         if (code >= 32 && code <= 126) {
-          _promptController.text = _promptController.text + char;
-          _promptController.selection = TextSelection.fromPosition(
-            TextPosition(offset: _promptController.text.length),
-          );
+          setState(() {
+            _currentInputText = _currentInputText + char;
+          });
           return KeyEventResult.handled;
         }
       }
@@ -447,71 +429,71 @@ class _GameScreenState extends State<GameScreen> {
                 onRenderModeChanged: (mode) => setState(() => _renderMode = mode),
               ),
               Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        color: Colors.black,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Main Game Playfield Compositor
-                            Positioned.fill(
-                              child: GamePlayfieldWidget(
-                                engine: _engine,
-                                renderMode: _renderMode,
-                                showCrtShader: _showCrtShader,
-                                showPixelGrid: _showPixelGrid,
-                                correctAspectRatio: _correctAspectRatio,
-                                strictIntegerScaling: _strictIntegerScaling,
-                              ),
-                            ),
-
-                            // Modal Dialog Box Overlay
-                            if (_engine.activeDialog != null)
-                              Positioned.fill(
-                                child: DialogBoxWidget(
-                                  dialogState: _engine.activeDialog!,
-                                  onDismiss: _engine.dismissDialog,
-                                ),
-                              ),
-
-                            // Modal Input Prompt Popup Overlay
-                            if (_engine.activeInputPrompt != null)
-                              Positioned.fill(
-                                child: InputPromptDialog(
-                                  promptState: _engine.activeInputPrompt!,
-                                  onChanged: _engine.updateInputPrompt,
-                                  onSubmit: _engine.submitInputPrompt,
-                                  onCancel: _engine.cancelInputPrompt,
-                                ),
-                              ),
-
-                            // Inventory Dialog Overlay
-                            if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
-                              Positioned.fill(
-                                child: InventoryDialog(
-                                  engine: _engine,
-                                  onClose: () => _engine.closeInventory(),
-                                  onSelect: (selectedObj) => _engine.closeInventory(selectedObj),
-                                ),
-                              ),
-
-                            // Object Inspection Dialog Overlay
-                            if (_engine.inspectingObjectNumber != null)
-                              Positioned.fill(
-                                child: ObjectInspectionDialog(
-                                  engine: _engine,
-                                  objectNumber: _engine.inspectingObjectNumber!,
-                                  onClose: _engine.closeObjectInspection,
-                                ),
-                              ),
-                          ],
+                child: Container(
+                  color: Colors.black,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Main Game Playfield Compositor (takes full height!)
+                      Positioned.fill(
+                        child: GamePlayfieldWidget(
+                          engine: _engine,
+                          renderMode: _renderMode,
+                          showCrtShader: _showCrtShader,
+                          showPixelGrid: _showPixelGrid,
+                          correctAspectRatio: _correctAspectRatio,
+                          strictIntegerScaling: _strictIntegerScaling,
+                          currentInputText: _currentInputText,
                         ),
                       ),
-                    ),
-                    _buildCommandPromptBar(),
-                  ],
+
+                      // Modal Dialog Box Overlay
+                      if (_engine.activeDialog != null)
+                        Positioned.fill(
+                          child: DialogBoxWidget(
+                            dialogState: _engine.activeDialog!,
+                            onDismiss: _engine.dismissDialog,
+                            correctAspectRatio: _correctAspectRatio,
+                            strictIntegerScaling: _strictIntegerScaling,
+                          ),
+                        ),
+
+                      // Modal Input Prompt Popup Overlay
+                      if (_engine.activeInputPrompt != null)
+                        Positioned.fill(
+                          child: InputPromptDialog(
+                            promptState: _engine.activeInputPrompt!,
+                            onChanged: _engine.updateInputPrompt,
+                            onSubmit: _engine.submitInputPrompt,
+                            onCancel: _engine.cancelInputPrompt,
+                          ),
+                        ),
+
+                      // Inventory Dialog Overlay
+                      if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
+                        Positioned.fill(
+                          child: InventoryDialog(
+                            engine: _engine,
+                            onClose: () => _engine.closeInventory(),
+                            onSelect: (selectedObj) => _engine.closeInventory(selectedObj),
+                            correctAspectRatio: _correctAspectRatio,
+                            strictIntegerScaling: _strictIntegerScaling,
+                          ),
+                        ),
+
+                      // Object Inspection Dialog Overlay
+                      if (_engine.inspectingObjectNumber != null)
+                        Positioned.fill(
+                          child: ObjectInspectionDialog(
+                            engine: _engine,
+                            objectNumber: _engine.inspectingObjectNumber!,
+                            onClose: _engine.closeObjectInspection,
+                            correctAspectRatio: _correctAspectRatio,
+                            strictIntegerScaling: _strictIntegerScaling,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -723,75 +705,6 @@ class _GameScreenState extends State<GameScreen> {
           ),
 
           const SizedBox(height: 6),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCommandPromptBar() {
-    final isEnabled = _engine.isInputEnabled;
-
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isEnabled ? const Color(0xFF0D1117) : const Color(0xFF070A0E),
-        border: Border(
-          top: BorderSide(
-            color: isEnabled ? AgiTheme.egaBorder : const Color(0xFF1E293B),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Text(
-            '> ',
-            style: TextStyle(
-              color: isEnabled ? AgiTheme.egaWhite : const Color(0xFF475569),
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'Courier',
-            ),
-          ),
-          Expanded(
-            child: TextField(
-              controller: _promptController,
-              focusNode: _promptFocusNode,
-              enabled: isEnabled,
-              style: TextStyle(
-                color: isEnabled ? AgiTheme.egaWhite : const Color(0xFF475569),
-                fontSize: 14,
-                fontFamily: 'Courier',
-              ),
-              cursorColor: isEnabled ? AgiTheme.egaCyan : Colors.transparent,
-              cursorWidth: 8,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                filled: false,
-                hintText: isEnabled ? 'Type a command (e.g. look around)...' : '[INPUT DISABLED]',
-                hintStyle: TextStyle(
-                  color: isEnabled ? const Color(0xFF4B5563) : const Color(0xFF334155),
-                  fontSize: 13,
-                  fontFamily: 'Courier',
-                ),
-              ),
-              onSubmitted: isEnabled ? _handleSubmitCommand : null,
-            ),
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.send,
-              size: 16,
-              color: isEnabled ? AgiTheme.egaCyan : const Color(0xFF334155),
-            ),
-            onPressed: isEnabled ? () => _handleSubmitCommand(_promptController.text) : null,
-            tooltip: isEnabled ? 'Send Command (Enter)' : 'Input Disabled',
-          ),
         ],
       ),
     );

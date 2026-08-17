@@ -74,20 +74,19 @@ class AgiDialogState {
   final String message;
   final int? row;
   final int? col;
-  final int? x;
-  final int? y;
   final int? width;
   final bool isModal;
   final Completer<void>? dismissCompleter;
   final int? autoCloseHalfSeconds;
   final int? autoCloseTicks;
 
+  int? get x => col;
+  int? get y => row;
+
   const AgiDialogState({
     required this.message,
     this.row,
     this.col,
-    this.x,
-    this.y,
     this.width,
     this.isModal = true,
     this.dismissCompleter,
@@ -1592,11 +1591,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onPrintAt(String message, int x, int y, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {
+  void onPrintAt(String message, int row, int col, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {
     _showDialog(
       message: message,
-      x: x,
-      y: y,
+      row: row,
+      col: col,
       width: width,
       isModal: isModal,
       timeoutHalfSeconds: timeoutHalfSeconds,
@@ -1607,8 +1606,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     required String message,
     int? row,
     int? col,
-    int? x,
-    int? y,
     int? width,
     bool isModal = true,
     int timeoutHalfSeconds = 0,
@@ -1621,8 +1618,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       message: formatMessage(message),
       row: row,
       col: col,
-      x: x,
-      y: y,
       width: width,
       isModal: isModal,
       dismissCompleter: completer,

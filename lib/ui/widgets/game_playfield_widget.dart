@@ -20,6 +20,7 @@ class GamePlayfieldWidget extends StatefulWidget {
   final bool correctAspectRatio;
   final bool strictIntegerScaling;
   final int? isolatedPrioritySlice;
+  final String currentInputText;
   final ValueChanged<Offset>? onCanvasTap;
 
   const GamePlayfieldWidget({
@@ -31,6 +32,7 @@ class GamePlayfieldWidget extends StatefulWidget {
     this.correctAspectRatio = true,
     this.strictIntegerScaling = false,
     this.isolatedPrioritySlice,
+    this.currentInputText = '',
     this.onCanvasTap,
   });
 
@@ -49,7 +51,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     super.initState();
     _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
     _blinkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted && widget.engine.activeInputPrompt?.row != null) {
+      if (mounted) {
         setState(() {
           _cursorBlink = !_cursorBlink;
         });
@@ -307,6 +309,23 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           painter: CrtShaderOverlayPainter(),
                         ),
                       ),
+
+                    // Integrated Authentic On-Screen Command Prompt
+                    if (widget.engine.isInputEnabled)
+                      Positioned(
+                        top: (widget.engine.inputRow.clamp(0, 24) / 25.0) * playfieldHeight,
+                        left: (1.0 / 40.0) * playfieldWidth,
+                        right: (1.0 / 40.0) * playfieldWidth,
+                        child: _buildIntegratedPrompt(
+                          prompt: widget.engine.memory.getString(0).isNotEmpty
+                              ? widget.engine.memory.getString(0)
+                              : '>',
+                          text: widget.currentInputText,
+                          showCursor: _cursorBlink,
+                          fontSize: math.max(11.0, playfieldWidth / 48.0),
+                          playfieldWidth: playfieldWidth,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -315,6 +334,51 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         ),
       );
       },
+    );
+  }
+
+  Widget _buildIntegratedPrompt({
+    required String prompt,
+    required String text,
+    required bool showCursor,
+    required double fontSize,
+    required double playfieldWidth,
+  }) {
+    final promptText = prompt.endsWith(' ') ? prompt : '$prompt ';
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          promptText,
+          style: TextStyle(
+            color: const Color(0xFF55FFFF),
+            fontSize: fontSize,
+            fontWeight: FontWeight.bold,
+            height: 1.0,
+            letterSpacing: 0.1,
+          ),
+        ),
+        if (text.isNotEmpty)
+          Text(
+            text,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w500,
+              height: 1.0,
+              letterSpacing: 0.1,
+            ),
+          ),
+        if (showCursor)
+          Container(
+            width: math.max(2.0, fontSize * 0.45),
+            height: fontSize * 0.9,
+            margin: const EdgeInsets.only(left: 1),
+            color: const Color(0xFF55FFFF),
+          ),
+      ],
     );
   }
 

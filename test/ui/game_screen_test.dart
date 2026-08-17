@@ -34,12 +34,9 @@ void main() {
       expect(find.byIcon(Icons.speed), findsOneWidget);
       expect(find.byIcon(Icons.volume_down), findsOneWidget);
 
-      // Verify Playfield Widget
+      // Verify Playfield Widget with integrated prompt
       expect(find.byType(GamePlayfieldWidget), findsOneWidget);
-
-      // Verify Command Prompt Input
       expect(find.text('> '), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
     });
 
     testWidgets('submits command on prompt submit', (tester) async {
@@ -48,10 +45,16 @@ void main() {
           home: GameScreen(engine: engine),
         ),
       );
+      await tester.pump();
 
-      final textField = find.byType(TextField);
-      await tester.enterText(textField, 'look at tree');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
+      // Type 'look at tree' and press Enter
+      for (final char in 'look at tree'.split('')) {
+        await tester.sendKeyEvent(
+          LogicalKeyboardKey.space,
+          character: char,
+        );
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pump();
 
       expect(engine.lastSubmittedCommand, 'look at tree');
@@ -75,12 +78,36 @@ void main() {
       // Verify dialog is displayed with message
       expect(find.byType(DialogBoxWidget), findsOneWidget);
       expect(find.text('Welcome to the Sierra Adventure!'), findsOneWidget);
-      expect(find.text('SIERRA AGI MESSAGE'), findsOneWidget);
 
-      // Dismiss dialog via OK button
-      final okButton = find.widgetWithText(ElevatedButton, 'OK');
-      expect(okButton, findsOneWidget);
-      await tester.tap(okButton);
+      // Dismiss dialog via tap
+      await tester.tap(find.byType(DialogBoxWidget));
+      await tester.pump();
+
+      // Verify dialog is removed
+      expect(find.byType(DialogBoxWidget), findsNothing);
+      expect(engine.activeDialog, isNull);
+    });
+
+    testWidgets('displays positional dialog box on onPrintAt and dismisses on Enter key', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+
+      // Trigger print.at dialog with row=4, col=10, width=25
+      engine.onPrintAt('Watch out for the dragon!', 4, 10, 25);
+      await tester.pump();
+
+      // Verify dialog is displayed with row and col preserved
+      expect(find.byType(DialogBoxWidget), findsOneWidget);
+      expect(find.text('Watch out for the dragon!'), findsOneWidget);
+      expect(engine.activeDialog?.row, 4);
+      expect(engine.activeDialog?.col, 10);
+      expect(engine.activeDialog?.width, 25);
+
+      // Dismiss dialog via Enter key
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pump();
 
       // Verify dialog is removed
@@ -287,7 +314,7 @@ void main() {
       expect(engine.memory.getFlag(2), isTrue); // have.input = 1
     });
 
-    testWidgets('maintains constant input bar height and stable playfield layout when input is disabled', (tester) async {
+    testWidgets('shows integrated prompt when enabled and hides cleanly when disabled', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GameScreen(engine: engine),
@@ -299,26 +326,27 @@ void main() {
       expect(playfieldFinder, findsOneWidget);
       final initialPlayfieldSize = tester.getSize(playfieldFinder);
 
-      // Input is enabled initially
-      expect(find.text('Type a command (e.g. look around)...'), findsOneWidget);
+      // Input is enabled initially -> prompt visible
+      expect(find.text('> '), findsOneWidget);
 
       // Script disables input (e.g. prevent.input)
       engine.isInputEnabled = false;
       await tester.pump();
 
-      // Input bar remains present in disabled state
-      expect(find.text('[INPUT DISABLED]'), findsOneWidget);
+      // Integrated prompt is cleanly hidden
+      expect(find.text('> '), findsNothing);
 
       // Playfield size remains identical (no jumping or resizing)
       final disabledPlayfieldSize = tester.getSize(playfieldFinder);
       expect(disabledPlayfieldSize.height, initialPlayfieldSize.height);
       expect(disabledPlayfieldSize.width, initialPlayfieldSize.width);
 
-      // Script re-enables input
+      // Script re-enables input (e.g. accept.input)
       engine.isInputEnabled = true;
       await tester.pump();
 
-      expect(find.text('Type a command (e.g. look around)...'), findsOneWidget);
+      // Integrated prompt reappears
+      expect(find.text('> '), findsOneWidget);
       final reenabledPlayfieldSize = tester.getSize(playfieldFinder);
       expect(reenabledPlayfieldSize.height, initialPlayfieldSize.height);
       expect(reenabledPlayfieldSize.width, initialPlayfieldSize.width);

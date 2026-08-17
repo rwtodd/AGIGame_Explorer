@@ -1,73 +1,14 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
 
-/// CustomPainter that renders a single [AgiViewCel] with 2:1 EGA pixel aspect ratio
-/// and transparent pixel handling.
-class CelPainter extends CustomPainter {
-  final AgiView view;
-  final int loopIndex;
-  final int celIndex;
-  final double pixelScale;
-  final List<Color>? palette;
-
-  const CelPainter({
-    required this.view,
-    this.loopIndex = 0,
-    this.celIndex = 0,
-    this.pixelScale = 3.0,
-    this.palette,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cel = view.getCel(loopIndex, celIndex);
-    if (cel == null) return;
-
-    final pixels = cel.getPixels(parentView: view, celIndex: celIndex);
-    final effectivePalette = palette ?? EgaColors.palette;
-    final p = Paint()..style = PaintingStyle.fill;
-
-    final celDrawWidth = cel.width * 2.0 * pixelScale;
-    final celDrawHeight = cel.height * 1.0 * pixelScale;
-    final offsetX = (size.width - celDrawWidth) / 2.0;
-    final offsetY = (size.height - celDrawHeight) / 2.0;
-
-    for (int y = 0; y < cel.height; y++) {
-      final rowOffset = y * cel.width;
-      for (int x = 0; x < cel.width; x++) {
-        final colorIdx = pixels[rowOffset + x] & 0x0F;
-        if (colorIdx != cel.transparentColor) {
-          final color = colorIdx < effectivePalette.length
-              ? effectivePalette[colorIdx]
-              : effectivePalette[0];
-          p.color = color;
-          canvas.drawRect(
-            Rect.fromLTWH(
-              offsetX + (x * 2.0 * pixelScale),
-              offsetY + (y * 1.0 * pixelScale),
-              2.0 * pixelScale,
-              1.0 * pixelScale,
-            ),
-            p,
-          );
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CelPainter oldDelegate) {
-    return oldDelegate.view != view ||
-        oldDelegate.loopIndex != loopIndex ||
-        oldDelegate.celIndex != celIndex ||
-        oldDelegate.pixelScale != pixelScale ||
-        oldDelegate.palette != palette;
-  }
-}
-
 /// Widget that displays an individual sprite cel from an [AgiView] resource.
-class CelImageWidget extends StatelessWidget {
+///
+/// Features:
+/// - Converts cel to RGBA bitmap with authentic 2:1 horizontal pixel aspect ratio.
+/// - Renders using nearest-neighbor point sampling (`FilterQuality.none`) for razor-sharp EGA pixels.
+/// - Completely eliminates subpixel seams and grid artifacting.
+class CelImageWidget extends StatefulWidget {
   final AgiView view;
   final int loopIndex;
   final int celIndex;
@@ -84,24 +25,98 @@ class CelImageWidget extends StatelessWidget {
   });
 
   @override
+  State<CelImageWidget> createState() => _CelImageWidgetState();
+}
+
+class _CelImageWidgetState extends State<CelImageWidget> {
+  ui.Image? _cachedImage;
+  String? _cacheKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _decodeImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant CelImageWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.view != widget.view ||
+        oldWidget.loopIndex != widget.loopIndex ||
+        oldWidget.celIndex != widget.celIndex ||
+        oldWidget.palette != widget.palette) {
+      _decodeImage();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cachedImage?.dispose();
+    _cachedImage = null;
+    super.dispose();
+  }
+
+  void _decodeImage() {
+    final cel = widget.view.getCel(widget.loopIndex, widget.celIndex);
+    if (cel == null) {
+      _cachedImage?.dispose();
+      _cachedImage = null;
+      return;
+    }
+
+    final key = '${widget.view.viewNumber}_${widget.loopIndex}_${widget.celIndex}';
+    if (_cacheKey == key && _cachedImage != null) return;
+    _cacheKey = key;
+
+    final rgbaBytes = cel.toRgba(
+      parentView: widget.view,
+      celIndex: widget.celIndex,
+      palette: widget.palette,
+      scaleX: 2,
+      scaleY: 1,
+    );
+
+    ui.decodeImageFromPixels(
+      rgbaBytes,
+      cel.width * 2,
+      cel.height,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        if (mounted && _cacheKey == key) {
+          setState(() {
+            _cachedImage?.dispose();
+            _cachedImage = image;
+          });
+        } else {
+          image.dispose();
+        }
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final cel = view.getCel(loopIndex, celIndex);
+    final cel = widget.view.getCel(widget.loopIndex, widget.celIndex);
     if (cel == null) {
       return const SizedBox.shrink();
     }
 
-    final width = cel.width * 2.0 * scale;
-    final height = cel.height * 1.0 * scale;
+    final width = cel.width * 2.0 * widget.scale;
+    final height = cel.height * 1.0 * widget.scale;
 
-    return CustomPaint(
-      size: Size(width, height),
-      painter: CelPainter(
-        view: view,
-        loopIndex: loopIndex,
-        celIndex: celIndex,
-        pixelScale: scale,
-        palette: palette,
-      ),
+    if (_cachedImage != null) {
+      return RawImage(
+        image: _cachedImage,
+        width: width,
+        height: height,
+        fit: BoxFit.fill,
+        filterQuality: FilterQuality.none, // Pure nearest-neighbor EGA pixel scaling
+      );
+    }
+
+    return SizedBox(
+      width: width,
+      height: height,
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
@@ -5,17 +6,18 @@ import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/object_view_resolver.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
-import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 
 /// Modal dialog for inspecting an individual inventory object (`show.obj` / `show.obj.v`).
 ///
 /// Features:
-/// - Displays object name and index
-/// - Renders item sprite preview with authentic 2:1 EGA pixel aspect and transparency
-/// - Displays embedded VIEW text description
-/// - Keyboard shortcuts (Enter, Space, Escape) and mouse click dismissal
-class ObjectInspectionDialog extends StatefulWidget {
+/// - Pure solid white block with classic Sierra EGA dark red inner border (Color 4: #AA0000).
+/// - Subtle modern drop shadow behind the dialog card.
+/// - Renders item sprite preview with authentic 2:1 EGA pixel aspect and transparency.
+/// - Displays embedded VIEW text description or item name using authentic dialog font scaling.
+/// - Dismissible via Enter, Space, Escape, or tapping/clicking anywhere on screen.
+/// - Fully transparent backdrop preserving complete visibility of the game screen underneath.
+class ObjectInspectionDialog extends StatelessWidget {
   final AgiGameEngine? engine;
   final int objectNumber;
   final AgiObject? object;
@@ -23,6 +25,8 @@ class ObjectInspectionDialog extends StatefulWidget {
   final String? description;
   final AgiResourceLoader? loader;
   final VoidCallback? onClose;
+  final bool correctAspectRatio;
+  final bool strictIntegerScaling;
 
   const ObjectInspectionDialog({
     super.key,
@@ -33,48 +37,27 @@ class ObjectInspectionDialog extends StatefulWidget {
     this.description,
     this.loader,
     this.onClose,
+    this.correctAspectRatio = true,
+    this.strictIntegerScaling = false,
   });
 
-  @override
-  State<ObjectInspectionDialog> createState() => _ObjectInspectionDialogState();
-}
-
-class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
-  final FocusNode _focusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _focusNode.requestFocus();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
-
   AgiObject? _resolveObject() {
-    if (widget.object != null) return widget.object;
-    if (widget.engine != null) {
-      final objects = widget.engine!.objects;
-      if (widget.objectNumber >= 0 && widget.objectNumber < objects.length) {
-        return objects[widget.objectNumber];
+    if (object != null) return object;
+    if (engine != null) {
+      final objects = engine!.objects;
+      if (objectNumber >= 0 && objectNumber < objects.length) {
+        return objects[objectNumber];
       }
     }
     return null;
   }
 
   AgiView? _resolveView(AgiObject? resolvedObject) {
-    if (widget.view != null) return widget.view;
-    final effectiveLoader = widget.loader ?? widget.engine?.resourceLoader;
+    if (view != null) return view;
+    final effectiveLoader = loader ?? engine?.resourceLoader;
     if (effectiveLoader == null) return null;
 
-    final viewNum = widget.objectNumber;
+    final viewNum = objectNumber;
     try {
       if (effectiveLoader.presentViewNumbers.contains(viewNum)) {
         return effectiveLoader.loadView(viewNum);
@@ -85,7 +68,7 @@ class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
     final targetObj = resolvedObject ?? const AgiObject(name: '', startingRoom: 0);
     try {
       final fallbackNum = ObjectViewResolver.resolveViewNumber(
-        objectIndex: widget.objectNumber,
+        objectIndex: objectNumber,
         object: targetObj,
         loader: effectiveLoader,
       );
@@ -102,230 +85,160 @@ class _ObjectInspectionDialogState extends State<ObjectInspectionDialog> {
     final resolvedView = _resolveView(resolvedObj);
 
     final rawName = resolvedObj?.name ??
-        (resolvedView?.description != null ? 'OBJECT VIEW' : 'View #${widget.objectNumber}');
+        (resolvedView?.description != null ? 'OBJECT VIEW' : 'View #$objectNumber');
     final displayName = rawName.trim();
-    final effectiveDescription = widget.description ??
+    final effectiveDescription = description ??
         ((resolvedView?.description != null && resolvedView!.description!.trim().isNotEmpty)
             ? resolvedView.description!.trim()
             : null);
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.enter): () => widget.onClose?.call(),
-        const SingleActivator(LogicalKeyboardKey.numpadEnter): () => widget.onClose?.call(),
-        const SingleActivator(LogicalKeyboardKey.space): () => widget.onClose?.call(),
-        const SingleActivator(LogicalKeyboardKey.escape): () => widget.onClose?.call(),
+        const SingleActivator(LogicalKeyboardKey.enter): () => onClose?.call(),
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () => onClose?.call(),
+        const SingleActivator(LogicalKeyboardKey.space): () => onClose?.call(),
+        const SingleActivator(LogicalKeyboardKey.escape): () => onClose?.call(),
       },
       child: Focus(
-        focusNode: _focusNode,
         autofocus: true,
         child: GestureDetector(
-          onTap: widget.onClose,
+          behavior: HitTestBehavior.opaque,
+          onTap: onClose,
           child: Container(
-            color: Colors.black.withValues(alpha: 0.70),
-            alignment: Alignment.center,
-            child: GestureDetector(
-              onTap: () {}, // Prevent tap inside dialog from closing
-              child: Container(
-                constraints: const BoxConstraints(
-                  maxWidth: 420,
-                  minWidth: 280,
-                ),
-                margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF4F4F6),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: const Color(0xFF1E293B),
-                    width: 3,
-                  ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x99000000),
-                      offset: Offset(6, 6),
-                      blurRadius: 0,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Header Bar
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1E293B),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: AgiTheme.egaCyan,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              displayName.toUpperCase(),
-                              style: const TextStyle(
-                                color: Color(0xFF55FFFF),
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.8,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            '#${widget.objectNumber}',
-                            style: const TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+            color: Colors.transparent, // Authentic Sierra: no dark screen tint
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final availableHeight = constraints.maxHeight;
+                if (availableWidth <= 0 || availableHeight <= 0) {
+                  return const SizedBox.shrink();
+                }
 
-                    // Sprite Canvas Frame
-                    Container(
-                      margin: const EdgeInsets.all(16),
-                      padding: const EdgeInsets.all(16),
+                final targetAspect = correctAspectRatio ? (4.0 / 3.0) : (320.0 / 200.0);
+                double playfieldWidth;
+                double playfieldHeight;
+
+                if (strictIntegerScaling) {
+                  final int baseWidth = 320;
+                  final int baseHeight = correctAspectRatio ? 240 : 200;
+                  final maxScaleX = availableWidth ~/ baseWidth;
+                  final maxScaleY = availableHeight ~/ baseHeight;
+                  final scale = math.max(1, math.min(maxScaleX, maxScaleY));
+                  playfieldWidth = (baseWidth * scale).toDouble();
+                  playfieldHeight = (baseHeight * scale).toDouble();
+                } else {
+                  final containerAspect = availableWidth / availableHeight;
+                  if (containerAspect > targetAspect) {
+                    playfieldHeight = availableHeight;
+                    playfieldWidth = availableHeight * targetAspect;
+                  } else {
+                    playfieldWidth = availableWidth;
+                    playfieldHeight = availableWidth / targetAspect;
+                  }
+                }
+
+                final fontSize = math.max(11.0, playfieldWidth / 48.0);
+                final spriteScale = math.max(1.0, playfieldWidth / 320.0);
+
+                final horizontalPadding = math.max(12.0, playfieldWidth * 0.015);
+                final verticalPadding = math.max(10.0, playfieldHeight * 0.014);
+
+                final targetCols = 32;
+                final expectedTextWidth = targetCols * (fontSize * 0.54);
+                final maxCardWidth = math.max(
+                  140.0,
+                  math.min(
+                    playfieldWidth * 0.85,
+                    expectedTextWidth + (horizontalPadding * 2) + 16.0,
+                  ),
+                );
+
+                final borderWidth = math.max(2.0, (playfieldWidth / 400.0).roundToDouble());
+                final shadowOffset = math.max(3.0, playfieldWidth * 0.004);
+                final shadowBlur = math.max(4.0, playfieldWidth * 0.007);
+                final effectiveMinWidth = math.min(math.max(60.0, playfieldWidth * 0.15), maxCardWidth);
+
+                return Center(
+                  child: Container(
+                    constraints: BoxConstraints(
+                      minWidth: effectiveMinWidth,
+                      maxWidth: maxCardWidth,
+                    ),
+                    margin: EdgeInsets.all(math.max(4.0, playfieldWidth * 0.008)),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(
+                        color: Colors.white,
+                        width: borderWidth,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0x44000000), // Subtle modern drop shadow
+                          offset: Offset(shadowOffset, shadowOffset),
+                          blurRadius: shadowBlur,
+                          spreadRadius: 0,
+                        ),
+                      ],
+                    ),
+                    child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(4),
+                        color: Colors.white,
                         border: Border.all(
-                          color: const Color(0xFFCBD5E1),
-                          width: 1.5,
+                          color: const Color(0xFFAA0000), // Classic Sierra EGA Red (Color 4)
+                          width: borderWidth,
                         ),
                       ),
-                      child: Center(
-                        child: (resolvedView != null &&
-                                resolvedView.loops.isNotEmpty &&
-                                resolvedView.loops[0].cels.isNotEmpty)
-                            ? CelImageWidget(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                        vertical: verticalPadding,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // 1. Sprite Preview
+                          if (resolvedView != null &&
+                              resolvedView.loops.isNotEmpty &&
+                              resolvedView.loops[0].cels.isNotEmpty)
+                            Padding(
+                              padding: EdgeInsets.only(bottom: verticalPadding),
+                              child: CelImageWidget(
                                 view: resolvedView,
                                 loopIndex: 0,
                                 celIndex: 0,
-                                scale: 3.5,
-                              )
-                            : Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.inventory_2_outlined,
-                                    size: 40,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    displayName,
-                                    style: const TextStyle(
-                                      color: Color(0xFF94A3B8),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
+                                scale: spriteScale,
                               ),
-                      ),
-                    ),
-
-                    // Description text if present
-                    if (effectiveDescription != null && effectiveDescription.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: const Color(0xFFCBD5E1),
-                              width: 1,
+                            )
+                          else
+                            Padding(
+                              padding: EdgeInsets.only(bottom: verticalPadding),
+                              child: Icon(
+                                Icons.inventory_2_outlined,
+                                size: fontSize * 2.5,
+                                color: const Color(0xFF888888),
+                              ),
                             ),
-                          ),
-                          child: Text(
-                            effectiveDescription,
-                            style: const TextStyle(
-                              color: Color(0xFF0F172A),
-                              fontSize: 14,
-                              height: 1.4,
+
+                          // 2. Description or Object Name
+                          Text(
+                            (effectiveDescription != null && effectiveDescription.isNotEmpty)
+                                ? effectiveDescription
+                                : displayName,
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: fontSize,
                               fontWeight: FontWeight.w500,
+                              height: 1.35,
+                              letterSpacing: 0.1,
                             ),
                             textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-
-                    // Footer Action Bar
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFE2E8F0),
-                        border: Border(
-                          top: BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Expanded(
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.keyboard_return,
-                                  size: 14,
-                                  color: Color(0xFF64748B),
-                                ),
-                                SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    'Enter / Space / Esc to close',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF64748B),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: widget.onClose,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0284C7),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                            child: const Text(
-                              'OK',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ),
