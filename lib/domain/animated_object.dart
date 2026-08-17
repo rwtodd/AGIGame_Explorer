@@ -1,3 +1,5 @@
+import 'package:flutter_agigame/domain/agi_view.dart';
+
 /// Represents the state of an animated sprite/object slot in the Sierra AGI engine.
 /// Slot 0 is always reserved for the player character (Ego).
 class AnimatedObject {
@@ -48,7 +50,40 @@ class AnimatedObject {
   bool onWater = false;
   bool onLand = false;
 
+  /// Cached [AgiView] reference for high-performance physics and cel lookups.
+  AgiView? cachedView;
+  int cachedViewNumber = -1;
+
   AnimatedObject({required this.number});
+
+  /// Updates the cached view reference for this object.
+  void updateCachedView(AgiView? v) {
+    cachedView = v;
+    cachedViewNumber = v?.viewNumber ?? -1;
+  }
+
+  /// Returns the number of loops in the current cached view (defaults to 4 if unavailable).
+  int getLoopCount() => cachedView?.loopCount ?? 4;
+
+  /// Returns the number of cels in [targetLoop] or current [loop] (defaults to 4 if unavailable).
+  int getCelCount([int? targetLoop]) {
+    final l = targetLoop ?? loop;
+    return cachedView?.getLoop(l)?.celCount ?? 4;
+  }
+
+  /// Returns the width in native AGI units of [targetCel] in [targetLoop] (defaults to 4 if unavailable).
+  int getCelWidth([int? targetLoop, int? targetCel]) {
+    final l = targetLoop ?? loop;
+    final c = targetCel ?? cel;
+    return cachedView?.getCel(l, c)?.width ?? 4;
+  }
+
+  /// Returns the height in native AGI units of [targetCel] in [targetLoop] (defaults to 4 if unavailable).
+  int getCelHeight([int? targetLoop, int? targetCel]) {
+    final l = targetLoop ?? loop;
+    final c = targetCel ?? cel;
+    return cachedView?.getCel(l, c)?.height ?? 4;
+  }
 
   /// Calculates priority band (4..14) based on base-Y position if priority is automatic (0).
   int get effectivePriority {
@@ -117,6 +152,8 @@ class AnimatedObject {
     ignoreObjects = false;
     onWater = false;
     onLand = false;
+    cachedView = null;
+    cachedViewNumber = -1;
   }
 
   /// Resets per-room motion, timers, and control flags on room transitions

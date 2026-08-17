@@ -104,9 +104,11 @@ class AgiLogicInterpreter {
     return animatedObjects[which];
   }
 
-  /// Executes a single interpreter scan cycle (from scan start until root script returns or halts).
+  /// Executes one full interpretation cycle starting from the root script (LOGIC 0)
+  /// or resuming an in-flight script execution.
   ///
-  /// Implements Sierra's rescan loop: when `new.room()` executes, `LOGIC 0` is
+  /// In authentic Sierra AGI architecture, if `new.room(n)` is executed, the interpreter
+  /// unwinds the call stack, resets per-room flags, sets %f5 = 1, and the root script is
   /// automatically rescanned in the same tick cycle with the new room active.
   InterpreterStatus executeCycle() {
     if (hasPendingYield) return InterpreterStatus.yielded;
@@ -767,6 +769,7 @@ class AgiLogicInterpreter {
           objV41.loop = 0;
           objV41.cel = 0;
         }
+        objV41.updateCachedView(delegate.getView(newV41));
         if (objV41.number == 0) {
           memory.setVar(16, newV41);
         }
@@ -781,6 +784,7 @@ class AgiLogicInterpreter {
           objV42.loop = 0;
           objV42.cel = 0;
         }
+        objV42.updateCachedView(delegate.getView(newV42));
         if (objV42.number == 0) {
           memory.setVar(16, newV42);
         }

@@ -218,12 +218,10 @@ class V3VolumeManager implements VolumeManager {
       }
 
       Uint8List resource;
-      if (reslen != packed.length) {
-        if (picCompressed) {
-          resource = PicDecompressor.expand(packed, reslen);
-        } else {
-          resource = LzwDecompressor.expand(packed, reslen);
-        }
+      if (picCompressed) {
+        resource = PicDecompressor.expand(packed, reslen);
+      } else if (reslen != packed.length) {
+        resource = LzwDecompressor.expand(packed, reslen);
       } else {
         resource = packed;
       }

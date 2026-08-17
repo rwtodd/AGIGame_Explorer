@@ -49,6 +49,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   @override
   void initState() {
     super.initState();
+    widget.engine.atlasManager.onAtlasUpdated = () {
+      if (mounted) setState(() {});
+    };
+    widget.engine.atlasManager.prepareAtlasAsync();
     _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
     _blinkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (mounted) {
@@ -62,6 +66,13 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   @override
   void didUpdateWidget(covariant GamePlayfieldWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.engine != widget.engine) {
+      oldWidget.engine.atlasManager.onAtlasUpdated = null;
+      widget.engine.atlasManager.onAtlasUpdated = () {
+        if (mounted) setState(() {});
+      };
+      widget.engine.atlasManager.prepareAtlasAsync();
+    }
     if (oldWidget.renderMode != widget.renderMode ||
         oldWidget.engine.currentPic != widget.engine.currentPic) {
       _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
@@ -109,6 +120,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   @override
   void dispose() {
+    widget.engine.atlasManager.onAtlasUpdated = null;
     _blinkTimer?.cancel();
     for (final img in _spriteTextureCache.values) {
       img.dispose();
@@ -384,39 +396,67 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   List<AgiActorSprite> _buildActorSprites() {
     final actors = <AgiActorSprite>[];
-    final loader = widget.engine.resourceLoader;
-    if (loader == null) return actors;
+    final atlasMgr = widget.engine.atlasManager;
 
     for (final obj in widget.engine.animatedObjects) {
       if (!obj.isDrawn) continue;
       if (obj.view == 0 && obj.number != 0) continue;
 
       try {
-        final viewRes = loader.loadView(obj.view);
-        final cel = viewRes.getCel(obj.loop, obj.cel);
-        if (cel == null) continue;
+        final celHeight = obj.getCelHeight();
+        final renderX = (obj.x * 2).toDouble();
+        final renderY = (obj.y - celHeight + 1).toDouble();
 
-        final cacheKey = 'v${obj.view}_l${obj.loop}_c${obj.cel}';
-        final cachedImage = _spriteTextureCache[cacheKey];
+        final targetAtlas = atlasMgr.getAtlasForCel(obj.view, obj.loop, obj.cel) ?? atlasMgr.primaryAtlas;
+        final viewRes = obj.cachedView ?? widget.engine.getView(obj.view);
+        final cel = viewRes?.getCel(obj.loop, obj.cel);
 
-        if (cachedImage != null) {
-          // In AGI coordinate system:
-          // obj.x is left (0..159), obj.y is baseline (0..167).
-          // Rendered canvas is 320x200 (pixel doubled horizontally).
-          final renderX = (obj.x * 2).toDouble();
-          final renderY = (obj.y - cel.height + 1).toDouble();
+        if (targetAtlas != null && targetAtlas.containsCel(obj.view, obj.loop, obj.cel) && targetAtlas.hasImage) {
+          actors.add(
+            AgiActorSprite(
+              priority: obj.effectivePriority,
+              baselineY: obj.effectiveSortY,
+              objectNumber: obj.number,
+              position: Offset(renderX, renderY),
+              viewNumber: obj.view,
+              loopNumber: obj.loop,
+              celNumber: obj.cel,
+              atlas: targetAtlas,
+              rawCel: cel,
+              parentView: viewRes,
+            ),
+          );
+        } else {
+          // If not in atlas or atlas image is decoding, trigger atlas build/side-atlas
+          if (viewRes != null) {
+            atlasMgr.registerView(viewRes);
+            atlasMgr.prepareAtlasAsync();
+          }
+
+          final cacheKey = 'v${obj.view}_l${obj.loop}_c${obj.cel}';
+          final cachedImage = _spriteTextureCache[cacheKey];
 
           actors.add(
             AgiActorSprite(
               priority: obj.effectivePriority,
               baselineY: obj.effectiveSortY,
               objectNumber: obj.number,
-              image: cachedImage,
               position: Offset(renderX, renderY),
+              viewNumber: obj.view,
+              loopNumber: obj.loop,
+              celNumber: obj.cel,
+              image: cachedImage,
+              atlas: (targetAtlas != null && targetAtlas.hasImage && targetAtlas.containsCel(obj.view, obj.loop, 0))
+                  ? targetAtlas
+                  : null,
+              rawCel: cel,
+              parentView: viewRes,
             ),
           );
-        } else {
-          _decodeSpriteCel(cacheKey, cel, viewRes, obj.cel);
+
+          if (cachedImage == null && viewRes != null && cel != null) {
+            _decodeSpriteCel(cacheKey, cel, viewRes, obj.cel);
+          }
         }
       } catch (_) {}
     }

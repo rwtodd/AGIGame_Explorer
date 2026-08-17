@@ -3,10 +3,12 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
+import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 
 /// Render modes for visualizing AGI pictures in game and diagnostic views.
 enum AgiPictureRenderMode {
@@ -28,16 +30,102 @@ class AgiActorSprite {
   final int priority;
   final int baselineY;
   final int objectNumber;
-  final ui.Image image;
+  final ui.Image? image;
   final Offset position;
+  final int viewNumber;
+  final int loopNumber;
+  final int celNumber;
+  final ViewTextureAtlas? atlas;
+  final AgiViewCel? rawCel;
+  final AgiView? parentView;
 
   const AgiActorSprite({
     required this.priority,
     required this.baselineY,
     this.objectNumber = 0,
-    required this.image,
+    this.image,
     required this.position,
+    this.viewNumber = 0,
+    this.loopNumber = 0,
+    this.celNumber = 0,
+    this.atlas,
+    this.rawCel,
+    this.parentView,
   });
+
+  /// Draws this sprite cel using the texture atlas, direct ui.Image, or synchronous raw cel pixels.
+  void draw(Canvas canvas, Paint paint) {
+    if (atlas != null && atlas!.containsCel(viewNumber, loopNumber, celNumber) && atlas!.hasImage) {
+      atlas!.drawCel(
+        canvas,
+        viewNumber: viewNumber,
+        loopNumber: loopNumber,
+        celNumber: celNumber,
+        position: position,
+        scaleX: 2.0,
+        scaleY: 1.0,
+        paint: paint,
+      );
+    } else if (image != null) {
+      canvas.drawImage(image!, position, paint);
+    } else if (rawCel != null) {
+      _drawRawCel(canvas);
+    }
+  }
+
+  void _drawRawCel(Canvas canvas) {
+    final cel = rawCel!;
+    final pixels = cel.getPixels(parentView: parentView, celIndex: celNumber);
+    final w = cel.width;
+    final h = cel.height;
+    final trans = cel.transparentColor;
+    final isMirrored = cel.isMirrored;
+
+    final pixelPaint = Paint()..style = PaintingStyle.fill;
+
+    for (var y = 0; y < h; y++) {
+      final rowOffset = y * w;
+      for (var x = 0; x < w; x++) {
+        final colorIdx = pixels[rowOffset + x] & 0x0F;
+        if (colorIdx == trans) continue;
+
+        pixelPaint.color = EgaColors.palette[colorIdx.clamp(0, 15)];
+        final drawX = isMirrored
+            ? (position.dx + ((w - 1 - x) * 2.0))
+            : (position.dx + (x * 2.0));
+        final drawY = position.dy + y;
+        canvas.drawRect(Rect.fromLTWH(drawX, drawY, 2.0, 1.0), pixelPaint);
+      }
+    }
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is AgiActorSprite &&
+        other.priority == priority &&
+        other.baselineY == baselineY &&
+        other.objectNumber == objectNumber &&
+        other.image == image &&
+        other.position == position &&
+        other.viewNumber == viewNumber &&
+        other.loopNumber == loopNumber &&
+        other.celNumber == celNumber &&
+        other.atlas == atlas;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        priority,
+        baselineY,
+        objectNumber,
+        image,
+        position,
+        viewNumber,
+        loopNumber,
+        celNumber,
+        atlas,
+      );
 }
 
 /// Impeller-optimized CustomPainter that renders AGI backgrounds using the Painter's Algorithm across priority slices.
@@ -132,7 +220,7 @@ class AgiPicturePainter extends CustomPainter {
             }
             if (actors.isNotEmpty) {
               for (final actor in actors) {
-                canvas.drawImage(actor.image, actor.position, paint);
+                actor.draw(canvas, paint);
               }
             }
             break;
@@ -373,10 +461,27 @@ class AgiPicturePainter extends CustomPainter {
             return a.objectNumber.compareTo(b.objectNumber);
           });
         for (final actor in sortedActors) {
-          canvas.drawImage(actor.image, actor.position, paint);
+          actor.draw(canvas, paint);
         }
       }
       return;
+    }
+
+    // Pre-bucket actors by priority (0..15) once to eliminate 16 allocations/sorts per frame
+    final priorityBuckets = List<List<AgiActorSprite>>.generate(16, (_) => <AgiActorSprite>[]);
+    for (final actor in actors) {
+      final pri = actor.priority.clamp(0, 15);
+      priorityBuckets[pri].add(actor);
+    }
+    for (int p = 0; p <= 15; p++) {
+      final bucket = priorityBuckets[p];
+      if (bucket.length > 1) {
+        bucket.sort((a, b) {
+          final cmp = a.baselineY.compareTo(b.baselineY);
+          if (cmp != 0) return cmp;
+          return a.objectNumber.compareTo(b.objectNumber);
+        });
+      }
     }
 
     // Interleave priority slices (0..15) with actor sprites in authentic Painter's Algorithm order.
@@ -396,17 +501,9 @@ class AgiPicturePainter extends CustomPainter {
         canvas.restore();
       }
 
-      if (actors.isNotEmpty) {
-        final bandActors = actors.where((a) => a.priority == p).toList()
-          ..sort((a, b) {
-            final cmp = a.baselineY.compareTo(b.baselineY);
-            if (cmp != 0) return cmp;
-            return a.objectNumber.compareTo(b.objectNumber);
-          });
-
-        for (final actor in bandActors) {
-          canvas.drawImage(actor.image, actor.position, paint);
-        }
+      final bandActors = priorityBuckets[p];
+      for (final actor in bandActors) {
+        actor.draw(canvas, paint);
       }
     }
   }

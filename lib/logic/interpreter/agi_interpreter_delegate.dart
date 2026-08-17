@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';

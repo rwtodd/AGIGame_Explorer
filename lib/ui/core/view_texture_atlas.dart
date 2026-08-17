@@ -92,6 +92,9 @@ class ViewTextureAtlas {
   /// The hardware GPU texture image, if generated.
   ui.Image? get image => _image;
 
+  /// Whether the hardware GPU texture image is generated and ready for drawing.
+  bool get hasImage => _image != null;
+
   /// Generates the [ui.Image] asynchronously if not already created.
   Future<ui.Image> ensureImage() async {
     if (_image != null) return _image!;
@@ -110,6 +113,12 @@ class ViewTextureAtlas {
   /// Sets the decoded [ui.Image].
   void setImage(ui.Image img) {
     _image = img;
+  }
+
+  /// Disposes the cached GPU [ui.Image] texture.
+  void dispose() {
+    _image?.dispose();
+    _image = null;
   }
 
   /// Look up an entry by (viewNumber, loopNumber, celNumber).
@@ -481,5 +490,145 @@ class ViewAtlasBuilder {
     final atlas = buildSync(maxAtlasDimension: maxAtlasDimension);
     await atlas.ensureImage();
     return atlas;
+  }
+}
+
+/// Runtime manager for Sierra AGI VIEW texture atlases.
+///
+/// Coordinates primary and secondary texture atlases for all loaded [AgiView]s,
+/// ensuring all sprite cels are compiled and pre-warmed on the GPU before render.
+class ViewAtlasManager {
+  final Map<int, AgiView> _registeredViews = {};
+  ViewTextureAtlas? _primaryAtlas;
+  final Map<int, ViewTextureAtlas> _sideAtlases = {};
+  bool _isDirty = false;
+  Future<ViewTextureAtlas>? _pendingBuild;
+  void Function()? onAtlasUpdated;
+
+  ViewTextureAtlas? get primaryAtlas => _primaryAtlas;
+  Map<int, AgiView> get registeredViews => Map.unmodifiable(_registeredViews);
+
+  /// Registers an [AgiView] with the atlas manager.
+  void registerView(AgiView view) {
+    if (_registeredViews[view.viewNumber] != view) {
+      _registeredViews[view.viewNumber] = view;
+      _isDirty = true;
+    }
+  }
+
+  /// Registers multiple [AgiView]s with the atlas manager.
+  void registerViews(Iterable<AgiView> views) {
+    for (final v in views) {
+      registerView(v);
+    }
+  }
+
+  /// Removes an [AgiView] from the atlas manager.
+  void unregisterView(int viewNumber) {
+    if (_registeredViews.containsKey(viewNumber)) {
+      _registeredViews.remove(viewNumber);
+      _sideAtlases.remove(viewNumber)?.dispose();
+      _isDirty = true;
+    }
+  }
+
+  /// Clears all registered views and disposes GPU textures.
+  void clear() {
+    _primaryAtlas?.dispose();
+    _primaryAtlas = null;
+    for (final atlas in _sideAtlases.values) {
+      atlas.dispose();
+    }
+    _sideAtlases.clear();
+    _registeredViews.clear();
+    _isDirty = false;
+    _pendingBuild = null;
+  }
+
+  /// Look up which atlas (primary or side-atlas) contains the specified cel.
+  ViewTextureAtlas? getAtlasForCel(int viewNumber, int loopNumber, int celNumber) {
+    if (_primaryAtlas != null && _primaryAtlas!.containsCel(viewNumber, loopNumber, celNumber)) {
+      return _primaryAtlas;
+    }
+    final side = _sideAtlases[viewNumber];
+    if (side != null && side.containsCel(viewNumber, loopNumber, celNumber)) {
+      return side;
+    }
+    return null;
+  }
+
+  /// Checks if any loaded atlas contains the specified cel.
+  bool containsCel(int viewNumber, int loopNumber, int celNumber) {
+    return getAtlasForCel(viewNumber, loopNumber, celNumber) != null;
+  }
+
+  /// Builds or refreshes the primary atlas for all registered views asynchronously.
+  Future<ViewTextureAtlas> prepareAtlasAsync() async {
+    if (!_isDirty && _primaryAtlas != null && _primaryAtlas!.hasImage) {
+      return _primaryAtlas!;
+    }
+    if (_pendingBuild != null) {
+      return _pendingBuild!;
+    }
+
+    final completer = Completer<ViewTextureAtlas>();
+    _pendingBuild = completer.future;
+
+    try {
+      do {
+        _isDirty = false;
+        if (_registeredViews.isEmpty) {
+          final emptyAtlas = ViewTextureAtlas(
+            width: 1,
+            height: 1,
+            rgbaPixels: Uint8List(4),
+            entries: {},
+          );
+          await emptyAtlas.ensureImage();
+          final oldAtlas = _primaryAtlas;
+          _primaryAtlas = emptyAtlas;
+          oldAtlas?.dispose();
+          onAtlasUpdated?.call();
+          break;
+        }
+
+        final builder = ViewAtlasBuilder();
+        builder.addViews(_registeredViews.values);
+        final newAtlas = await builder.buildAsync();
+
+        final oldAtlas = _primaryAtlas;
+        _primaryAtlas = newAtlas;
+        oldAtlas?.dispose();
+        onAtlasUpdated?.call();
+      } while (_isDirty);
+
+      completer.complete(_primaryAtlas!);
+      return _primaryAtlas!;
+    } catch (e) {
+      completer.completeError(e);
+      rethrow;
+    } finally {
+      _pendingBuild = null;
+    }
+  }
+
+  /// Immediately creates and preloads a side-atlas for a single [AgiView] if missing from primary.
+  Future<ViewTextureAtlas> ensureSideAtlasAsync(AgiView view) async {
+    final existing = _sideAtlases[view.viewNumber];
+    if (existing != null && existing.hasImage) {
+      return existing;
+    }
+    final builder = ViewAtlasBuilder();
+    builder.addView(view);
+    final sideAtlas = await builder.buildAsync();
+    _sideAtlases[view.viewNumber]?.dispose();
+    _sideAtlases[view.viewNumber] = sideAtlas;
+    onAtlasUpdated?.call();
+    return sideAtlas;
+  }
+
+  /// Disposes all managed texture atlases.
+  void dispose() {
+    clear();
   }
 }

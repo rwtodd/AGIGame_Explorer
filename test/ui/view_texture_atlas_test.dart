@@ -157,4 +157,58 @@ void main() {
       );
     });
   });
+
+  group('ViewAtlasManager', () {
+    test('registers views and builds primary atlas asynchronously', () async {
+      final manager = ViewAtlasManager();
+      bool updateNotified = false;
+      manager.onAtlasUpdated = () => updateNotified = true;
+
+      final view1 = ViewParser.parse(
+        createSimpleViewData(loopCount: 2, celCount: 2, width: 8, height: 8),
+        viewNumber: 1,
+      );
+      final view2 = ViewParser.parse(
+        createSimpleViewData(loopCount: 1, celCount: 1, width: 16, height: 16),
+        viewNumber: 2,
+      );
+
+      manager.registerViews([view1, view2]);
+      expect(manager.registeredViews.length, equals(2));
+
+      final atlas = await manager.prepareAtlasAsync();
+      expect(atlas.hasImage, isTrue);
+      expect(updateNotified, isTrue);
+      expect(manager.containsCel(1, 0, 0), isTrue);
+      expect(manager.containsCel(2, 0, 0), isTrue);
+      expect(manager.containsCel(99, 0, 0), isFalse);
+
+      manager.dispose();
+      expect(manager.registeredViews.isEmpty, isTrue);
+      expect(manager.primaryAtlas, isNull);
+    });
+
+    test('creates side-atlas for dynamically loaded views', () async {
+      final manager = ViewAtlasManager();
+      final view1 = ViewParser.parse(
+        createSimpleViewData(loopCount: 1, celCount: 1, width: 8, height: 8),
+        viewNumber: 1,
+      );
+      manager.registerView(view1);
+      await manager.prepareAtlasAsync();
+
+      // View 3 loaded mid-room
+      final view3 = ViewParser.parse(
+        createSimpleViewData(loopCount: 2, celCount: 1, width: 10, height: 10),
+        viewNumber: 3,
+      );
+      final sideAtlas = await manager.ensureSideAtlasAsync(view3);
+      expect(sideAtlas.hasImage, isTrue);
+
+      final foundAtlas = manager.getAtlasForCel(3, 0, 0);
+      expect(foundAtlas, equals(sideAtlas));
+
+      manager.dispose();
+    });
+  });
 }
