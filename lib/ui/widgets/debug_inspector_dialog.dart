@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
+import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 
-/// Modal dialog for inspecting live AGI engine state, managing checkpoints (save-states),
-/// generating before/after diffs, and exporting/importing state JSON.
+/// Full-window modal workbench for inspecting live AGI engine state, managing checkpoints (save-states),
+/// generating before/after diffs, and stepping or unpausing with an embedded 1x live screen.
 class DebugInspectorDialog extends StatefulWidget {
   final AgiGameEngine engine;
 
@@ -15,9 +17,10 @@ class DebugInspectorDialog extends StatefulWidget {
   });
 
   static Future<void> show(BuildContext context, AgiGameEngine engine) {
+    engine.pause();
     return showDialog(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.75),
+      barrierColor: Colors.black.withValues(alpha: 0.85),
       builder: (_) => DebugInspectorDialog(engine: engine),
     );
   }
@@ -67,7 +70,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
 
   void _handleTakeSnapshot() {
     final label = _checkpointLabelController.text.trim();
-    widget.engine.recordCheckpoint(label: label);
+    final snap = widget.engine.recordCheckpoint(label: label);
     _checkpointLabelController.clear();
     setState(() {
       _diffAfterIndex = 0;
@@ -76,7 +79,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
       }
       _computedDiffMarkdown = null;
     });
-    _showToast('📸 Snapshot captured!');
+    _showToast('📸 Snapshot captured: ${snap.label}');
   }
 
   void _handleCopyCurrentJson() {
@@ -160,7 +163,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   void _showToast(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontFamily: 'Courier')),
+        content: Text(message, style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
         duration: const Duration(seconds: 2),
         backgroundColor: AgiTheme.egaCardSurface,
       ),
@@ -175,25 +178,44 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         borderRadius: BorderRadius.circular(8),
         side: const BorderSide(color: AgiTheme.egaBorder, width: 1.5),
       ),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       child: Container(
-        width: 860,
-        height: 620,
-        padding: const EdgeInsets.all(16),
+        width: double.infinity,
+        height: double.infinity,
+        padding: const EdgeInsets.all(12),
         child: Column(
           children: [
             _buildHeader(),
             const SizedBox(height: 8),
-            _buildTabBar(),
-            const Divider(color: AgiTheme.egaBorder, height: 16),
+            const Divider(color: AgiTheme.egaBorder, height: 1),
+            const SizedBox(height: 10),
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildCheckpointsTab(),
-                  _buildVariablesAndFlagsTab(),
-                  _buildObjectsTab(),
-                  _buildLogicAndSystemTab(),
+                  _buildLeftGameViewAndStats(),
+                  const SizedBox(width: 12),
+                  const VerticalDivider(color: AgiTheme.egaBorder, width: 1),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _buildTabBar(),
+                        const Divider(color: AgiTheme.egaBorder, height: 12),
+                        Expanded(
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              _buildCheckpointsTab(),
+                              _buildVariablesAndFlagsTab(),
+                              _buildObjectsTab(),
+                              _buildLogicAndSystemTab(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -204,26 +226,258 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   }
 
   Widget _buildHeader() {
+    final isPaused = widget.engine.isPaused;
+
     return Row(
       children: [
         const Icon(Icons.bug_report, color: AgiTheme.egaCyan, size: 20),
-        const SizedBox(width: 8),
-        const Text(
-          'AGI DEBUG INSPECTOR & STATE CHECKPOINTS',
-          style: TextStyle(
-            color: AgiTheme.egaWhite,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
+        const SizedBox(width: 6),
+        const Flexible(
+          child: Text(
+            'AGI DEBUG WORKBENCH',
+            style: TextStyle(
+              color: AgiTheme.egaWhite,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.6,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
-        const Spacer(),
+        const SizedBox(width: 10),
+
+        // Pause / Resume Engine Button
+        OutlinedButton.icon(
+          onPressed: () {
+            if (isPaused) {
+              widget.engine.resume();
+            } else {
+              widget.engine.pause();
+            }
+          },
+          icon: Icon(
+            isPaused ? Icons.play_arrow : Icons.pause,
+            size: 15,
+            color: isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
+          ),
+          label: Text(
+            isPaused ? 'Resume' : 'Pause',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(
+              color: isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
+              width: 1.2,
+            ),
+            backgroundColor: (isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber).withValues(alpha: 0.15),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const SizedBox(width: 6),
+
+        // Step Frame Button
+        OutlinedButton.icon(
+          onPressed: () {
+            widget.engine.tick();
+          },
+          icon: const Icon(Icons.skip_next, size: 15, color: AgiTheme.egaCyan),
+          label: const Text(
+            'Step Frame',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaCyan,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: AgiTheme.egaCyan, width: 1.2),
+            backgroundColor: AgiTheme.egaCyan.withValues(alpha: 0.15),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const SizedBox(width: 6),
+
+        // Capture Snapshot in Header
+        OutlinedButton.icon(
+          onPressed: _handleTakeSnapshot,
+          icon: const Icon(Icons.camera_alt_outlined, size: 15, color: Color(0xFF22C55E)),
+          label: const Text(
+            'Capture Snapshot',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF22C55E),
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: Color(0xFF22C55E), width: 1.2),
+            backgroundColor: const Color(0xFF22C55E).withValues(alpha: 0.15),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+
+        const SizedBox(width: 6),
         IconButton(
-          icon: const Icon(Icons.close, color: AgiTheme.egaMuted, size: 18),
+          icon: const Icon(Icons.close, color: AgiTheme.egaMuted, size: 20),
           onPressed: () => Navigator.of(context).pop(),
-          tooltip: 'Close Inspector',
+          tooltip: 'Close Inspector & Return to Game',
         ),
       ],
+    );
+  }
+
+  Widget _buildLeftGameViewAndStats() {
+    final engine = widget.engine;
+    final mem = engine.memory;
+    final ego = engine.ego;
+
+    return SizedBox(
+      width: 320,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1x Screen Title
+            Row(
+              children: [
+                const Icon(Icons.tv, size: 14, color: AgiTheme.egaCyan),
+                const SizedBox(width: 5),
+                const Expanded(
+                  child: Text(
+                    'LIVE 1X VIEWPORT',
+                    style: TextStyle(
+                      color: AgiTheme.egaCyan,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: engine.isPaused
+                        ? AgiTheme.egaAmber.withValues(alpha: 0.2)
+                        : AgiTheme.egaGreen.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(3),
+                    border: Border.all(
+                      color: engine.isPaused ? AgiTheme.egaAmber : AgiTheme.egaGreen,
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Text(
+                    engine.isPaused ? 'PAUSED' : 'RUNNING',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: engine.isPaused ? AgiTheme.egaAmber : AgiTheme.egaGreen,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // Embedded 1x Game Screen (320x240, 4:3 corrected, no CRT)
+            Container(
+              width: 320,
+              height: 240,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                border: Border.all(color: AgiTheme.egaBorder, width: 1.5),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: GamePlayfieldWidget(
+                      engine: engine,
+                      renderMode: AgiPictureRenderMode.compositedSlices,
+                      showCrtShader: false,
+                      showPixelGrid: false,
+                      correctAspectRatio: true,
+                      strictIntegerScaling: false,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Live Engine & Ego Metrics Card
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AgiTheme.egaCardSurface,
+                border: Border.all(color: AgiTheme.egaBorder),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ENGINE & EGO METRICS',
+                    style: TextStyle(
+                      color: AgiTheme.egaWhite,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                  const Divider(color: AgiTheme.egaBorder, height: 12),
+                  _buildMetricRow('Room Number:', '${engine.currentRoom} (prev: ${mem.getVar(1)})'),
+                  _buildMetricRow('Cycle Count:', '${engine.cycleCount}'),
+                  _buildMetricRow('Score / Max:', '${mem.getVar(3)} / ${mem.getVar(7)}'),
+                  _buildMetricRow('Execution Speed:', '${engine.speedHz.toStringAsFixed(1)} Hz (v10: ${mem.getVar(10)})'),
+                  _buildMetricRow('Ego Position (x, y):', '(${ego.x}, ${ego.y})'),
+                  _buildMetricRow('Ego Priority:', '${ego.priority}${ego.fixedPriority ? " (fixed)" : " (auto)"}'),
+                  _buildMetricRow('Ego Direction (v6):', '${ego.direction}'),
+                  _buildMetricRow('Ego View/Loop/Cel:', 'v${ego.view} / l${ego.loop} / c${ego.cel}'),
+                  _buildMetricRow('User Control:', engine.isUserControl ? 'YES' : 'NO (program.control)'),
+                  _buildMetricRow('Sound Enabled (f9):', engine.isSoundOn ? 'ON (${engine.soundMode.name})' : 'OFF'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted, fontFamily: 'Courier'),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 10,
+              color: AgiTheme.egaCyan,
+              fontFamily: 'Courier',
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

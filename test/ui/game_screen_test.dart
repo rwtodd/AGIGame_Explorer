@@ -351,5 +351,37 @@ void main() {
       expect(reenabledPlayfieldSize.height, initialPlayfieldSize.height);
       expect(reenabledPlayfieldSize.width, initialPlayfieldSize.width);
     });
+
+    testWidgets('custom controller key bindings (like = for swim) trigger controller and do not appear in command prompt', (tester) async {
+      // Register = (ascii 61) -> Controller 22 (Swim)
+      engine.controllerManager.setKey(0, 61, 22);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      expect(engine.memory.getController(22), isFalse);
+
+      // Press '=' key
+      await tester.sendKeyEvent(LogicalKeyboardKey.equal, character: '=');
+      await tester.pump();
+
+      // Controller 22 must be triggered
+      expect(engine.memory.getController(22), isTrue, reason: 'Controller 22 should be active after pressing =');
+
+      // Command prompt must NOT contain '='
+      expect(find.text('='), findsNothing);
+      expect(find.text('> '), findsOneWidget);
+
+      // Normal typing still works as expected
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyH, character: 'h');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyI, character: 'i');
+      await tester.pump();
+
+      expect(find.text('hi'), findsOneWidget);
+    });
   });
 }

@@ -306,13 +306,9 @@ class _GameScreenState extends State<GameScreen> {
     _engine.handleKeyPress(_getKeyCode(event));
 
     // 4. Trigger registered controller shortcuts via set.key mappings
-    if (event.logicalKey.keyId >= 0x1100000000 || // Function keys, modifiers, etc.
-        HardwareKeyboard.instance.isAltPressed ||
-        HardwareKeyboard.instance.isControlPressed) {
-      final controllerTriggered = _engine.controllerManager.handleKeyEvent(event, _engine.memory);
-      if (controllerTriggered) {
-        return KeyEventResult.handled;
-      }
+    final controllerTriggered = _engine.controllerManager.handleKeyEvent(event, _engine.memory);
+    if (controllerTriggered) {
+      return KeyEventResult.handled;
     }
 
     // 5. Direction controls ALWAYS control Ego
@@ -693,6 +689,25 @@ class _GameScreenState extends State<GameScreen> {
             padding: EdgeInsets.zero,
             onPressed: () => _engine.openInventory(),
             tooltip: 'Inventory (Tab)',
+          ),
+
+          // Quick-Capture Checkpoint Snapshot (Instant save-state)
+          IconButton(
+            icon: const Icon(Icons.camera_alt_outlined, size: 18, color: AgiTheme.egaCyan),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () {
+              final snap = _engine.recordCheckpoint();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('📸 Captured: ${snap.label}',
+                      style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
+                  duration: const Duration(seconds: 2),
+                  backgroundColor: AgiTheme.egaCardSurface,
+                ),
+              );
+            },
+            tooltip: 'Quick-Capture Checkpoint Snapshot',
           ),
 
           // Debug Inspector & Checkpoint button (F12)

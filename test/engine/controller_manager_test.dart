@@ -146,6 +146,48 @@ void main() {
       expect(AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.enter), equals((0x1C, 13)));
       expect(AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.space), equals((0x39, 32)));
     });
+
+    test('mapLogicalKey correctly maps character keys like =, +, -', () {
+      // With character provided
+      expect(
+        AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.equal, character: '='),
+        equals((0, 61)),
+      );
+      expect(
+        AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.add, character: '+'),
+        equals((0, 43)),
+      );
+      expect(
+        AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.minus, character: '-'),
+        equals((0, 45)),
+      );
+
+      // Without character string (fallback to keyId)
+      expect(
+        AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.equal),
+        equals((0, 61)),
+      );
+      expect(
+        AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.minus),
+        equals((0, 45)),
+      );
+      expect(
+        AgiControllerManager.mapLogicalKey(LogicalKeyboardKey.numpadEqual),
+        equals((0, 61)),
+      );
+    });
+
+    test('registers and triggers controller for equal sign (=) like in King\'s Quest 2', () {
+      // Register = (ascii 61) -> Controller 22 (Swim in KQ2)
+      controllerManager.setKey(0, 61, 22);
+
+      expect(controllerManager.getController(0, 61), equals(22));
+      expect(memory.getController(22), isFalse);
+
+      final triggered = controllerManager.triggerKey(0, 61, memory);
+      expect(triggered, isTrue);
+      expect(memory.getController(22), isTrue);
+    });
   });
 
   group('AgiLogicInterpreter set.key and controller(c) Integration Tests', () {

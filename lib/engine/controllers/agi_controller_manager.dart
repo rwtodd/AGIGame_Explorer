@@ -269,11 +269,21 @@ class AgiControllerManager {
     }
     if (key == LogicalKeyboardKey.backspace) return (0x0E, 8);
     if (key == LogicalKeyboardKey.space) return (0x39, 32);
+    if (key == LogicalKeyboardKey.numpadEqual) return (0, 61);
+    if (key == LogicalKeyboardKey.numpadAdd) return (0, 43);
+    if (key == LogicalKeyboardKey.numpadSubtract) return (0, 45);
+    if (key == LogicalKeyboardKey.numpadMultiply) return (0, 42);
+    if (key == LogicalKeyboardKey.numpadDivide) return (0, 47);
+    if (key == LogicalKeyboardKey.numpadDecimal) return (0, 46);
 
     // 5. Standard Character ASCII
     if (character != null && character.isNotEmpty) {
       final code = character.codeUnitAt(0);
       return (0, code);
+    }
+
+    if (key.keyId >= 32 && key.keyId <= 126) {
+      return (0, key.keyId);
     }
 
     return (0, 0);

@@ -103,6 +103,32 @@ void main() {
       expect(engine.isMenuOpen, isFalse);
       expect(engine.memory.getController(1), isFalse);
     });
+
+    testWidgets('Opening menu pauses game loop ticks and closing menu resumes them', (tester) async {
+      engine.start();
+      await tester.pump(const Duration(milliseconds: 150));
+      final cyclesBefore = engine.cycleCount;
+      expect(cyclesBefore, greaterThan(0));
+
+      // Open menu with ESC
+      engine.openMenu();
+      expect(engine.isMenuOpen, isTrue);
+
+      final cycleWhenOpened = engine.cycleCount;
+      // Pump several periodic intervals while menu is open
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(engine.cycleCount, equals(cycleWhenOpened), reason: 'Cycle count must not advance while menu is open');
+
+      // Close menu
+      engine.closeMenu();
+      expect(engine.isMenuOpen, isFalse);
+
+      // Pump periodic intervals after closing
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(engine.cycleCount, greaterThan(cycleWhenOpened), reason: 'Cycle count must resume advancing after menu is closed');
+
+      engine.stop();
+    });
   });
 
   group('Reference Games Status Line & Menu Integration', () {

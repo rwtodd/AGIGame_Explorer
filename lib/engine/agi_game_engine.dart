@@ -395,7 +395,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
             !(activeDialog?.isModal ?? false) &&
             activeInputPrompt == null &&
             !_isInventoryOpen &&
-            _inspectingObjectNumber == null) {
+            _inspectingObjectNumber == null &&
+            !isMenuOpen) {
           tick();
         }
       },
