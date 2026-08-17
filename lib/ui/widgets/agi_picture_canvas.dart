@@ -124,6 +124,12 @@ class AgiPicturePainter extends CustomPainter {
             if (effectiveFlat != null) {
               canvas.drawImage(effectiveFlat, Offset.zero, paint);
             }
+            if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+              canvas.save();
+              canvas.translate(0.0, -playfieldRow * 8.0);
+              _paintTextOverlay(canvas);
+              canvas.restore();
+            }
             if (actors.isNotEmpty) {
               for (final actor in actors) {
                 canvas.drawImage(actor.image, actor.position, paint);
@@ -152,7 +158,7 @@ class AgiPicturePainter extends CustomPainter {
         canvas.restore();
       }
 
-      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+      if (pic == null && textScreenBuffer != null && textScreenBuffer!.hasContent) {
         _paintTextOverlay(canvas);
       }
 
@@ -346,7 +352,32 @@ class AgiPicturePainter extends CustomPainter {
   }
 
   void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat, AgiPic pic) {
-    bool drawnAny = false;
+    // Check if we have valid slices ready
+    final hasSlices = pic.slices.values.any((s) => s.hasVisiblePixels && s.cachedUiImage != null);
+
+    if (!hasSlices && fallbackFlat != null) {
+      canvas.drawImage(fallbackFlat, Offset.zero, paint);
+      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+        canvas.save();
+        canvas.translate(0.0, -playfieldRow * 8.0);
+        _paintTextOverlay(canvas);
+        canvas.restore();
+      }
+      if (actors.isNotEmpty) {
+        final sortedActors = List<AgiActorSprite>.from(actors)
+          ..sort((a, b) {
+            final cmp = a.priority.compareTo(b.priority);
+            if (cmp != 0) return cmp;
+            final cmpY = a.baselineY.compareTo(b.baselineY);
+            if (cmpY != 0) return cmpY;
+            return a.objectNumber.compareTo(b.objectNumber);
+          });
+        for (final actor in sortedActors) {
+          canvas.drawImage(actor.image, actor.position, paint);
+        }
+      }
+      return;
+    }
 
     // Interleave priority slices (0..15) with actor sprites in authentic Painter's Algorithm order.
     // In AGI, priority 4 is furthest background (horizon) and 15 is closest foreground overlay.
@@ -354,7 +385,15 @@ class AgiPicturePainter extends CustomPainter {
       final slice = pic.getSlice(p);
       if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
         canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
-        drawnAny = true;
+      }
+
+      // Draw background text overlay at the base playfield layer (priority 4)
+      // before actors and foreground priority slices are composited.
+      if (p == 4 && textScreenBuffer != null && textScreenBuffer!.hasContent) {
+        canvas.save();
+        canvas.translate(0.0, -playfieldRow * 8.0);
+        _paintTextOverlay(canvas);
+        canvas.restore();
       }
 
       if (actors.isNotEmpty) {
@@ -369,11 +408,6 @@ class AgiPicturePainter extends CustomPainter {
           canvas.drawImage(actor.image, actor.position, paint);
         }
       }
-    }
-
-    // Seamless fallback to flat visual background if slices are still loading
-    if (!drawnAny && fallbackFlat != null) {
-      canvas.drawImage(fallbackFlat, Offset.zero, paint);
     }
   }
 

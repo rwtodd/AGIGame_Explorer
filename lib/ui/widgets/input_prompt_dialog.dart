@@ -40,6 +40,17 @@ class _InputPromptDialogState extends State<InputPromptDialog> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(InputPromptDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.promptState.currentText != _controller.text) {
+      _controller.text = widget.promptState.currentText;
+      _controller.selection = TextSelection.fromPosition(
+        TextPosition(offset: _controller.text.length),
+      );
+    }
+  }
+
   void _handleSubmit() {
     widget.onSubmit(_controller.text);
   }

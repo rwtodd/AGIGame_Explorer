@@ -719,56 +719,91 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     return List<int>.from(result.wordGroupIds);
   }
 
-  /// Formats Sierra AGI message formatting placeholders (%v, %w, %s, %m, %g, %o).
+  /// Formats Sierra AGI message formatting placeholders (%v, %w, %s, %m, %g, %o) and escapes (\).
   String formatMessage(String text) {
-    if (!text.contains('%')) return text;
+    if (!text.contains('%') && !text.contains('\\')) return text;
 
-    return text.replaceAllMapped(
-      RegExp(r'%([vwsmgo])(\d+)(?:\|(\d+))?'),
-      (match) {
-        final code = match.group(1)!;
-        final num = int.tryParse(match.group(2)!) ?? 0;
-        final pad = match.group(3) != null ? (int.tryParse(match.group(3)!) ?? 0) : null;
-
-        switch (code) {
-          case 'v':
-            final val = memory.getVar(num);
-            var str = val.toString();
-            if (pad != null && pad > str.length) {
-              str = str.padLeft(pad, '0');
-            }
-            return str;
-
-          case 'w':
-            if (num >= 1 && num <= _inputWords.length) {
-              return _inputWords[num - 1];
-            }
-            return '';
-
-          case 's':
-            return memory.getString(num);
-
-          case 'm':
-            final msg = interpreter.currentFrame?.script.getMessage(num) ?? '';
-            return formatMessage(msg);
-
-          case 'g':
-            final logic0 = resourceLoader?.loadLogic(0);
-            final msg = logic0?.getMessage(num) ?? '';
-            return formatMessage(msg);
-
-          case 'o':
-            final objIdx = memory.getVar(num);
-            if (resourceLoader != null && objIdx >= 0 && objIdx < resourceLoader!.initialObjects.length) {
-              return resourceLoader!.initialObjects[objIdx].name;
-            }
-            return '';
-
-          default:
-            return match.group(0)!;
+    final sb = StringBuffer();
+    int i = 0;
+    while (i < text.length) {
+      final ch = text[i];
+      if (ch == '\\') {
+        i++;
+        if (i < text.length) {
+          sb.write(text[i]);
+          i++;
         }
-      },
-    );
+      } else if (ch == '%' && i + 1 < text.length) {
+        i++;
+        final type = text[i];
+        i++;
+        if (type == 'v' || type == 'w' || type == 's' || type == 'm' || type == 'g' || type == 'o' || type == '0') {
+          final numBuf = StringBuffer();
+          while (i < text.length && text.codeUnitAt(i) >= 48 && text.codeUnitAt(i) <= 57) {
+            numBuf.write(text[i]);
+            i++;
+          }
+          final num = int.tryParse(numBuf.toString()) ?? 0;
+          int? pad;
+          if (type == 'v' && i < text.length && text[i] == '|') {
+            i++;
+            final padBuf = StringBuffer();
+            while (i < text.length && text.codeUnitAt(i) >= 48 && text.codeUnitAt(i) <= 57) {
+              padBuf.write(text[i]);
+              i++;
+            }
+            pad = int.tryParse(padBuf.toString());
+          }
+
+          switch (type) {
+            case 'v':
+              final val = memory.getVar(num);
+              var str = val.toString();
+              if (pad != null && pad > str.length) {
+                str = str.padLeft(pad, '0');
+              }
+              sb.write(str);
+              break;
+
+            case 'w':
+              if (num >= 1 && num <= _inputWords.length) {
+                sb.write(_inputWords[num - 1]);
+              }
+              break;
+
+            case 's':
+              sb.write(formatMessage(memory.getString(num)));
+              break;
+
+            case 'm':
+              final msg = interpreter.currentFrame?.script.getMessage(num) ?? '';
+              sb.write(formatMessage(msg));
+              break;
+
+            case 'g':
+              final logic0 = resourceLoader?.loadLogic(0);
+              final msg = logic0?.getMessage(num) ?? '';
+              sb.write(formatMessage(msg));
+              break;
+
+            case 'o':
+            case '0':
+              final objIdx = memory.getVar(num);
+              if (resourceLoader != null && objIdx >= 0 && objIdx < resourceLoader!.initialObjects.length) {
+                sb.write(resourceLoader!.initialObjects[objIdx].name);
+              }
+              break;
+          }
+        } else {
+          sb.write('%');
+          sb.write(type);
+        }
+      } else {
+        sb.write(ch);
+        i++;
+      }
+    }
+    return sb.toString();
   }
 
   /// Dismisses active modal dialog box and resumes gameplay.
@@ -782,7 +817,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       dialog.dismissCompleter?.complete();
       activeDialog = null;
       if (interpreter.hasPendingYield) {
-        interpreter.resume();
+        final status = interpreter.resume();
+        if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+          _performPostScanCleanup();
+        }
       }
       notifyListeners();
     }

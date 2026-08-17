@@ -30,10 +30,9 @@ void main() {
       expect(engine.ego.cel, equals(initialCel));
     });
 
-    test('player.control opcode restores Ego cycling and animation flags', () {
+    test('player.control opcode restores user control and resets non-moveObj motionType to normal', () {
       engine.ego.isCycling = false;
-      engine.ego.isAnimated = false;
-      engine.ego.motionType = 1;
+      engine.ego.motionType = 1; // wander
 
       final interpreter = AgiLogicInterpreter(
         memory: engine.memory,
@@ -47,10 +46,9 @@ void main() {
       interpreter.loadRootScript(script, scriptNumber: 0);
       interpreter.executeCycle();
 
-      expect(engine.ego.isCycling, isTrue);
-      expect(engine.ego.isAnimated, isTrue);
-      expect(engine.ego.isUpdating, isTrue);
+      expect(engine.isUserControl, isTrue);
       expect(engine.ego.motionType, equals(0));
+      expect(engine.ego.isCycling, isFalse, reason: 'player.control does not force isCycling');
     });
 
     test('Ego cycles animation cels when stationary if script enables isCycling (e.g. drowning)', () {

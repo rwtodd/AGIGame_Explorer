@@ -1442,10 +1442,9 @@ class AgiLogicInterpreter {
 
       case 132: // player.control()
         final egoObj = getObj(0);
-        egoObj.motionType = 0;
-        egoObj.isCycling = true;
-        egoObj.isUpdating = true;
-        egoObj.isAnimated = true;
+        if (egoObj.motionType != 3) {
+          egoObj.motionType = 0;
+        }
         delegate.onUserControl(true);
         frame.ip++;
         break;

@@ -144,6 +144,46 @@ class _GameScreenState extends State<GameScreen> {
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
+    // 0. If interactive input prompt is open (e.g. get.string / get.num), handle typing and submission regardless of focus
+    if (_engine.activeInputPrompt != null) {
+      final prompt = _engine.activeInputPrompt!;
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+        _engine.submitInputPrompt(prompt.currentText);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _engine.cancelInputPrompt();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.backspace) {
+        if (prompt.currentText.isNotEmpty) {
+          final newText = prompt.currentText.substring(0, prompt.currentText.length - 1);
+          _engine.updateInputPrompt(newText);
+        }
+        return KeyEventResult.handled;
+      }
+      if (event.character != null &&
+          event.character!.isNotEmpty &&
+          !HardwareKeyboard.instance.isControlPressed &&
+          !HardwareKeyboard.instance.isMetaPressed &&
+          !HardwareKeyboard.instance.isAltPressed) {
+        final char = event.character!;
+        final code = char.codeUnitAt(0);
+        if (code >= 32 && code <= 126) {
+          if (prompt.type == AgiInputPromptType.number && (code < 48 || code > 57)) {
+            return KeyEventResult.handled; // ignore non-digit for numeric prompts
+          }
+          if (prompt.maxLen > 0 && prompt.currentText.length >= prompt.maxLen) {
+            return KeyEventResult.handled; // ignore when at max length
+          }
+          _engine.updateInputPrompt(prompt.currentText + char);
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.handled;
+    }
+
     // 1. If modal text dialog is open, Enter/Space/Escape dismisses it
     if (_engine.activeDialog != null && _engine.activeDialog!.isModal) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||

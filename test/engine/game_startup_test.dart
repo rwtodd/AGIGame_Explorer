@@ -235,6 +235,9 @@ void main() {
 
       // Run for 500 cycles (~25 seconds of idle gameplay)
       for (var cycle = 0; cycle < 500; cycle++) {
+        if (bcEngine.activeDialog != null) {
+          bcEngine.dismissDialog();
+        }
         bcEngine.tick();
       }
 
