@@ -494,19 +494,18 @@ class AgiPicturePainter extends CustomPainter {
         canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
       }
 
-      // Draw background text overlay at the base playfield layer (priority 4)
-      // before actors and foreground priority slices are composited.
-      if (p == 4 && textScreenBuffer != null && textScreenBuffer!.hasContent) {
-        canvas.save();
-        canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextOverlay(canvas);
-        canvas.restore();
-      }
-
       final bandActors = priorityBuckets[p];
       for (final actor in bandActors) {
         actor.draw(canvas, paint);
       }
+    }
+
+    // Text overlay (status line, input prompt, and display() text) renders on top of playfield picture and actors
+    if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+      canvas.save();
+      canvas.translate(0.0, -playfieldRow * 8.0);
+      _paintTextOverlay(canvas);
+      canvas.restore();
     }
   }
 
