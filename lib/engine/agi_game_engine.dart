@@ -232,6 +232,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Initial default state: Sound ON by default
     this.memory.setFlag(9);
+
+    // Dynamic flag hook for on-demand pixel-accurate Flag 1 (Ego obscured)
+    this.memory.flagGetterHook = (flag) {
+      if (flag == 1) {
+        return isEgoObscured();
+      }
+      return null;
+    };
   }
 
   bool get isRunning => _isRunning;
@@ -1351,30 +1359,69 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     } else {
       memory.resetFlag(3);
     }
+  }
 
-    // Flag 1: EGO completely obscured
+  /// Evaluates whether Ego (%o0) is completely obscured by higher priority background elements.
+  /// Evaluated lazily on-demand when Flag 1 is queried.
+  bool isEgoObscured() {
+    final egoObj = ego;
     if (!egoObj.isDrawn || !egoObj.isAnimated) {
-      memory.setFlag(1);
-    } else {
-      var allObscured = true;
-      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-        if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168) {
-          final effPri = priBuf.effectivePriorityAt(bx, egoObj.y);
-          if (effPri <= egoObj.effectivePriority) {
-            allObscured = false;
-            break;
+      return true;
+    }
+
+    final priBuf = currentPic?.priorityBuffer;
+    if (priBuf == null) {
+      return false;
+    }
+
+    final view = egoObj.cachedView ?? resourceLoader?.loadView(egoObj.view);
+    final cel = view?.getCel(egoObj.loop, egoObj.cel);
+    final egoPri = egoObj.effectivePriority;
+
+    if (cel != null) {
+      final width = cel.width;
+      final height = cel.height;
+      final clearKey = cel.transparentColor;
+      final topY = egoObj.y - height + 1;
+
+      try {
+        final pixels = cel.getUnflippedPixels(parentView: view);
+        for (int r = 0; r < height; r++) {
+          final py = topY + r;
+          if (py < 0 || py >= 168) continue;
+
+          for (int c = 0; c < width; c++) {
+            final px = egoObj.x + (cel.isMirrored ? (width - 1 - c) : c);
+            if (px < 0 || px >= 160) continue;
+
+            final pixelColor = pixels[r * width + c];
+            if (pixelColor != clearKey) {
+              final effPri = priBuf.effectivePriorityAt(px, py);
+              if (effPri <= egoPri) {
+                // Found at least one visible Ego pixel!
+                return false;
+              }
+            }
           }
-        } else {
-          allObscured = false;
-          break;
         }
-      }
-      if (allObscured) {
-        memory.setFlag(1);
-      } else {
-        memory.resetFlag(1);
+        // No visible pixels found across all cel pixels
+        return true;
+      } catch (_) {
+        // Fallback to baseline check
       }
     }
+
+    // Fallback if cel pixel data is unavailable: check baseline
+    final objWidth = egoObj.getCelWidth(null, null, view);
+    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168) {
+        final effPri = priBuf.effectivePriorityAt(bx, egoObj.y);
+        if (effPri <= egoPri) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   void _updateLoopForDirection(AnimatedObject obj) {

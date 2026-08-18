@@ -96,8 +96,20 @@ class AgiMemory {
     }
   }
 
+  /// Optional dynamic flag hook (e.g. for on-demand Flag 1 Ego obscurity evaluation).
+  bool? Function(int index)? flagGetterHook;
+
   /// Reads flag [index] (0 - 255).
-  bool getFlag(int index) => flags[index & 0xFF];
+  bool getFlag(int index) {
+    final idx = index & 0xFF;
+    if (flagGetterHook != null) {
+      final hookVal = flagGetterHook!(idx);
+      if (hookVal != null) {
+        return hookVal;
+      }
+    }
+    return flags[idx];
+  }
 
   /// Sets flag [index] to true.
   void setFlag(int index) {

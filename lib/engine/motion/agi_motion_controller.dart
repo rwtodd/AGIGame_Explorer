@@ -72,7 +72,14 @@ class AgiMotionController {
         collisionDetector = collisionDetector ??
             CollisionDetector(priorityBuffer: priorityBuffer),
         loadedViews = loadedViews ?? {},
-        rng = randomSeed != null ? math.Random(randomSeed) : math.Random();
+        rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
+    this.memory.flagGetterHook ??= (flag) {
+      if (flag == 1) {
+        return isEgoObscured();
+      }
+      return null;
+    };
+  }
 
   /// Gets Ego (player character, slot 0).
   AnimatedObject get ego => objects[0];
@@ -659,19 +666,63 @@ class AgiMotionController {
     } else {
       memory.resetFlag(3);
     }
+  }
 
-    // Flag 1: EGO completely obscured
-    final obscured = collisionDetector.isObscured(
+  /// Evaluates whether Ego (%o0) is completely obscured by higher priority background elements.
+  /// Evaluated lazily on-demand when Flag 1 is queried.
+  bool isEgoObscured() {
+    final egoObj = ego;
+    if (!egoObj.isDrawn || !egoObj.isAnimated) {
+      return true;
+    }
+
+    final priBuf = priorityBuffer;
+    final view = egoObj.cachedView ??
+        (viewProvider != null ? viewProvider!(egoObj.view) : loadedViews[egoObj.view]);
+    final cel = view?.getCel(egoObj.loop, egoObj.cel);
+    final egoPri = egoObj.effectivePriority;
+
+    if (cel != null) {
+      final width = cel.width;
+      final height = cel.height;
+      final clearKey = cel.transparentColor;
+      final topY = egoObj.y - height + 1;
+
+      try {
+        final pixels = cel.getUnflippedPixels(parentView: view);
+        for (int r = 0; r < height; r++) {
+          final py = topY + r;
+          if (py < 0 || py >= CollisionDetector.screenHeight) continue;
+
+          for (int c = 0; c < width; c++) {
+            final px = egoObj.x + (cel.isMirrored ? (width - 1 - c) : c);
+            if (px < 0 || px >= CollisionDetector.screenWidth) continue;
+
+            final pixelColor = pixels[r * width + c];
+            if (pixelColor != clearKey) {
+              final effPri = priBuf.effectivePriorityAt(px, py);
+              if (effPri <= egoPri) {
+                // Found at least one visible Ego pixel!
+                return false;
+              }
+            }
+          }
+        }
+        // No visible pixels found across all cel pixels
+        return true;
+      } catch (_) {
+        // Fallback to baseline check
+      }
+    }
+
+    // Fallback if cel pixel data is unavailable: check baseline
+    final width = egoObj.getCelWidth(null, null, view);
+    return collisionDetector.isObscured(
       x: egoObj.x,
       y: egoObj.y,
       width: width,
-      actorPriority: egoObj.effectivePriority,
+      actorPriority: egoPri,
     );
-    if (obscured) {
-      memory.setFlag(1);
-    } else {
-      memory.resetFlag(1);
-    }
   }
 
   /// Helper to command an object to move in a normal direction.

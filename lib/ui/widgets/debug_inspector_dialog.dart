@@ -913,7 +913,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     // Active Flags
     final activeFlags = <int>[];
     for (int i = 0; i < mem.flags.length; i++) {
-      if (mem.flags[i]) {
+      if (mem.getFlag(i)) {
         final name = agiFlagNames[i] ?? '';
         if (query.isEmpty || '$i'.contains(query) || name.toLowerCase().contains(query)) {
           activeFlags.add(i);

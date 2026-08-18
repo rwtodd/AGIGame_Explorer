@@ -55,7 +55,6 @@ void main() {
 
     test('tick increments cycle count and resets transient cycle flags', () {
       // Set transient flags before tick
-      engine.memory.setFlag(1); // obscured
       engine.memory.setFlag(2); // have.input
       engine.memory.setFlag(4); // said.accepted
       engine.memory.setController(0, true);
@@ -63,7 +62,6 @@ void main() {
       engine.tick();
 
       expect(engine.cycleCount, 1);
-      expect(engine.memory.getFlag(1), isFalse);
       expect(engine.memory.getFlag(2), isFalse);
       expect(engine.memory.getFlag(4), isFalse);
       expect(engine.memory.getController(0), isFalse);

@@ -47,7 +47,6 @@ void main() {
 
       await engine.tick();
 
-      expect(engine.memory.getFlag(1), isFalse);
       expect(engine.memory.getFlag(2), isFalse);
       expect(engine.memory.getFlag(4), isFalse);
       expect(engine.memory.getFlag(5), isFalse);

@@ -24,7 +24,7 @@ AgiView createTestView({
           width: width,
           height: height,
           transparentColor: 0,
-          rawPixels: Uint8List(width * height),
+          rawPixels: Uint8List(width * height)..fillRange(0, width * height, 15),
         ),
       );
     }
@@ -473,9 +473,11 @@ void main() {
         controller.tick();
         expect(memory.getFlag(1), isFalse, reason: 'Ego at priority 6 in front of depth 4 must be visible');
 
-        // Case 2: Background has higher depth priority (e.g. 10) covering Ego's baseline -> Ego is obscured
-        for (var x = 50; x <= 58; x++) {
-          priorityBuffer.setPriorityAt(x, 80, 10);
+        // Case 2: Background has higher depth priority (e.g. 10) covering Ego's entire cel -> Ego is completely obscured
+        for (var y = 68; y <= 80; y++) {
+          for (var x = 50; x <= 58; x++) {
+            priorityBuffer.setPriorityAt(x, y, 10);
+          }
         }
         controller.tick();
         expect(memory.getFlag(1), isTrue, reason: 'Ego at priority 6 behind depth 10 must be obscured (Flag 1 = true)');
