@@ -74,12 +74,12 @@ void main() {
       sq1Dir = Directory('reference_games/space-quest-1');
     });
 
-    test('restoring user state in Room 2 and typing look door answers once and resets flag 2', () {
+    test('restoring user state in Room 2 and typing look door answers once and resets flag 2', () async {
       if (!sq1Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq1Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       final snapshot = AgiGameStateSnapshot.fromJson(_userStateRoom2Json);
       snapshot.restore(engine);
@@ -88,7 +88,7 @@ void main() {
 
       // Dismiss any dialog currently open in the restored snapshot
       if (engine.activeDialog != null) {
-        engine.dismissDialog();
+        await engine.dismissDialog();
       }
 
       // Now submit command "look door"
@@ -96,19 +96,19 @@ void main() {
       expect(engine.memory.getFlag(2), isTrue); // have.input = 1
 
       // Run cycle where logic responds to "look door"
-      engine.tick();
+      await engine.tick();
       expect(engine.activeDialog, isNotNull, reason: 'Dialog should appear in response to look door');
       expect(engine.activeDialog!.message, contains('Data Archive'));
 
       // Dismiss dialog
-      engine.dismissDialog();
+      await engine.dismissDialog();
       expect(engine.activeDialog, isNull);
       expect(engine.memory.getFlag(2), isFalse, reason: 'Flag 2 must be reset after dialog dismissal');
       expect(engine.memory.getFlag(4), isFalse, reason: 'Flag 4 must be reset after dialog dismissal');
 
       // Run a few ticks: "look door" response must NOT reappear
       for (int i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
         // Ensure it is not the look door response
         if (engine.activeDialog != null) {
           expect(engine.activeDialog!.message.contains("door"), isFalse);

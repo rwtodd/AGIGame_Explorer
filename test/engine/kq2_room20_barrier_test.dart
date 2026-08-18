@@ -5,19 +5,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('KQ2 Room 19 -> Room 20 Transition and Barrier Collision', () {
-    test('Ego observes conditional barrier in Room 20 after entering from Room 19', () {
+    test('Ego observes conditional barrier in Room 20 after entering from Room 19', () async {
       final kq2Dir = Directory('reference_games/kings-quest-2');
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Enter Room 19
       engine.changeRoom(19);
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       final ego = engine.ego;
@@ -29,7 +29,7 @@ void main() {
       engine.memory.setVar(2, 2); // Crossed right border
       engine.changeRoom(20);
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       expect(engine.memory.getVar(0), 20);
@@ -41,13 +41,14 @@ void main() {
       engine.setEgoDirection(3); // Move East towards wall at x=74
 
       for (var i = 0; i < 15; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Ego should be stopped before penetrating the wall (x=74)
       // With cel width 6, right edge cannot reach 74, so x <= 68.
       expect(ego.x, lessThanOrEqualTo(68), reason: 'Ego must be blocked by conditional barrier in Room 20');
       expect(ego.direction, equals(0), reason: 'Ego direction should be stopped upon hitting barrier');
+      engine.dispose();
     });
   });
 }

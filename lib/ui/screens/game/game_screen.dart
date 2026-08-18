@@ -53,6 +53,7 @@ class _GameScreenState extends State<GameScreen> {
   bool _correctAspectRatio = true;
   bool _strictIntegerScaling = false;
   SidebarPanelTab? _openPanelTab;
+  DateTime? _lastDialogDismissTime;
 
   @override
   void initState() {
@@ -140,7 +141,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.handled;
 
     // 0. If interactive input prompt is open (e.g. get.string / get.num), handle typing and submission regardless of focus
     if (_engine.activeInputPrompt != null) {
@@ -188,10 +189,13 @@ class _GameScreenState extends State<GameScreen> {
           event.logicalKey == LogicalKeyboardKey.numpadEnter ||
           event.logicalKey == LogicalKeyboardKey.space ||
           event.logicalKey == LogicalKeyboardKey.escape) {
-        _engine.dismissDialog();
-        return KeyEventResult.handled;
+        final now = DateTime.now();
+        if (_lastDialogDismissTime == null || now.difference(_lastDialogDismissTime!).inMilliseconds > 150) {
+          _lastDialogDismissTime = now;
+          _engine.dismissDialog();
+        }
       }
-      return KeyEventResult.ignored;
+      return KeyEventResult.handled;
     }
 
     // 2. If object inspection modal is open, Enter/Space/Escape dismisses it
@@ -201,9 +205,8 @@ class _GameScreenState extends State<GameScreen> {
           event.logicalKey == LogicalKeyboardKey.space ||
           event.logicalKey == LogicalKeyboardKey.escape) {
         _engine.closeObjectInspection();
-        return KeyEventResult.handled;
       }
-      return KeyEventResult.ignored;
+      return KeyEventResult.handled;
     }
 
     // 3. If inventory dialog is open, Tab or Escape dismisses it; other keys handled by dialog
@@ -211,9 +214,8 @@ class _GameScreenState extends State<GameScreen> {
       if (event.logicalKey == LogicalKeyboardKey.tab ||
           event.logicalKey == LogicalKeyboardKey.escape) {
         _engine.closeInventory();
-        return KeyEventResult.handled;
       }
-      return KeyEventResult.ignored;
+      return KeyEventResult.handled;
     }
 
     // 4. If full text screen is active (e.g. Help or About screen), any key sends keypress and ticks engine
@@ -392,7 +394,7 @@ class _GameScreenState extends State<GameScreen> {
       }
     }
 
-    return KeyEventResult.ignored;
+    return KeyEventResult.handled;
   }
 
   @override

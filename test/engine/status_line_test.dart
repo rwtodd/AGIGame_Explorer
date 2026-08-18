@@ -35,10 +35,10 @@ void main() {
       expect(soundCell.fg, 0);
     });
 
-    test('updates status line when score changes', () {
+    test('updates status line when score changes', () async {
       engine.memory.setVar(3, 42); // Score = 42
       engine.memory.setVar(7, 210); // Max score = 210
-      engine.tick();
+      await engine.tick();
 
       // Read characters from column 1..18
       final bufferText = StringBuffer();
@@ -49,9 +49,9 @@ void main() {
       expect(bufferText.toString(), startsWith('Score: 42 of 210'));
     });
 
-    test('updates sound on/off indicator when sound mode changes', () {
+    test('updates sound on/off indicator when sound mode changes', () async {
       engine.setSoundMode(AgiSoundMode.off);
-      engine.tick();
+      await engine.tick();
 
       final soundOffText = StringBuffer();
       for (int c = 30; c < 40; c++) {
@@ -60,7 +60,7 @@ void main() {
       expect(soundOffText.toString(), startsWith('Sound:off'));
 
       engine.setSoundMode(AgiSoundMode.pcJr);
-      engine.tick();
+      await engine.tick();
 
       final soundOnText = StringBuffer();
       for (int c = 30; c < 40; c++) {
@@ -87,7 +87,7 @@ void main() {
       }
     });
 
-    test('preserves KQ3 clock and custom display text on row 0 across idle ticks', () {
+    test('preserves KQ3 clock and custom display text on row 0 across idle ticks', () async {
       // KQ3 displays clock text at row 0, column 18
       engine.onDisplay(0, 18, '12:34 AM');
 
@@ -100,7 +100,7 @@ void main() {
 
       // Run multiple idle cycles (where score and sound haven't changed)
       for (int i = 0; i < 20; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Verify clock on row 0 was NOT wiped or overwritten

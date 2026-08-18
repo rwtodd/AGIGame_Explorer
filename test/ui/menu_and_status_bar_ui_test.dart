@@ -132,13 +132,13 @@ void main() {
   });
 
   group('Reference Games Status Line & Menu Integration', () {
-    test('King\'s Quest II sets up authentic menus and status line in gameplay room', () {
+    test('King\'s Quest II sets up authentic menus and status line in gameplay room', () async {
       final dir = Directory('reference_games/kings-quest-2');
       if (!dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Title room (97) has status line disabled
       expect(engine.memory.getVar(0), 97);
@@ -146,7 +146,7 @@ void main() {
 
       // Press key to start game (transitions to room 1)
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(0), 1);
       expect(engine.isStatusLineEnabled, isTrue);
@@ -162,13 +162,13 @@ void main() {
       engine.dispose();
     });
 
-    test('King\'s Quest III sets up menus including Speed menu in gameplay room', () {
+    test('King\'s Quest III sets up menus including Speed menu in gameplay room', () async {
       final dir = Directory('reference_games/kings-quest-3');
       if (!dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Intro room (45) has status line off
       expect(engine.memory.getVar(0), 45);
@@ -176,7 +176,7 @@ void main() {
 
       // Skip intro to room 7
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(0), 7);
       expect(engine.isStatusLineEnabled, isTrue);
@@ -190,33 +190,33 @@ void main() {
       engine.dispose();
     });
 
-    test('The Black Cauldron boots with active status line in gameplay room', () {
+    test('The Black Cauldron boots with active status line in gameplay room', () async {
       final dir = Directory('reference_games/black-cauldron');
       if (!dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Title room is 67
       expect(engine.memory.getVar(0), 67);
 
       // Transition to room 8
       engine.changeRoom(8);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(0), 8);
       expect(engine.isStatusLineEnabled, isTrue);
       engine.dispose();
     });
 
-    test('King\'s Quest IV (AGI V3) boots with menus and status line', () {
+    test('King\'s Quest IV (AGI V3) boots with menus and status line', () async {
       final dir = Directory('reference_games/kings-quest-4-agi');
       if (!dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Opening room in KQ4 AGI
       expect(engine.memory.getVar(0), isNot(0));

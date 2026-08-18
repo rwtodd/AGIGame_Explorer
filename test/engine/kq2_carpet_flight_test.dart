@@ -5,13 +5,13 @@ import 'package:flutter_agigame/engine/agi_game_engine.dart';
 
 void main() {
   group('King\'s Quest 2 Magic Carpet Flight', () {
-    test('riding carpet in Room 2 ascends past priority 0 barrier to Room 105', () {
+    test('riding carpet in Room 2 ascends past priority 0 barrier to Room 105', () async {
       const kq2Path = 'reference_games/kings-quest-2';
       if (!Directory(kq2Path).existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame(startingRoom: 2);
+      await engine.initializeGame(startingRoom: 2);
 
       // Carry carpet (inventory item 76)
       engine.memory.itemRooms[76] = 255;
@@ -21,7 +21,7 @@ void main() {
 
       // Submit command "ride carpet"
       engine.submitCommand('ride carpet');
-      engine.tick();
+      await engine.tick();
 
       // Verify immediate state change after command
       expect(engine.ego.view, 98); // Carpet view
@@ -31,7 +31,7 @@ void main() {
       // Advance ticks and verify flight continues past y=112 barrier all the way to room 105
       var reachedRoom105 = false;
       for (int i = 0; i < 100; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.memory.getVar(0) == 105) {
           reachedRoom105 = true;
           break;
@@ -39,6 +39,7 @@ void main() {
       }
 
       expect(reachedRoom105, isTrue, reason: 'Carpet ascent should transition to Room 105');
+      engine.dispose();
     });
   });
 }

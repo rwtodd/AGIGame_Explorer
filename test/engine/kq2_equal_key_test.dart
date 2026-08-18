@@ -11,13 +11,13 @@ void main() {
       kq2Dir = Directory('reference_games/kings-quest-2');
     });
 
-    test('KQ2 initializes controller binding for equal sign (=)', () {
+    test('KQ2 initializes controller binding for equal sign (=)', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
 
       final equalCtl = engine.controllerManager.getController(0, 61);
       expect(equalCtl, isNotNull, reason: 'KQ2 must register a controller binding for = (ascii 61)');
@@ -26,13 +26,13 @@ void main() {
       engine.dispose();
     });
 
-    test('Pressing equal sign (=) while splashing in ocean water triggers swimming in Room 15', () {
+    test('Pressing equal sign (=) while splashing in ocean water triggers swimming in Room 15', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
       engine.changeRoom(15);
 
       final ego = engine.ego;
@@ -40,13 +40,13 @@ void main() {
       ego.y = 86;
 
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Walk West into water until Ego splashes (view 104)
       engine.setEgoDirection(7);
       for (var i = 0; i < 20; i++) {
-        engine.tick();
+        await engine.tick();
         if (ego.view == 104) break;
       }
 
@@ -57,7 +57,7 @@ void main() {
       final equalCtl = engine.controllerManager.getController(0, 61);
       expect(equalCtl, isNotNull);
       engine.triggerController(equalCtl!);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.activeDialog, isNull);
       expect(ego.view, 97, reason: 'Ego should be swimming (view 97)');

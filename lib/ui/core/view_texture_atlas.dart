@@ -557,20 +557,37 @@ class ViewAtlasManager {
     return null;
   }
 
+  /// Checks if the manager contains a registered view and has compiled its texture atlas.
+  bool containsView(int viewNumber) {
+    return !_isDirty && _registeredViews.containsKey(viewNumber) && (_primaryAtlas?.hasImage == true);
+  }
+
   /// Checks if any loaded atlas contains the specified cel.
   bool containsCel(int viewNumber, int loopNumber, int celNumber) {
     return getAtlasForCel(viewNumber, loopNumber, celNumber) != null;
   }
 
   /// Builds or refreshes the primary atlas for all registered views asynchronously.
-  Future<ViewTextureAtlas> prepareAtlasAsync() async {
+  FutureOr<ViewTextureAtlas> prepareAtlasAsync() {
     if (!_isDirty && _primaryAtlas != null && _primaryAtlas!.hasImage) {
       return _primaryAtlas!;
+    }
+    if (_registeredViews.isEmpty) {
+      _isDirty = false;
+      return _primaryAtlas ??= ViewTextureAtlas(
+        width: 1,
+        height: 1,
+        rgbaPixels: Uint8List(4),
+        entries: const {},
+      );
     }
     if (_pendingBuild != null) {
       return _pendingBuild!;
     }
+    return _buildAtlasAsync();
+  }
 
+  Future<ViewTextureAtlas> _buildAtlasAsync() async {
     final completer = Completer<ViewTextureAtlas>();
     _pendingBuild = completer.future;
 

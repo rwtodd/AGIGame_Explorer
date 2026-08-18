@@ -104,12 +104,12 @@ void main() {
       sq2Dir = Directory('reference_games/space-quest-2');
     });
 
-    test('Full Room 6 Vohaul speech sequence displays all dialogs', () {
+    test('Full Room 6 Vohaul speech sequence displays all dialogs', () async {
       if (!sq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       final snapshot = AgiGameStateSnapshot.fromJson(_vohaulSnapshotJson);
       snapshot.restore(engine);
@@ -120,13 +120,13 @@ void main() {
         if (engine.memory.getFlag(32)) {
           engine.handleKeyPress(13); // Enter to advance speech
         }
-        engine.tick();
+        await engine.tick();
         if (engine.activeDialog != null) {
           final msg = engine.activeDialog!.message;
           if (dialogsSeen.isEmpty || dialogsSeen.last != msg) {
             dialogsSeen.add(msg);
           }
-          engine.dismissDialog();
+          await engine.dismissDialog();
         }
         if (engine.currentRoom != 6) {
           break;
@@ -139,12 +139,12 @@ void main() {
       expect(engine.currentRoom, 7);
     });
 
-    test('Restore Vohaul capture snapshot in Room 6 and verify dialog sequence', () {
+    test('Restore Vohaul capture snapshot in Room 6 and verify dialog sequence', () async {
       if (!sq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       final snapshotJson = {
         "version": "1.0",
@@ -247,10 +247,10 @@ void main() {
         if (engine.memory.getFlag(32)) {
           engine.handleKeyPress(13); // Enter
         }
-        engine.tick();
+        await engine.tick();
         if (engine.activeDialog != null) {
           dialogsSeen.add(engine.activeDialog!.message);
-          engine.dismissDialog();
+          await engine.dismissDialog();
         }
         if (engine.currentRoom != 6) {
           break;

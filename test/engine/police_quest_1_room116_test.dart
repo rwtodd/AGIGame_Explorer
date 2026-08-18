@@ -40,13 +40,13 @@ void main() {
   });
 
   group('Police Quest 1 Room 116', () {
-    test('renders newspaper text and photo object correctly', () {
+    test('renders newspaper text and photo object correctly', () async {
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/police-quest-1');
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
       engine.onNewRoom(116);
-      engine.tick();
+      await engine.tick();
 
       // Verify newspaper headlines and text formatting (no backslashes)
       final line5 = engine.displayedTexts.firstWhere((t) => t.row == 5 && t.col == 1);
@@ -62,6 +62,7 @@ void main() {
       expect(photoObj.cel, equals(0));
       expect(photoObj.x, equals(93));
       expect(photoObj.y, equals(91));
+      engine.dispose();
     });
   });
 }

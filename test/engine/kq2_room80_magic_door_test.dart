@@ -11,17 +11,17 @@ void main() {
       kq2Dir = Directory('reference_games/kings-quest-2');
     });
 
-    test('Entering Room 80 from Room 42 synchronizes %v6=1 and moves Ego North (Up)', () {
+    test('Entering Room 80 from Room 42 synchronizes %v6=1 and moves Ego North (Up)', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
       engine.changeRoom(42);
 
       for (int i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Unlock 3rd door in Room 42
@@ -30,7 +30,7 @@ void main() {
       engine.memory.setFlag(175); // door 3 opened
 
       // Trigger room transition
-      engine.tick();
+      await engine.tick();
 
       expect(engine.currentRoom, 80, reason: 'Should transition to Room 80');
       expect(engine.memory.getVar(0), 80);
@@ -42,11 +42,12 @@ void main() {
       // Advance several ticks: Ego should safely walk North (decreasing Y)
       final startY = engine.ego.y;
       for (int i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       expect(engine.ego.y, lessThan(startY), reason: 'Ego should walk North towards upper screen');
       expect(engine.ego.x, 80, reason: 'Ego X should remain centered in the safe path');
+      engine.dispose();
     });
   });
 }

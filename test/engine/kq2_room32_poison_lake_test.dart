@@ -12,11 +12,12 @@ void main() {
       kq2Dir = Directory('reference_games/kings-quest-2');
     });
 
-    test('Stepping into poisoned lake in Room 32 triggers Flag 0 and drowning sequence', () {
+    test('Stepping into poisoned lake in Room 32 triggers Flag 0 and drowning sequence', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
+      await engine.initializeGame();
 
       final snapshotJson = {
         "version": "1.0",
@@ -94,7 +95,7 @@ void main() {
             "onLand": true
           },
           {
-            "number": 3,
+            "number": 2,
             "x": 88,
             "y": 126,
             "prevX": 88,
@@ -134,7 +135,7 @@ void main() {
       AgiGameStateSnapshot.fromJson(snapshotJson).restore(engine);
 
       // On first tick, Flag 0 should be set because Ego's baseline (75..78, 112) is on water (priority 3)
-      engine.tick();
+      await engine.tick();
       expect(engine.memory.getFlag(0), isTrue, reason: 'Flag 0 must be set when baseline is on priority 3 water');
       expect(engine.ego.view, 104, reason: 'Ego should change to view 104 (drowning/sinking animation)');
       expect(engine.memory.getVar(95), 1);
@@ -142,17 +143,18 @@ void main() {
 
       // Count down to death
       for (int i = 0; i < 15; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.activeDialog != null) {
-          engine.dismissDialog();
+          await engine.dismissDialog();
         }
       }
 
       for (int i = 0; i < 10; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       expect(engine.ego.isDrawn, isFalse, reason: 'Ego should be erased upon drowning');
+      engine.dispose();
     });
   });
 }

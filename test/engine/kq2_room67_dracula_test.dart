@@ -325,7 +325,7 @@ void main() {
 }
 ''';
 
-  test('Restoring user snapshot in Room 67 triggers Dracula catch flag 34 and dialog', () {
+  test('Restoring user snapshot in Room 67 triggers Dracula catch flag 34 and dialog', () async {
     final kq2Dir = Directory('reference_games/kings-quest-2');
     if (!kq2Dir.existsSync()) return;
 
@@ -341,10 +341,11 @@ void main() {
     expect(dracula.targetFlag, 34);
 
     // Advance 1 tick: Dracula is adjacent to Ego (dx=0, dy=1 <= stepDistance 4)
-    engine.tick();
+    await engine.tick();
 
     // Dracula reached Ego -> Flag 34 fired, Dracula grasp dialog appeared
     expect(engine.activeDialog, isNotNull, reason: 'Dracula dialog should be shown');
     expect(engine.activeDialog!.message, contains('Dracula'));
+    engine.dispose();
   });
 }

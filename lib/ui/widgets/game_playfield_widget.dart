@@ -84,9 +84,12 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
         if (pic.activeSlices.any((s) => s.cachedUiImage == null)) {
-          pic.preloadGpuTextures().then((_) {
-            if (mounted) setState(() {});
-          });
+          final f = pic.preloadGpuTextures();
+          if (f is Future) {
+            f.then((_) {
+              if (mounted) setState(() {});
+            });
+          }
         }
         break;
       case AgiPictureRenderMode.flatVisual:
@@ -403,12 +406,15 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
       if (obj.view == 0 && obj.number != 0) continue;
 
       try {
-        final celHeight = obj.getCelHeight();
+        final viewRes = obj.cachedView ?? widget.engine.getView(obj.view);
+        if (obj.cachedView == null && viewRes != null) {
+          obj.updateCachedView(viewRes);
+        }
+        final celHeight = obj.getCelHeight(null, null, viewRes);
         final renderX = (obj.x * 2).toDouble();
         final renderY = (obj.y - celHeight + 1).toDouble();
 
         final targetAtlas = atlasMgr.getAtlasForCel(obj.view, obj.loop, obj.cel) ?? atlasMgr.primaryAtlas;
-        final viewRes = obj.cachedView ?? widget.engine.getView(obj.view);
         final cel = viewRes?.getCel(obj.loop, obj.cel);
 
         if (targetAtlas != null && targetAtlas.containsCel(obj.view, obj.loop, obj.cel) && targetAtlas.hasImage) {
@@ -422,8 +428,6 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               loopNumber: obj.loop,
               celNumber: obj.cel,
               atlas: targetAtlas,
-              rawCel: cel,
-              parentView: viewRes,
             ),
           );
         } else {
@@ -449,8 +453,6 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               atlas: (targetAtlas != null && targetAtlas.hasImage && targetAtlas.containsCel(obj.view, obj.loop, 0))
                   ? targetAtlas
                   : null,
-              rawCel: cel,
-              parentView: viewRes,
             ),
           );
 

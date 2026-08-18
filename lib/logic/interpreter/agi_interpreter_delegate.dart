@@ -8,9 +8,9 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 /// the surrounding engine subsystems (rendering, sound synthesizer, text console, resource manager).
 abstract class AgiInterpreterDelegate {
   /// Called when an animated object is drawn on screen (for boundary and horizon clamping).
-  void onDraw(AnimatedObject obj) {}
+  FutureOr<void> onDraw(AnimatedObject obj) {}
   /// Called when the script requests a room change via `new.room` or `new.room.v`.
-  void onNewRoom(int roomNumber) {}
+  FutureOr<void> onNewRoom(int roomNumber) {}
 
   /// Loads a referenced logic script for `call` / `call.v`.
   AgiLogicScript? loadLogic(int logicNumber) => null;
@@ -41,13 +41,13 @@ abstract class AgiInterpreterDelegate {
   Future<int?> onGetNum(String prompt) async => null;
 
   /// Called when `print` or `print.v` is executed.
-  void onPrint(String message, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
+  FutureOr<void> onPrint(String message, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
 
   /// Called when `display` or `display.v` is executed.
   void onDisplay(int row, int col, String message) {}
 
   /// Called when `print.at` or `print.at.v` is executed.
-  void onPrintAt(String message, int row, int col, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
+  FutureOr<void> onPrintAt(String message, int row, int col, int width, {bool isModal = true, int timeoutHalfSeconds = 0}) {}
 
   /// Called when `close.window` is executed.
   void onCloseWindow() {}
@@ -80,13 +80,13 @@ abstract class AgiInterpreterDelegate {
   void onStopSound() {}
 
   /// Called when `load.pic` is executed.
-  void onLoadPic(int picNumber) {}
+  FutureOr<void> onLoadPic(int picNumber) {}
 
   /// Called when `draw.pic` is executed.
-  void onDrawPic(int picNumber) {}
+  FutureOr<void> onDrawPic(int picNumber) {}
 
   /// Called when `show.pic` is executed.
-  void onShowPic() {}
+  FutureOr<void> onShowPic() {}
 
   /// Called when `overlay.pic` is executed.
   void onOverlayPic(int picNumber) {}
@@ -98,19 +98,19 @@ abstract class AgiInterpreterDelegate {
   void onDiscardPic(int picNumber) {}
 
   /// Called when `load.view` is executed.
-  void onLoadView(int viewNumber) {}
+  FutureOr<void> onLoadView(int viewNumber) {}
 
   /// Called when `discard.view` is executed.
   void onDiscardView(int viewNumber) {}
 
   /// Called when `add.to.pic` or `add.to.pic.v` is executed.
-  void onAddToPic(int view, int loop, int cel, int x, int y, int pri, int boxPri) {}
+  FutureOr<void> onAddToPic(int view, int loop, int cel, int x, int y, int pri, int boxPri) {}
 
   /// Called when `status` is executed.
-  void onStatus() {}
+  FutureOr<void> onStatus() {}
 
   /// Called when `show.obj` or `show.obj.v` is executed.
-  void onShowObj(int objNumber) {}
+  FutureOr<void> onShowObj(int objNumber) {}
 
   /// Called when `quit` is executed.
   void onQuit() {}

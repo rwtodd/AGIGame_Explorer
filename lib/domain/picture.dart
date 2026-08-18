@@ -134,19 +134,20 @@ class AgiPic {
       priorityBuffer.effectivePriorityAt(x, y);
 
   /// Preloads GPU textures for all active slices asynchronously.
-  Future<void> preloadGpuTextures({bool includeDiagnosticMaps = false}) async {
+  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false}) {
     final futures = <Future<ui.Image>>[];
     for (final slice in slices.values) {
-      if (slice.hasVisiblePixels) {
+      if (slice.hasVisiblePixels && slice.cachedUiImage == null) {
         futures.add(slice.toUiImage());
       }
     }
     if (includeDiagnosticMaps) {
-      futures.add(toFlatVisualUiImage());
-      futures.add(toPriorityMapUiImage());
-      futures.add(toControlMapUiImage());
+      if (_cachedFlatVisualImage == null) futures.add(toFlatVisualUiImage());
+      if (_cachedPriorityMapImage == null) futures.add(toPriorityMapUiImage());
+      if (_cachedControlMapImage == null) futures.add(toControlMapUiImage());
     }
-    await Future.wait(futures);
+    if (futures.isEmpty) return null;
+    return Future.wait(futures).then((_) {});
   }
 
   /// Renders a complete 320x200 RGBA flat visual background (for diagnostic views or single-texture shaders).

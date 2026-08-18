@@ -517,6 +517,17 @@ class AgiGameStateSnapshot {
     engine.setSpeedHz(speedHz);
     engine.isUserControl = isUserControl;
     engine.isInputEnabled = isInputEnabled;
+    engine.activeDialog = null;
+    engine.activeInputPrompt = null;
+    if (engine.isInventoryOpen) {
+      engine.closeInventory();
+    }
+    if (engine.inspectingObjectNumber != null) {
+      engine.closeObjectInspection();
+    }
+    if (engine.isMenuOpen) {
+      engine.closeMenu();
+    }
     if (isPaused) {
       engine.pause();
     } else {

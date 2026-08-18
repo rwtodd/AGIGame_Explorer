@@ -65,54 +65,20 @@ This cuts texture memory by up to 50% for standard 4-loop character views.
 
 ---
 
-### 2.3 Gated Animation Accounting (Zero-Drop Guarantee)
+### 2.3 Cel Animation Physics Decoupled from GPU Pipeline
 
 In `AgiGameEngine._advanceObjectCel(AnimatedObject obj)`:
-- The engine checks whether the current cel is resident in the GPU atlas (`atlasManager.containsCel(obj.view, obj.loop, obj.cel)`).
-- If a newly loaded view or cel is still in the middle of a GPU upload, the engine **holds** the animation counter in place and does not advance `obj.cel`.
-- Once the texture is uploaded and rendered, standard animation cycling resumes. Every cel in every loop is guaranteed to be presented on screen.
-
-```dart
-void _advanceObjectCel(AnimatedObject obj) {
-  // Gate animation cycling: hold cel until current cel is GPU-resident
-  if (!atlasManager.containsCel(obj.view, obj.loop, obj.cel)) {
-    return;
-  }
-  final celCount = obj.getCelCount();
-  if (celCount <= 1) return;
-  // Advance cycle mode (normal, reverse, end_of_loop, reverse_loop)...
-}
-```
+- Cel animation progression and loop completion flags (`end.of.loop`, `reverse.loop`) represent engine physics and logic state.
+- Cel cycling executes deterministically at engine tick speed without being blocked or gated on asynchronous GPU texture compilation.
+- Visual presentation is guaranteed complete before user-visible effects or modals appear because the opcode execution pipeline awaits pending GPU texture uploads.
 
 ---
 
-### 2.4 Directional Keypress Loop Synchronization
+### 2.4 Directional Keypress & Input Event Buffering
 
-When the player presses a directional key (e.g. Left / West), `setEgoDirection()` immediately calculates the target loop via `_updateLoopForDirection(ego)` before notifying the UI:
-
-```dart
-void setEgoDirection(int direction, {bool toggleIfSame = true}) {
-  if (!_isUserControl) return;
-  if (toggleIfSame && direction != 0 && ego.direction == direction) {
-    ego.direction = 0;
-  } else {
-    ego.direction = direction.clamp(0, 8);
-  }
-  memory.setVar(6, ego.direction);
-  if (ego.direction != 0) {
-    ego.isCycling = true;
-    ego.isAnimated = true;
-    if (!ego.fixedLoop) {
-      _updateLoopForDirection(ego); // Instant loop sync
-    }
-  } else {
-    ego.isCycling = false;
-  }
-  notifyListeners();
-}
-```
-
-This eliminates the single-frame lag where Ego moved with the old facing direction before the next 20 Hz tick.
+1. **Input Buffering**: Directional changes, controller activations, and keyboard inputs are buffered into tick queues (`_bufferedEgoDirection`, `_bufferedCommands`, `_bufferedControllers`).
+2. **Phase 1 Drain**: At the start of each `tick()`, inputs are drained into active engine state, ensuring game scripts see consistent input state across the entire cycle.
+3. **Loop Synchronization**: When Ego changes direction, `setEgoDirection()` immediately computes the appropriate walk loop (`_updateLoopForDirection(ego)`).
 
 ---
 
@@ -139,16 +105,20 @@ for (var p = 0; p < 16; p++) {
 
 ---
 
-### 2.6 Synchronous Picture & Logic Lifecycle with Immediate Raw Pixel Fallback
+### 2.6 Opcode-Level Asynchronous Awaits & Single GPU Texture Pipeline
 
-1. **Synchronous Dart Bytecode & Resource Parsing**:
-   - Dart bytecode VM execution (`executeCycle()`, `resume()`, `stepInstruction()`) is completely synchronous at native speed.
-   - Resource loading (`loadPic(n)`, `loadView(n)`, `loadLogic(n)`) immediately parses vector opcodes and creates in-memory visual buffers and priority buffers synchronously on the CPU without awaiting microtask queues.
+1. **Single GPU Pipeline (`ViewTextureAtlas` & `PictureSlice`)**:
+   - All sprite and actor rendering is performed exclusively via GPU texture atlases (`atlas.drawCel`) or cached `ui.Image` slices.
+   - Dual-path rendering (such as CPU raw rectangle fallbacks) is completely eliminated, simplifying the compositor and guaranteeing pixel-perfect GPU hardware rendering.
 
-2. **Immediate Raw CPU Cel Drawing Fallback**:
-   - `AgiActorSprite` retains `rawCel` and `parentView` references.
-   - When Flutter renders a frame before the asynchronous GPU texture atlas (`ui.Image`) has finished uploading to VRAM, the painter falls back to `_drawRawCel(Canvas)`: drawing the 16-color EGA bitmap synchronously via direct rectangle batches.
-   - As a result, no actor or sprite is ever dropped or rendered invisible while texture atlases are in flight.
+2. **Opcode-Level Texture Preparation**:
+   - `load.view` registers views synchronously with `ViewAtlasManager`.
+   - Visual and screen-mutating opcodes (`draw`, `draw.pic`, `show.pic`, `add.to.pic`) and modal display opcodes (`print`, `print.at`, `status`, `show.obj`) check and await GPU atlas/picture preparation before advancing or presenting dialogs.
+   - When a modal like `print.at` or `status` appears, all previous graphics operations are guaranteed to be fully uploaded and displayed, eliminating missing graphics (such as actor heads or props).
+
+3. **Zero-Overhead Fast Paths (`FutureOr<void>`)**:
+   - Normal ticks where no new views or pictures are loaded execute completely synchronously (returning `null` / `void`) without allocating `Future` instances or scheduling microtasks.
+   - When asynchronous texture generation (`ui.decodeImageFromPixels`) is required, the interpreter chains `Future<InterpreterStatus>` in `stepLoop()` without resetting the instruction pointer (`ip`), resuming seamlessly upon completion.
 
 ---
 

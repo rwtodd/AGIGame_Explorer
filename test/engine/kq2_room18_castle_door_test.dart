@@ -12,18 +12,18 @@ void main() {
       kq2Dir = Directory('reference_games/kings-quest-2');
     });
 
-    test('Walking into closed castle door (Object 4) in Room 18 blocks Ego motion', () {
+    test('Walking into closed castle door (Object 4) in Room 18 blocks Ego motion', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
       engine.changeRoom(18);
 
       // Run a few ticks for room initialization
       for (int i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Door is Object 4 at (68, 142)
@@ -41,17 +41,19 @@ void main() {
 
       // Try to walk North into the closed door
       engine.setEgoDirection(1); // North (dy = -1)
-      engine.tick();
+      await engine.tick();
 
       expect(ego.y, 143, reason: 'Ego must be blocked by closed door at y=142');
       expect(ego.direction, 0, reason: 'Ego stops on collision with door');
+      engine.dispose();
     });
 
-    test('Restored user state in Room 18 cannot walk through castle door', () {
+    test('Restored user state in Room 18 cannot walk through castle door', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
+      await engine.initializeGame();
 
       final snapshotJson = {
         "version": "1.0",
@@ -100,10 +102,10 @@ void main() {
             "x": 78,
             "y": 144,
             "prevX": 78,
-            "prevY": 145,
+            "prevY": 144,
             "view": 0,
             "loop": 3,
-            "cel": 6,
+            "cel": 0,
             "priority": 0,
             "fixedPriority": false,
             "fixedLoop": false,
@@ -237,14 +239,15 @@ void main() {
 
       // Step North from y=144 to y=143
       engine.setEgoDirection(1);
-      engine.tick();
+      await engine.tick();
       expect(engine.ego.y, 143);
 
       // Step North from y=143 towards door at y=142 -> blocked
       engine.setEgoDirection(1);
-      engine.tick();
+      await engine.tick();
       expect(engine.ego.y, 143, reason: 'Ego must be blocked by closed castle door at y=142');
       expect(engine.ego.direction, 0);
+      engine.dispose();
     });
   });
 }

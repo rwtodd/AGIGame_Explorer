@@ -3,7 +3,6 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
-import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
@@ -36,8 +35,6 @@ class AgiActorSprite {
   final int loopNumber;
   final int celNumber;
   final ViewTextureAtlas? atlas;
-  final AgiViewCel? rawCel;
-  final AgiView? parentView;
 
   const AgiActorSprite({
     required this.priority,
@@ -49,11 +46,9 @@ class AgiActorSprite {
     this.loopNumber = 0,
     this.celNumber = 0,
     this.atlas,
-    this.rawCel,
-    this.parentView,
   });
 
-  /// Draws this sprite cel using the texture atlas, direct ui.Image, or synchronous raw cel pixels.
+  /// Draws this sprite cel using the texture atlas or direct ui.Image.
   void draw(Canvas canvas, Paint paint) {
     if (atlas != null && atlas!.containsCel(viewNumber, loopNumber, celNumber) && atlas!.hasImage) {
       atlas!.drawCel(
@@ -68,34 +63,6 @@ class AgiActorSprite {
       );
     } else if (image != null) {
       canvas.drawImage(image!, position, paint);
-    } else if (rawCel != null) {
-      _drawRawCel(canvas);
-    }
-  }
-
-  void _drawRawCel(Canvas canvas) {
-    final cel = rawCel!;
-    final pixels = cel.getPixels(parentView: parentView, celIndex: celNumber);
-    final w = cel.width;
-    final h = cel.height;
-    final trans = cel.transparentColor;
-    final isMirrored = cel.isMirrored;
-
-    final pixelPaint = Paint()..style = PaintingStyle.fill;
-
-    for (var y = 0; y < h; y++) {
-      final rowOffset = y * w;
-      for (var x = 0; x < w; x++) {
-        final colorIdx = pixels[rowOffset + x] & 0x0F;
-        if (colorIdx == trans) continue;
-
-        pixelPaint.color = EgaColors.palette[colorIdx.clamp(0, 15)];
-        final drawX = isMirrored
-            ? (position.dx + ((w - 1 - x) * 2.0))
-            : (position.dx + (x * 2.0));
-        final drawY = position.dy + y;
-        canvas.drawRect(Rect.fromLTWH(drawX, drawY, 2.0, 1.0), pixelPaint);
-      }
     }
   }
 
@@ -794,15 +761,18 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
     final ctrlFuture = pic.toControlMapUiImage();
     final slicesFuture = pic.preloadGpuTextures();
 
-    final results = await Future.wait([slicesFuture, flatFuture, priFuture, ctrlFuture]);
+    if (slicesFuture is Future) {
+      await slicesFuture;
+    }
+    final results = await Future.wait([flatFuture, priFuture, ctrlFuture]);
 
     if (!mounted || token != _loadToken) return;
 
     setState(() {
       _displayedPic = pic;
-      _flatImage = results[1] as ui.Image;
-      _priImage = results[2] as ui.Image;
-      _ctrlImage = results[3] as ui.Image;
+      _flatImage = results[0];
+      _priImage = results[1];
+      _ctrlImage = results[2];
     });
   }
 

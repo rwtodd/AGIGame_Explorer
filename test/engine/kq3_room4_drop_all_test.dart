@@ -7,16 +7,16 @@ void main() {
   group("King's Quest 3 Room 4 - Drop/Hide All Possessions Under Bed", () {
     final kq3Dir = Directory('reference_games/kings-quest-3');
 
-    test('drop all in bedroom matches said(56, 68, 9999) and hides possessions under bed', () {
+    test('drop all in bedroom matches said(56, 68, 9999) and hides possessions under bed', () async {
       if (!kq3Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Skip title/intro to game room
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       // Give Ego some items (set room to 255 in memory)
       engine.memory.itemRooms[6] = 255; // Thimble
@@ -33,7 +33,7 @@ void main() {
 
       // Run 5 cycles to stabilize room 4
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       final messages = <String>[];
@@ -45,10 +45,10 @@ void main() {
 
       // Advance through the kneeling cutscene (approx 80 cycles)
       for (var i = 0; i < 80; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.activeDialog != null) {
           messages.add(engine.activeDialog!.message);
-          engine.dismissDialog();
+          await engine.dismissDialog();
         }
       }
 
@@ -73,10 +73,10 @@ void main() {
       engine.submitCommand('get all');
 
       for (var i = 0; i < 80; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.activeDialog != null) {
           messages.add(engine.activeDialog!.message);
-          engine.dismissDialog();
+          await engine.dismissDialog();
         }
       }
 
@@ -92,17 +92,19 @@ void main() {
       expect(engine.memory.itemRooms[10], equals(255));
       expect(engine.memory.itemRooms[37], equals(255));
       expect(engine.memory.getFlag(118), isFalse); // f118 reset
+
+      engine.dispose();
     });
 
-    test('drop all in hallway outside bedroom warns player with message 31', () {
+    test('drop all in hallway outside bedroom warns player with message 31', () async {
       if (!kq3Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       // Give Ego an item
       engine.memory.itemRooms[6] = 255;
@@ -110,7 +112,7 @@ void main() {
       engine.changeRoom(4);
 
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Position in hallway (X <= 77)
@@ -123,10 +125,10 @@ void main() {
 
       engine.submitCommand('drop all');
       for (var i = 0; i < 10; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.activeDialog != null) {
           messages.add(engine.activeDialog!.message);
-          engine.dismissDialog();
+          await engine.dismissDialog();
         }
       }
 
@@ -137,6 +139,8 @@ void main() {
         reason: 'Expected hallway warning message, got: $messages',
       );
       expect(messages.any((m) => m.contains('You might need it')), isFalse);
+
+      engine.dispose();
     });
   });
 }

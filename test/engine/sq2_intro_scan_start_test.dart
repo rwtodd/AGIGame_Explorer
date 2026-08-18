@@ -89,20 +89,21 @@ void main() {
       expect(memory.getScanStart(0), 0);
     });
 
-    test('Space Quest 2 runs intro past cycle 600 without opcode 0xfd error', () {
+    test('Space Quest 2 runs intro past cycle 600 without opcode 0xfd error', () async {
       if (!sq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       for (int cycle = 1; cycle <= 600; cycle++) {
-        engine.tick();
+        await engine.tick();
         expect(engine.lastError, isNull,
             reason: 'Engine must not throw in cycle $cycle');
       }
 
       expect(engine.currentRoom, 140);
+      engine.dispose();
     });
 
     test('AgiGameStateSnapshot preserves and restores per-script scan starts', () {

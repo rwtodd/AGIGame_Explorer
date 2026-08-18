@@ -5,13 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('KQ2 Status Line & Help Screen Lifecycle', () {
-    test('KQ2 title screen has status line disabled, gameplay enables it, and preserves it across room transitions', () {
+    test('KQ2 title screen has status line disabled, gameplay enables it, and preserves it across room transitions', () async {
       final dir = Directory('reference_games/kings-quest-2');
       if (!dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Title screen (room 97)
       expect(engine.memory.getVar(0), 97);
@@ -19,21 +19,21 @@ void main() {
 
       // Start gameplay (transitions to room 1)
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(0), 1);
       expect(engine.isStatusLineEnabled, isTrue, reason: 'Status line should appear in gameplay room 1');
 
       // Walk / transition to Room 2
       engine.changeRoom(2);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(0), 2);
       expect(engine.isStatusLineEnabled, isTrue, reason: 'Status line must remain visible across room transitions');
 
       // Walk to Room 3
       engine.changeRoom(3);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(0), 3);
       expect(engine.isStatusLineEnabled, isTrue, reason: 'Status line must remain visible in Room 3');
@@ -41,17 +41,17 @@ void main() {
       engine.dispose();
     });
 
-    test('KQ2 Help menu item displays text screen and dismisses cleanly on key press without freezing', () {
+    test('KQ2 Help menu item displays text screen and dismisses cleanly on key press without freezing', () async {
       final dir = Directory('reference_games/kings-quest-2');
       if (!dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // Start gameplay in Room 1
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.menuManager.isSubmitted, isTrue);
 
@@ -61,7 +61,7 @@ void main() {
       engine.selectMenuItem();
 
       // Tick executes Logic 0 -> call(95) -> Help screen
-      engine.tick();
+      await engine.tick();
 
       // Verify we are on the text screen
       expect(engine.isTextScreen, isTrue, reason: 'Help screen should switch to text mode');
@@ -76,13 +76,13 @@ void main() {
 
       // Multiple idle ticks should yield smoothly without locking up
       for (int i = 0; i < 10; i++) {
-        engine.tick();
+        await engine.tick();
       }
       expect(engine.isTextScreen, isTrue);
 
       // Now press a key (e.g. Space / Enter / 13) to dismiss Help
       engine.handleKeyPress(13);
-      engine.tick();
+      await engine.tick();
 
       // Verify text screen dismissed and back in graphics mode
       expect(engine.isTextScreen, isFalse, reason: 'Pressing a key should exit Help text screen');

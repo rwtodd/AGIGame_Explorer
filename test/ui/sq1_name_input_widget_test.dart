@@ -53,7 +53,10 @@ void main() {
 
       final loader = AgiResourceLoader.fromDirectorySync(sq1Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+
+      await tester.runAsync(() async {
+        await engine.initializeGame();
+      });
 
       await tester.pumpWidget(
         MaterialApp(
@@ -64,7 +67,9 @@ void main() {
 
       // Advance into Room 69
       engine.handleKeyPress(32);
-      engine.tick();
+      await tester.runAsync(() async {
+        await engine.tick();
+      });
       await tester.pump();
 
       expect(engine.currentRoom, 69);
@@ -97,8 +102,14 @@ void main() {
       expect(engine.activeInputPrompt!.currentText, 'Roger Wilco');
 
       // Press Enter to submit prompt
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(() async {
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        for (int i = 0; i < 50; i++) {
+          await Future.delayed(const Duration(milliseconds: 20));
+          if (engine.currentRoom == 2) break;
+        }
+      });
+      await tester.pump();
 
       // Verify that SQ1 accepted the name and transitioned to Room 2
       expect(engine.memory.getString(1), 'Roger Wilco');

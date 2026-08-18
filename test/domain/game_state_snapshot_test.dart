@@ -142,6 +142,21 @@ void main() {
       expect(md, contains('Command Executed'));
     });
 
+    test('dismisses active modals and dialogs upon snapshot restoration', () {
+      engine.onPrint('A modal dialog is open');
+      expect(engine.activeDialog, isNotNull);
+
+      final snap = engine.createSnapshot(label: 'Checkpoint Dialog');
+      expect(engine.activeDialog, isNotNull);
+
+      // Restore
+      engine.restoreSnapshot(snap);
+      expect(engine.activeDialog, isNull, reason: 'Restoring state must dismiss any open modal dialog');
+      expect(engine.activeInputPrompt, isNull);
+      expect(engine.isInventoryOpen, isFalse);
+      expect(engine.inspectingObjectNumber, isNull);
+    });
+
     test('manages rolling checkpoint history in game engine', () {
       expect(engine.checkpointHistory, isEmpty);
 

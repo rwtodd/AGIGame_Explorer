@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('AGI Menu Speed Options Integration', () {
-    test('KQ3 speed menu items trigger controllers and update Variable 10 and engine speed', () {
+    test('KQ3 speed menu items trigger controllers and update Variable 10 and engine speed', () async {
       final path = Directory('reference_games/kings-quest-3').existsSync()
           ? 'reference_games/kings-quest-3'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-3';
@@ -14,39 +14,39 @@ void main() {
 
       final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
 
       // 1. Select "Fastest" (Controller 34)
       engine.controllerManager.triggerController(34, engine.memory);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(10), 0, reason: 'Fastest should set Var 10 to 0');
       expect(engine.speedHz, 60.0, reason: 'Engine speed should be 60 Hz on Fastest');
 
       // 2. Select "Normal" (Controller 32)
       engine.controllerManager.triggerController(32, engine.memory);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(10), 2, reason: 'Normal should set Var 10 to 2');
       expect(engine.speedHz, 20.0, reason: 'Engine speed should be 20 Hz on Normal');
 
       // 3. Select "Slow" (Controller 31)
       engine.controllerManager.triggerController(31, engine.memory);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(10), 3, reason: 'Slow should set Var 10 to 3');
       expect(engine.speedHz, 10.0, reason: 'Engine speed should be 10 Hz on Slow');
 
       // 4. Select "Fast" (Controller 33)
       engine.controllerManager.triggerController(33, engine.memory);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(10), 1, reason: 'Fast should set Var 10 to 1');
       expect(engine.speedHz, 30.0, reason: 'Engine speed should be 30 Hz on Fast');
 
       // 5. Trigger "Change <F10>" (Controller 4) - cycles speed (1 -> 2)
       engine.controllerManager.triggerController(4, engine.memory);
-      engine.tick();
+      await engine.tick();
 
       expect(engine.memory.getVar(10), 2, reason: 'F10 Change should cycle Var 10 from 1 to 2');
       expect(engine.speedHz, 20.0);
@@ -54,9 +54,9 @@ void main() {
       engine.dispose();
     });
 
-    test('UI setSpeedHz updates Variable 10 to maintain two-way synchronization', () {
+    test('UI setSpeedHz updates Variable 10 to maintain two-way synchronization', () async {
       final engine = AgiGameEngine();
-      engine.initializeGame();
+      await engine.initializeGame();
 
       expect(engine.memory.getVar(10), 2, reason: 'Default speed is Normal (v10=2)');
       expect(engine.speedHz, 20.0);
@@ -76,7 +76,7 @@ void main() {
       engine.dispose();
     });
 
-    test('Selecting speed from menu via selectMenuItem activates speed controller', () {
+    test('Selecting speed from menu via selectMenuItem activates speed controller', () async {
       final path = Directory('reference_games/kings-quest-3').existsSync()
           ? 'reference_games/kings-quest-3'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-3';
@@ -85,7 +85,7 @@ void main() {
 
       final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);
-      engine.initializeGame();
+      await engine.initializeGame();
       // Enable menu system
       engine.memory.setFlag(14);
 
@@ -97,7 +97,7 @@ void main() {
       engine.selectMenuItem(controllerSlot: 34);
       expect(engine.isMenuOpen, isFalse);
 
-      engine.tick();
+      await engine.tick();
       expect(engine.memory.getVar(10), 0);
       expect(engine.speedHz, 60.0);
 

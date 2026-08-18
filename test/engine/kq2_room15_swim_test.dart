@@ -12,13 +12,13 @@ void main() {
       kq2Dir = Directory('reference_games/kings-quest-2');
     });
 
-    test('Walking into ocean water in Room 15 and typing swim succeeds', () {
+    test('Walking into ocean water in Room 15 and typing swim succeeds', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
       engine.changeRoom(15);
 
       final ego = engine.ego;
@@ -26,13 +26,13 @@ void main() {
       ego.y = 86;
 
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Walk West into water until Ego splashes (view 104)
       engine.setEgoDirection(7);
       for (var i = 0; i < 20; i++) {
-        engine.tick();
+        await engine.tick();
         if (ego.view == 104) break;
       }
 
@@ -42,21 +42,22 @@ void main() {
 
       // Now type swim while splashing
       engine.submitCommand('swim');
-      engine.tick();
+      await engine.tick();
 
       expect(engine.activeDialog, isNull);
       expect(ego.view, 97); // View 97 = Swimming
       expect(engine.memory.getVar(95), 2); // v95 = 2 (swimming)
       expect(engine.memory.getFlag(0), isTrue);
+      engine.dispose();
     });
 
-    test('Restoring user snapshot in Room 15 and submitting swim starts swimming', () {
+    test('Restoring user snapshot in Room 15 and submitting swim starts swimming', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
 
       final snapshotJson = {
         "version": "1.0",
@@ -293,39 +294,40 @@ void main() {
 
       // Submit swim
       engine.submitCommand('swim');
-      engine.tick();
+      await engine.tick();
 
       expect(engine.activeDialog, isNull);
       expect(engine.ego.view, 97);
       expect(engine.memory.getVar(95), 2);
+      engine.dispose();
     });
 
-    test('Swimming across multiple rooms in KQ2 retains swimming view 97', () {
+    test('Swimming across multiple rooms in KQ2 retains swimming view 97', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
       engine.changeRoom(15);
 
       // Ego walks into water in Room 15
       engine.ego.x = 90;
       engine.ego.y = 86;
       for (var i = 0; i < 5; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       // Walk West into water to splash
       engine.setEgoDirection(7);
       for (var i = 0; i < 20; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.ego.view == 104) break;
       }
 
       // Type swim
       engine.submitCommand('swim');
-      engine.tick();
+      await engine.tick();
 
       expect(engine.ego.view, 97);
       expect(engine.memory.getVar(16), 97);
@@ -337,7 +339,7 @@ void main() {
       // Swim North across the border into Room 8
       engine.setEgoDirection(1); // North
       for (var i = 0; i < 100; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.memory.getVar(0) == 8) break;
       }
 
@@ -350,7 +352,7 @@ void main() {
       // Swim South back from Room 8 into Room 15
       engine.setEgoDirection(5); // South
       for (var i = 0; i < 100; i++) {
-        engine.tick();
+        await engine.tick();
         if (engine.memory.getVar(0) == 15) break;
       }
 
@@ -359,15 +361,16 @@ void main() {
       expect(engine.memory.getVar(16), 97);
       expect(engine.memory.getVar(95), 2);
       expect(engine.ego.onWater, isTrue);
+      engine.dispose();
     });
 
-    test('Restoring user state after seahorse in Room 15 allows Ego to move freely', () {
+    test('Restoring user state after seahorse in Room 15 allows Ego to move freely', () async {
       if (!kq2Dir.existsSync()) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
 
-      engine.initializeGame();
+      await engine.initializeGame();
 
       final snapshotJson = {
         "version": "1.0",
@@ -554,7 +557,7 @@ void main() {
       engine.ego.onWater = true;
 
       // Run tick 0 to let the seahorse drop-off script complete
-      engine.tick();
+      await engine.tick();
       expect(engine.ego.cycleMode, 0);
       expect(engine.ego.endOfLoopFlag, isNull);
 
@@ -562,11 +565,12 @@ void main() {
       engine.setEgoDirection(3);
 
       for (var i = 0; i < 20; i++) {
-        engine.tick();
+        await engine.tick();
       }
 
       expect(engine.ego.x, greaterThan(20), reason: 'Ego must move East towards the beach');
       expect(engine.memory.getFlag(36), isFalse, reason: 'Flag 36 must not re-trigger');
+      engine.dispose();
     });
   });
 }

@@ -71,18 +71,24 @@ class AnimatedObject {
     return cachedView?.getLoop(l)?.celCount ?? 4;
   }
 
-  /// Returns the width in native AGI units of [targetCel] in [targetLoop] (defaults to 4 if unavailable).
-  int getCelWidth([int? targetLoop, int? targetCel]) {
+  /// Returns the width in native AGI units of [targetCel] in [targetLoop] (defaults to 12 if unavailable).
+  int getCelWidth([int? targetLoop, int? targetCel, AgiView? fallbackView]) {
+    final v = cachedView ?? fallbackView;
     final l = targetLoop ?? loop;
     final c = targetCel ?? cel;
-    return cachedView?.getCel(l, c)?.width ?? 4;
+    final w = v?.getCel(l, c)?.width;
+    if (w != null && w > 0) return w;
+    return (v != null) ? 12 : 4;
   }
 
-  /// Returns the height in native AGI units of [targetCel] in [targetLoop] (defaults to 4 if unavailable).
-  int getCelHeight([int? targetLoop, int? targetCel]) {
+  /// Returns the height in native AGI units of [targetCel] in [targetLoop] (defaults to 36 if unavailable).
+  int getCelHeight([int? targetLoop, int? targetCel, AgiView? fallbackView]) {
+    final v = cachedView ?? fallbackView;
     final l = targetLoop ?? loop;
     final c = targetCel ?? cel;
-    return cachedView?.getCel(l, c)?.height ?? 4;
+    final h = v?.getCel(l, c)?.height;
+    if (h != null && h > 0) return h;
+    return (v != null) ? 36 : 4;
   }
 
   /// Calculates priority band (4..14) based on base-Y position if priority is automatic (0).
