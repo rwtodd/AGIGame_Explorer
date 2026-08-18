@@ -81,7 +81,9 @@ void main() {
       final sq2Engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);
       addTearDown(sq2Engine.dispose);
 
+      await sq2Engine.initializeGame();
       sq2Engine.changeRoom(2);
+      await sq2Engine.tick();
 
       // Verify room 2 loaded
       expect(sq2Engine.currentRoom, 2);
@@ -102,7 +104,7 @@ void main() {
 
       // Advance ticks until broom hits border and logic 2 erases it
       for (int i = 0; i < 30; i++) {
-        sq2Engine.tick();
+        await sq2Engine.tick();
         if (!o2.isDrawn) break;
       }
 
