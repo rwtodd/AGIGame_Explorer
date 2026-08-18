@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
+import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/disassembler/disassembly_formatter.dart';
 import 'package:flutter_agigame/logic/disassembler/disassembly_highlighter.dart';
 import 'package:flutter_agigame/logic/disassembler/instruction_decoder.dart';
@@ -16,8 +17,13 @@ import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
 
 class LogicBrowserScreen extends ConsumerStatefulWidget {
   final int? initialLogicNumber;
+  final AgiResourceLoader? loader;
 
-  const LogicBrowserScreen({super.key, this.initialLogicNumber});
+  const LogicBrowserScreen({
+    super.key,
+    this.initialLogicNumber,
+    this.loader,
+  });
 
   @override
   ConsumerState<LogicBrowserScreen> createState() => _LogicBrowserScreenState();
@@ -64,11 +70,13 @@ class _LogicBrowserScreenState extends ConsumerState<LogicBrowserScreen>
   // Search match navigation state
   int _currentMatchIndex = 0;
 
+  AgiResourceLoader? get _activeLoader => widget.loader ?? ref.read(launcherProvider).loader;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    final loader = ref.read(launcherProvider).loader;
+    final loader = _activeLoader;
     if (loader != null) {
       final present = loader.presentLogicNumbers;
       if (widget.initialLogicNumber != null && present.contains(widget.initialLogicNumber)) {
@@ -127,7 +135,7 @@ class _LogicBrowserScreenState extends ConsumerState<LogicBrowserScreen>
   }
 
   void _loadLogic(int logicNum, {_LogicHistoryEntry? restoreHistory}) {
-    final loader = ref.read(launcherProvider).loader;
+    final loader = _activeLoader;
     if (loader == null) return;
 
     _highlightTimer?.cancel();
@@ -461,7 +469,7 @@ class _LogicBrowserScreenState extends ConsumerState<LogicBrowserScreen>
   @override
   Widget build(BuildContext context) {
     final launcherState = ref.watch(launcherProvider);
-    final loader = launcherState.loader;
+    final loader = widget.loader ?? launcherState.loader;
     final presentLogics = loader?.presentLogicNumbers ?? [];
     final presentViews = loader?.presentViewNumbers ?? [];
     final presentPics = loader?.presentPicNumbers ?? [];

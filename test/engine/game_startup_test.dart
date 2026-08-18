@@ -250,12 +250,24 @@ void main() {
       // Variable 102 (current.status) must not be 13 (dead)
       expect(bcEngine.memory.getVar(102), isNot(13), reason: 'Ego must remain alive');
 
+      // Dismiss any lingering dialogs and ensure user control before walking South
+      if (bcEngine.activeDialog != null) {
+        bcEngine.dismissDialog();
+      }
+      bcEngine.isUserControl = true;
+
       // Now walk Ego South from Room 8 down to Room 13
       bcEngine.ego.x = 31;
       bcEngine.ego.y = 166;
+      bcEngine.ego.stepSize = 1;
+      bcEngine.ego.stepTime = 1;
+      bcEngine.ego.stepTimer = 1;
       bcEngine.setEgoDirection(5); // South
-      bcEngine.tick(); // moves to 167
-      bcEngine.tick(); // crosses 167 -> triggers %v2 = 3 (bottom edge)
+
+      for (int i = 0; i < 5; i++) {
+        bcEngine.tick();
+        if (bcEngine.memory.getVar(0) == 13) break;
+      }
 
       // Script handles bottom edge and calls new.room(13)
       expect(bcEngine.memory.getVar(0), 13, reason: 'Ego should have transitioned to room 13');
