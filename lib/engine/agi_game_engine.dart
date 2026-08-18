@@ -2360,6 +2360,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
       _statusLineNeedsRedraw = true;
       updateStatusLine(force: true);
+      for (final obj in animatedObjects) {
+        if (obj.isDrawn) {
+          posShuffle(obj);
+        }
+      }
       return currentPic?.preloadGpuTextures();
     }
   }
@@ -2370,6 +2375,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
     _statusLineNeedsRedraw = true;
     updateStatusLine(force: true);
+    for (final obj in animatedObjects) {
+      if (obj.isDrawn) {
+        posShuffle(obj);
+      }
+    }
     final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
     if (f1 is Future || f2 is Future) {
