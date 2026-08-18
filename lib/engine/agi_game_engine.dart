@@ -1353,23 +1353,27 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     // Flag 1: EGO completely obscured
-    var allObscured = true;
-    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168) {
-        final effPri = priBuf.effectivePriorityAt(bx, egoObj.y);
-        if (effPri >= egoObj.effectivePriority) {
+    if (!egoObj.isDrawn || !egoObj.isAnimated) {
+      memory.setFlag(1);
+    } else {
+      var allObscured = true;
+      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+        if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168) {
+          final effPri = priBuf.effectivePriorityAt(bx, egoObj.y);
+          if (effPri <= egoObj.effectivePriority) {
+            allObscured = false;
+            break;
+          }
+        } else {
           allObscured = false;
           break;
         }
-      } else {
-        allObscured = false;
-        break;
       }
-    }
-    if (allObscured) {
-      memory.setFlag(1);
-    } else {
-      memory.resetFlag(1);
+      if (allObscured) {
+        memory.setFlag(1);
+      } else {
+        memory.resetFlag(1);
+      }
     }
   }
 

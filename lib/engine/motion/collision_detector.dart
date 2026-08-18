@@ -372,8 +372,8 @@ class CollisionDetector {
       final px = x + i;
       if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
         final effPri = priorityBuffer.effectivePriorityAt(px, y);
-        // If effective screen priority is less than actor priority (i.e. actor is behind obstacle)
-        if (effPri >= actorPriority) {
+        // If effective screen priority <= actor priority, actor is in front of or level with background (visible)
+        if (effPri <= actorPriority) {
           allObscured = false;
           break;
         }

@@ -457,6 +457,34 @@ void main() {
         controller.tick();
         expect(memory.getFlag(3), isTrue);
       });
+
+      test('sets flag 1 when Ego is completely obscured or not drawn', () {
+        final ego = controller.ego;
+        ego.isAnimated = true;
+        ego.isDrawn = true;
+        ego.x = 50;
+        ego.y = 80;
+        ego.priority = 6; // Fixed low priority (depth 6)
+
+        // Case 1: Background has lower depth priority (e.g. 4) -> Ego is in front and visible
+        for (var x = 50; x <= 58; x++) {
+          priorityBuffer.setPriorityAt(x, 80, 4);
+        }
+        controller.tick();
+        expect(memory.getFlag(1), isFalse, reason: 'Ego at priority 6 in front of depth 4 must be visible');
+
+        // Case 2: Background has higher depth priority (e.g. 10) covering Ego's baseline -> Ego is obscured
+        for (var x = 50; x <= 58; x++) {
+          priorityBuffer.setPriorityAt(x, 80, 10);
+        }
+        controller.tick();
+        expect(memory.getFlag(1), isTrue, reason: 'Ego at priority 6 behind depth 10 must be obscured (Flag 1 = true)');
+
+        // Case 3: Ego is not drawn -> Flag 1 = true
+        ego.isDrawn = false;
+        controller.tick();
+        expect(memory.getFlag(1), isTrue, reason: 'Undrawn Ego must be obscured (Flag 1 = true)');
+      });
     });
   });
 }
