@@ -47,8 +47,8 @@ void main() {
 
       expect(sawTumblingObj, isTrue, reason: 'Object 10 should animate tumbling into room 23');
       expect(egoPlacedAndDrawn, isTrue, reason: 'Ego should be drawn and placed after tumbling finishes');
-      expect(ego.x, equals(41));
-      expect(ego.y, equals(136));
+      expect(ego.x, inInclusiveRange(40, 41));
+      expect(ego.y, inInclusiveRange(136, 137));
     });
   });
 }

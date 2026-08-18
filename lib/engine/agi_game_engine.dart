@@ -1631,6 +1631,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
               memory.setVar(6, 0);
               obj.isCycling = false;
             }
+            posShuffle(obj);
             return;
           }
         }
@@ -2164,6 +2165,27 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       for (int bx = x; bx < x + w; bx++) {
         if (!priBuf.isWalkable(bx, y, allowConditional: obj.ignoreBlocks)) {
           return false;
+        }
+      }
+      if (!obj.ignoreObjects) {
+        for (final other in animatedObjects) {
+          if (other.number == obj.number) continue;
+          if (!other.isDrawn || !other.isAnimated || other.ignoreObjects) continue;
+          if (obj.motionType == 2 && other.number == 0) continue;
+
+          final otherWidth = other.getCelWidth();
+          final aLeft = x;
+          final aRight = x + w - 1;
+          final bLeft = other.x;
+          final bRight = other.x + otherWidth - 1;
+
+          if (aRight >= bLeft && aLeft <= bRight) {
+            if (y == other.y ||
+                (y > other.y && obj.prevY < other.prevY) ||
+                (y < other.y && obj.prevY > other.prevY)) {
+              return false;
+            }
+          }
         }
       }
       return true;
