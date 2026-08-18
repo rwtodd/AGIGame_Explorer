@@ -510,16 +510,7 @@ class AgiMotionController {
       obj.y = newY;
     }
 
-    // Check if target is reached after this step
-    if (obj.x == obj.targetX && obj.y == obj.targetY) {
-      obj.direction = 0;
-      obj.motionType = 0;
-      if (obj.targetFlag != null) {
-        memory.setFlag(obj.targetFlag!);
-      }
-    }
-
-    collisionDetector.processBorderHit(
+    final edge = collisionDetector.processBorderHit(
       obj: obj,
       memory: memory,
       width: width,
@@ -533,6 +524,18 @@ class AgiMotionController {
     );
     obj.x = clampedX;
     obj.y = clampedY;
+
+    if (edge != AgiBorderEdge.none || (obj.x == obj.targetX && obj.y == obj.targetY)) {
+      obj.direction = 0;
+      obj.motionType = 0;
+      if (obj.targetFlag != null) {
+        memory.setFlag(obj.targetFlag!);
+        obj.targetFlag = null;
+      }
+      if (obj.number == 0) {
+        memory.setVar(6, 0);
+      }
+    }
   }
 
   /// Automatically updates `obj.loop` based on motion direction if `!obj.fixedLoop`.

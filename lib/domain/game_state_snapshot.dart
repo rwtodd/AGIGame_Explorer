@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 
@@ -338,6 +339,12 @@ class AgiGameStateSnapshot {
   /// Per-script scan start offsets (logic number -> IP).
   final Map<String, int> scanStarts;
 
+  /// Optional 80x84 32-bit RGBA pixel byte array representing screen thumbnail.
+  final Uint8List? thumbnailRgba;
+
+  /// Whether this snapshot was recorded automatically upon a room transition.
+  final bool isRoomTransition;
+
   const AgiGameStateSnapshot({
     required this.timestamp,
     this.label = '',
@@ -361,10 +368,17 @@ class AgiGameStateSnapshot {
     required this.callStack,
     required this.scanStartIp,
     this.scanStarts = const {},
+    this.thumbnailRgba,
+    this.isRoomTransition = false,
   });
 
   /// Captures a complete snapshot from live [AgiGameEngine].
-  factory AgiGameStateSnapshot.capture(AgiGameEngine engine, {String label = ''}) {
+  factory AgiGameStateSnapshot.capture(
+    AgiGameEngine engine, {
+    String label = '',
+    bool isRoomTransition = false,
+    Uint8List? thumbnailRgba,
+  }) {
     final mem = engine.memory;
     final now = DateTime.now().toIso8601String();
 
@@ -422,6 +436,9 @@ class AgiGameStateSnapshot {
             ))
         .toList();
 
+    // Capture screen thumbnail if not explicitly provided
+    final thumbnail = thumbnailRgba ?? engine.captureScreenThumbnailRgba();
+
     return AgiGameStateSnapshot(
       timestamp: now,
       label: label.isEmpty ? 'Room ${engine.currentRoom} (Cycle ${engine.cycleCount})' : label,
@@ -445,11 +462,15 @@ class AgiGameStateSnapshot {
       callStack: callStack,
       scanStartIp: mem.scanStartIp,
       scanStarts: mem.scanStarts.map((k, v) => MapEntry(k.toString(), v)),
+      thumbnailRgba: thumbnail,
+      isRoomTransition: isRoomTransition,
     );
   }
 
   /// Restores this snapshot into an existing [AgiGameEngine].
-  void restore(AgiGameEngine engine) {
+  /// By default, preserves the engine's current pause state at the moment of restoration.
+  void restore(AgiGameEngine engine, {bool? preservePauseState}) {
+    final currentEnginePaused = engine.isPaused;
     final mem = engine.memory;
 
     // Reset memory
@@ -467,6 +488,9 @@ class AgiGameStateSnapshot {
         mem.flags[f] = true;
       }
     }
+    mem.flags[5] = false; // Ensure new room init is not re-executed on restore
+    mem.flags[6] = false; // Ensure restart flag is not active
+    mem.flags[12] = true; // %f12 = restore in progress
 
     mem.controllers.fillRange(0, mem.controllers.length, false);
     for (final c in activeControllers) {
@@ -528,10 +552,18 @@ class AgiGameStateSnapshot {
     if (engine.isMenuOpen) {
       engine.closeMenu();
     }
-    if (isPaused) {
-      engine.pause();
+    if (preservePauseState ?? true) {
+      if (currentEnginePaused) {
+        engine.pause();
+      } else {
+        engine.resume();
+      }
     } else {
-      engine.resume();
+      if (isPaused) {
+        engine.pause();
+      } else {
+        engine.resume();
+      }
     }
 
     // If room loader is present, reload room picture and logic without wiping objects
@@ -565,6 +597,8 @@ class AgiGameStateSnapshot {
         'callStack': callStack.map((c) => c.toJson()).toList(),
         'scanStartIp': scanStartIp,
         'scanStarts': scanStarts,
+        'isRoomTransition': isRoomTransition,
+        if (thumbnailRgba != null) 'thumbnail': base64Encode(thumbnailRgba!),
       };
 
   /// Formats snapshot as a JSON string.
@@ -605,6 +639,10 @@ class AgiGameStateSnapshot {
     final scanStartsRaw = (json['scanStarts'] as Map?) ?? {};
     final scanStarts = scanStartsRaw.map((k, v) => MapEntry(k.toString(), v as int));
 
+    final thumbnailRaw = json['thumbnail'] as String?;
+    final thumbnailRgba = thumbnailRaw != null ? base64Decode(thumbnailRaw) : null;
+    final isRoomTransition = json['isRoomTransition'] as bool? ?? false;
+
     return AgiGameStateSnapshot(
       timestamp: json['timestamp'] as String? ?? '',
       label: json['label'] as String? ?? '',
@@ -628,6 +666,8 @@ class AgiGameStateSnapshot {
       callStack: callStack,
       scanStartIp: json['scanStartIp'] as int? ?? (scanStarts['0'] ?? 0),
       scanStarts: scanStarts,
+      thumbnailRgba: thumbnailRgba,
+      isRoomTransition: isRoomTransition,
     );
   }
 

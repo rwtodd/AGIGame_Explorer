@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
@@ -264,6 +265,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int get maxScore => memory.getVar(7);
   bool get isMenuOpen => menuManager.isOpen;
   AnimatedObject get ego => animatedObjects[0];
+
+  final Set<int> _loadedLogicNumbers = <int>{0};
+
+  /// Set of all logic script numbers currently loaded or invoked during this room cycle.
+  Set<int> get loadedLogicNumbers => Set.unmodifiable(_loadedLogicNumbers);
 
   /// All game objects defined for this game.
   List<AgiObject> get objects =>
@@ -631,6 +637,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           _scheduleLoop();
         }
       }
+    }
+
+    // Auto-capture room transition checkpoint on completion of new room first scan (%f5)
+    if (memory.getFlag(5)) {
+      _recordRoomTransitionCheckpoint();
     }
 
     // Reset transient per-cycle flags and parsed input tokens
@@ -1059,37 +1070,190 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   // ---------------------------------------------------------------------------
 
   final List<AgiGameStateSnapshot> _checkpointHistory = [];
+  final List<AgiGameStateSnapshot> _roomCheckpoints = [];
 
   /// Rolling history of in-memory checkpoints taken during gameplay.
   List<AgiGameStateSnapshot> get checkpointHistory =>
       List.unmodifiable(_checkpointHistory);
 
-  /// Captures a complete serializable snapshot of the current game engine state.
-  AgiGameStateSnapshot createSnapshot({String label = ''}) {
-    return AgiGameStateSnapshot.capture(this, label: label);
+  /// Rolling history of the last 5 room transition entry points (breadcrumbs).
+  List<AgiGameStateSnapshot> get roomCheckpoints =>
+      List.unmodifiable(_roomCheckpoints);
+
+  /// Captures a composite 32-bit RGBA thumbnail buffer (default 80x84, aspect-correctable)
+  /// of the current game screen, compositing background visual pixels with all active drawn actors.
+  Uint8List captureScreenThumbnailRgba({
+    int targetWidth = 80,
+    int targetHeight = 84,
+  }) {
+    // 1. Create a 160x168 EGA index composite buffer
+    final buffer = Uint8List(AgiPic.nativeWidth * AgiPic.nativeHeight);
+    if (currentPic != null && currentPic!.visualPixels.length == buffer.length) {
+      buffer.setAll(0, currentPic!.visualPixels);
+    }
+
+    // 2. Composite active drawn actors in priority order
+    final loader = resourceLoader;
+    if (loader != null) {
+      final sortedObjects = animatedObjects.where((obj) => obj.isDrawn).toList()
+        ..sort((a, b) {
+          final priComp = a.effectivePriority.compareTo(b.effectivePriority);
+          if (priComp != 0) return priComp;
+          return a.effectiveSortY.compareTo(b.effectiveSortY);
+        });
+
+      for (final obj in sortedObjects) {
+        if (obj.view == 0 && obj.number != 0) continue;
+        try {
+          final viewRes = loader.loadView(obj.view);
+          final cel = viewRes.getCel(obj.loop, obj.cel);
+          if (cel == null) continue;
+
+          final celPixels = cel.getPixels(parentView: viewRes, celIndex: obj.cel);
+          final cw = cel.width;
+          final ch = cel.height;
+          final startX = obj.x;
+          final startY = obj.y - ch + 1;
+
+          for (int cy = 0; cy < ch; cy++) {
+            final py = startY + cy;
+            if (py < 0 || py >= AgiPic.nativeHeight) continue;
+
+            for (int cx = 0; cx < cw; cx++) {
+              final px = startX + cx;
+              if (px < 0 || px >= AgiPic.nativeWidth) continue;
+
+              final col = celPixels[cy * cw + cx];
+              if (col != cel.transparentColor) {
+                buffer[py * AgiPic.nativeWidth + px] = col & 0x0F;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3. Downsample 160x168 buffer to targetWidth x targetHeight (80x84) RGBA
+    final outRgba = Uint8List(targetWidth * targetHeight * 4);
+    final scaleX = AgiPic.nativeWidth / targetWidth;
+    final scaleY = AgiPic.nativeHeight / targetHeight;
+
+    for (int y = 0; y < targetHeight; y++) {
+      final srcY = (y * scaleY).floor().clamp(0, AgiPic.nativeHeight - 1);
+      final rowOffset = y * targetWidth * 4;
+
+      for (int x = 0; x < targetWidth; x++) {
+        final srcX = (x * scaleX).floor().clamp(0, AgiPic.nativeWidth - 1);
+        final colorIndex = buffer[srcY * AgiPic.nativeWidth + srcX] & 0x0F;
+        final col = EgaColors.rgbaBytes[colorIndex];
+
+        final outIdx = rowOffset + (x * 4);
+        outRgba[outIdx + 0] = col[0];
+        outRgba[outIdx + 1] = col[1];
+        outRgba[outIdx + 2] = col[2];
+        outRgba[outIdx + 3] = 255;
+      }
+    }
+
+    return outRgba;
   }
 
+  /// Captures a complete serializable snapshot of the current game engine state.
+  AgiGameStateSnapshot createSnapshot({
+    String label = '',
+    bool isRoomTransition = false,
+    Uint8List? thumbnailRgba,
+  }) {
+    return AgiGameStateSnapshot.capture(
+      this,
+      label: label,
+      isRoomTransition: isRoomTransition,
+      thumbnailRgba: thumbnailRgba,
+    );
+  }
+
+  int? _lastTransitionRecordedRoom;
+  int? _lastTransitionRecordedCycle;
+
   /// Restores the game engine to an exact [snapshot] state.
-  void restoreSnapshot(AgiGameStateSnapshot snapshot) {
-    snapshot.restore(this);
+  /// By default, preserves the current pause state at the moment of restoration.
+  void restoreSnapshot(AgiGameStateSnapshot snapshot, {bool? preservePauseState}) {
+    snapshot.restore(this, preservePauseState: preservePauseState);
+    memory.resetFlag(5);
+    memory.resetFlag(6);
+    memory.setFlag(12);
+    _lastTransitionRecordedRoom = snapshot.roomNumber;
+    _lastTransitionRecordedCycle = snapshot.cycleCount;
+    menuManager.enableAllItems();
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
     notifyListeners();
   }
 
   /// Records a new snapshot into [_checkpointHistory] and returns it.
-  AgiGameStateSnapshot recordCheckpoint({String label = ''}) {
-    final snap = createSnapshot(label: label);
+  AgiGameStateSnapshot recordCheckpoint({
+    String label = '',
+    bool isRoomTransition = false,
+    Uint8List? thumbnailRgba,
+  }) {
+    final snap = createSnapshot(
+      label: label,
+      isRoomTransition: isRoomTransition,
+      thumbnailRgba: thumbnailRgba,
+    );
     _checkpointHistory.insert(0, snap);
-    if (_checkpointHistory.length > 20) {
+    if (isRoomTransition) {
+      _roomCheckpoints.insert(0, snap);
+      if (_roomCheckpoints.length > 5) {
+        final oldRoomSnap = _roomCheckpoints.removeLast();
+        _checkpointHistory.remove(oldRoomSnap);
+      }
+    }
+    if (_checkpointHistory.length > 25) {
       _checkpointHistory.removeLast();
     }
     notifyListeners();
     return snap;
   }
 
+  /// Automatically records a checkpoint for the new room entrance.
+  void _recordRoomTransitionCheckpoint() {
+    final room = currentRoom;
+    if (_lastTransitionRecordedRoom == room && _lastTransitionRecordedCycle == _cycleCount) {
+      return;
+    }
+    _lastTransitionRecordedRoom = room;
+    _lastTransitionRecordedCycle = _cycleCount;
+
+    final snap = createSnapshot(
+      label: '🚪 Room $room Entrance',
+      isRoomTransition: true,
+    );
+    _roomCheckpoints.insert(0, snap);
+    _checkpointHistory.insert(0, snap);
+    if (_roomCheckpoints.length > 5) {
+      final oldRoomSnap = _roomCheckpoints.removeLast();
+      _checkpointHistory.remove(oldRoomSnap);
+    }
+    if (_checkpointHistory.length > 25) {
+      _checkpointHistory.removeLast();
+    }
+  }
+
   /// Removes a checkpoint from history.
   void removeCheckpoint(int index) {
     if (index >= 0 && index < _checkpointHistory.length) {
-      _checkpointHistory.removeAt(index);
+      final snap = _checkpointHistory.removeAt(index);
+      _roomCheckpoints.remove(snap);
+      notifyListeners();
+    }
+  }
+
+  /// Removes a room transition checkpoint by its index in [_roomCheckpoints].
+  void removeRoomCheckpoint(int index) {
+    if (index >= 0 && index < _roomCheckpoints.length) {
+      final snap = _roomCheckpoints.removeAt(index);
+      _checkpointHistory.remove(snap);
       notifyListeners();
     }
   }
@@ -1097,6 +1261,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// Clears all stored checkpoint snapshots.
   void clearCheckpoints() {
     _checkpointHistory.clear();
+    _roomCheckpoints.clear();
     notifyListeners();
   }
 
@@ -1279,10 +1444,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       case 3: // move_to
         final diffX = obj.targetX - obj.x;
         final diffY = obj.targetY - obj.y;
-        final dist = math.sqrt(diffX * diffX + diffY * diffY);
-        if (dist <= obj.stepSize) {
-          obj.x = obj.targetX;
-          obj.y = obj.targetY;
+        if (diffX == 0 && diffY == 0) {
           obj.direction = 0;
           obj.motionType = 0;
           if (obj.targetFlag != null) {
@@ -1306,8 +1468,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     final delta = _directionToVector(obj.direction);
-    dx = delta.$1 * obj.stepSize;
-    dy = delta.$2 * obj.stepSize;
+    final step = obj.stepSize > 0 ? obj.stepSize : 1;
+    if (obj.motionType == 3) {
+      final diffX = obj.targetX - obj.x;
+      final diffY = obj.targetY - obj.y;
+      dx = delta.$1 * (diffX != 0 ? math.min(step, diffX.abs()) : step);
+      dy = delta.$2 * (diffY != 0 ? math.min(step, diffY.abs()) : step);
+    } else {
+      dx = delta.$1 * step;
+      dy = delta.$2 * step;
+    }
 
     if (dx == 0 && dy == 0) return;
 
@@ -1346,6 +1516,23 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       if (border != 0) {
         memory.setVar(4, obj.number);
         memory.setVar(5, border);
+      }
+    }
+
+    if (border != 0) {
+      // In Sierra AGI (MOVEOBJS.C line 122):
+      // If the object was on a 'moveobj', set the move as finished (EndMoveObj)
+      if (obj.motionType == 3 || obj.motionType == 2) {
+        obj.direction = 0;
+        obj.motionType = 0;
+        if (obj.targetFlag != null) {
+          memory.setFlag(obj.targetFlag!);
+          obj.targetFlag = null;
+        }
+        if (obj.number == 0) {
+          memory.setVar(6, 0);
+          _isUserControl = true;
+        }
       }
     }
 
@@ -1418,6 +1605,21 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     obj.prevY = obj.y;
     obj.x = clampedX;
     obj.y = clampedY;
+
+    if (obj.motionType == 3) {
+      if (obj.x == obj.targetX && obj.y == obj.targetY) {
+        obj.direction = 0;
+        obj.motionType = 0;
+        if (obj.targetFlag != null) {
+          memory.setFlag(obj.targetFlag!);
+          obj.targetFlag = null;
+        }
+        if (obj.number == 0) {
+          memory.setVar(6, 0);
+          _isUserControl = true;
+        }
+      }
+    }
   }
 
   void _advanceObjectCel(AnimatedObject obj) {
@@ -1573,6 +1775,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     currentPic = null;
 
     // Load root room logic (LOGIC 0) for rescan
+    _loadedLogicNumbers.clear();
+    _loadedLogicNumbers.add(0);
+    _loadedLogicNumbers.add(roomNumber);
     if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
       final logic0 = resourceLoader!.loadLogic(0);
       interpreter.loadRootScript(logic0, scriptNumber: 0);
@@ -1629,6 +1834,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     // Load root room logic (LOGIC 0) for execution scan
+    _loadedLogicNumbers.clear();
+    _loadedLogicNumbers.add(0);
+    _loadedLogicNumbers.add(roomNumber);
     if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
       final logic0 = resourceLoader!.loadLogic(0);
       interpreter.loadRootScript(logic0, scriptNumber: 0);
@@ -1667,6 +1875,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   AgiLogicScript? loadLogic(int logicNumber) {
+    _loadedLogicNumbers.add(logicNumber);
     if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(logicNumber)) {
       return resourceLoader!.loadLogic(logicNumber);
     }
@@ -2282,13 +2491,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Restores state from an existing [AgiGameStateSnapshot].
-  void restoreFromSnapshot(AgiGameStateSnapshot snapshot) {
-    snapshot.restore(this);
-    memory.setFlag(12);
-    menuManager.enableAllItems();
-    _statusLineNeedsRedraw = true;
-    updateStatusLine(force: true);
-    notifyListeners();
+  /// By default, preserves the current pause state at the moment of restoration.
+  void restoreFromSnapshot(AgiGameStateSnapshot snapshot, {bool? preservePauseState}) {
+    restoreSnapshot(snapshot, preservePauseState: preservePauseState);
   }
 
   /// Restarts the game, resetting variables, flags, strings, inventory to initial game state,

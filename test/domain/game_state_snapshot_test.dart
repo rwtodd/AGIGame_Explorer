@@ -174,5 +174,93 @@ void main() {
       engine.clearCheckpoints();
       expect(engine.checkpointHistory, isEmpty);
     });
+
+    test('generates and serializes composite thumbnail and room transition flag', () {
+      final snap = engine.createSnapshot(label: 'Thumbnail Test', isRoomTransition: true);
+
+      expect(snap.isRoomTransition, isTrue);
+      expect(snap.thumbnailRgba, isNotNull);
+      expect(snap.thumbnailRgba!.length, 80 * 84 * 4);
+
+      // JSON round-trip preserves thumbnail and room transition flag
+      final jsonStr = snap.toJsonString();
+      final decoded = AgiGameStateSnapshot.fromJsonString(jsonStr);
+
+      expect(decoded.isRoomTransition, isTrue);
+      expect(decoded.thumbnailRgba, isNotNull);
+      expect(decoded.thumbnailRgba!.length, 80 * 84 * 4);
+    });
+
+    test('automatically captures rolling 5 room transition checkpoints upon room change', () {
+      expect(engine.roomCheckpoints, isEmpty);
+
+      // Simulate room transitions
+      for (int room = 1; room <= 7; room++) {
+        engine.changeRoom(room);
+        expect(engine.memory.getFlag(5), isTrue);
+        engine.tick(); // Post-scan executes and captures room transition checkpoint
+      }
+
+      // Room checkpoints should be capped at 5
+      expect(engine.roomCheckpoints.length, 5);
+      expect(engine.roomCheckpoints[0].roomNumber, 7);
+      expect(engine.roomCheckpoints[0].isRoomTransition, isTrue);
+      expect(engine.roomCheckpoints[0].label, '🚪 Room 7 Entrance');
+      expect(engine.roomCheckpoints[1].roomNumber, 6);
+      expect(engine.roomCheckpoints[2].roomNumber, 5);
+      expect(engine.roomCheckpoints[3].roomNumber, 4);
+      expect(engine.roomCheckpoints[4].roomNumber, 3);
+
+      // Old room transition checkpoints are garbage-collected from global checkpoint history
+      expect(engine.checkpointHistory.length, 5);
+      expect(engine.checkpointHistory.every((s) => s.isRoomTransition), isTrue);
+    });
+
+    test('resuming/restoring a room transition checkpoint does not create duplicate room checkpoint on subsequent ticks', () {
+      engine.changeRoom(3);
+      engine.tick();
+
+      expect(engine.roomCheckpoints.length, 1);
+      final room3Snap = engine.roomCheckpoints.first;
+
+      // Advance to Room 4
+      engine.changeRoom(4);
+      engine.tick();
+      expect(engine.roomCheckpoints.length, 2);
+
+      // Restore Room 3 snapshot
+      engine.restoreSnapshot(room3Snap);
+      expect(engine.memory.getFlag(5), isFalse);
+      expect(engine.memory.getFlag(12), isTrue);
+
+      // Tick several cycles
+      engine.tick();
+      engine.tick();
+      engine.tick();
+
+      // Should still be only 2 room checkpoints, no duplicate Room 3 entrance created on resume
+      expect(engine.roomCheckpoints.length, 2);
+      expect(engine.checkpointHistory.length, 2);
+      expect(engine.memory.getFlag(5), isFalse);
+    });
+
+    test('restoring snapshot preserves whatever pause state the engine is currently in', () {
+      final snap = engine.createSnapshot(label: 'Running Snapshot');
+      expect(snap.isPaused, isFalse);
+
+      // Scenario 1: Engine is paused (e.g. in Debug Workbench) -> restore keeps it paused
+      engine.pause();
+      expect(engine.isPaused, isTrue);
+
+      engine.restoreSnapshot(snap);
+      expect(engine.isPaused, isTrue, reason: 'Restoring snapshot while paused must keep engine paused');
+
+      // Scenario 2: Engine is running -> restore keeps it running
+      engine.resume();
+      expect(engine.isPaused, isFalse);
+
+      engine.restoreSnapshot(snap);
+      expect(engine.isPaused, isFalse, reason: 'Restoring snapshot while running must keep engine running');
+    });
   });
 }

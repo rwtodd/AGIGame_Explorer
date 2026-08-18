@@ -4,13 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
+import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 
 class ViewBrowserScreen extends ConsumerStatefulWidget {
   final int? initialViewNumber;
+  final AgiResourceLoader? loader;
 
-  const ViewBrowserScreen({super.key, this.initialViewNumber});
+  const ViewBrowserScreen({
+    super.key,
+    this.initialViewNumber,
+    this.loader,
+  });
 
   @override
   ConsumerState<ViewBrowserScreen> createState() => _ViewBrowserScreenState();
@@ -32,10 +38,12 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  AgiResourceLoader? get _loader => widget.loader ?? ref.read(launcherProvider).loader;
+
   @override
   void initState() {
     super.initState();
-    final loader = ref.read(launcherProvider).loader;
+    final loader = _loader;
     if (loader != null) {
       final present = loader.presentViewNumbers;
       if (widget.initialViewNumber != null && present.contains(widget.initialViewNumber)) {
@@ -57,7 +65,7 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
     _animTimer?.cancel();
     _isPlaying = false;
 
-    final loader = ref.read(launcherProvider).loader;
+    final loader = _loader;
     if (loader == null) return;
 
     setState(() {
@@ -145,7 +153,7 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
   @override
   Widget build(BuildContext context) {
     final launcherState = ref.watch(launcherProvider);
-    final loader = launcherState.loader;
+    final loader = widget.loader ?? launcherState.loader;
     final presentViews = loader?.presentViewNumbers ?? [];
 
     return Scaffold(
