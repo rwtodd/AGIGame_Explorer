@@ -1597,6 +1597,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           memory.setVar(6, 0);
           obj.isCycling = false;
         }
+        posShuffle(obj);
         return;
       }
     }
@@ -2096,6 +2097,82 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
+  /// Shifts an object in an expanding counter-clockwise spiral until it rests
+  /// in a valid, walkable screen position (matching Sierra AGI `obj_pos_shuffle`).
+  void posShuffle(AnimatedObject obj) {
+    final priBuf = currentPic?.priorityBuffer;
+    if (priBuf == null) return;
+
+    if (obj.y <= horizon && !obj.ignoreHorizon) {
+      obj.y = horizon + 1;
+      obj.prevY = obj.y;
+    }
+
+    bool isWalkablePos(int x, int y) {
+      final w = obj.getCelWidth();
+      if (x < 0 || x + w > 160 || y > 167 || (y <= horizon && !obj.ignoreHorizon)) {
+        return false;
+      }
+      for (int bx = x; bx < x + w; bx++) {
+        if (!priBuf.isWalkable(bx, y, allowConditional: obj.ignoreBlocks)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (isWalkablePos(obj.x, obj.y)) return;
+
+    var shiftDir = 0;
+    var shiftCount = 1;
+    var shiftSize = 1;
+
+    for (int iter = 0; iter < 500; iter++) {
+      switch (shiftDir) {
+        case 0: // left
+          obj.x--;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 1;
+            shiftCount = shiftSize;
+          }
+          break;
+        case 1: // down
+          obj.y++;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 2;
+            shiftSize++;
+            shiftCount = shiftSize;
+          }
+          break;
+        case 2: // right
+          obj.x++;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 3;
+            shiftCount = shiftSize;
+          }
+          break;
+        case 3: // up
+          obj.y--;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 0;
+            shiftSize++;
+            shiftCount = shiftSize;
+          }
+          break;
+      }
+
+      if (isWalkablePos(obj.x, obj.y)) {
+        obj.prevX = obj.x;
+        obj.prevY = obj.y;
+        return;
+      }
+    }
+  }
+
   @override
   FutureOr<void> onDraw(AnimatedObject obj) {
     final view = getView(obj.view);
@@ -2104,6 +2181,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       obj.y = horizon + 1;
       obj.prevY = obj.y;
     }
+    posShuffle(obj);
     if (view != null && !atlasManager.containsView(obj.view)) {
       atlasManager.registerView(view);
       return atlasManager.prepareAtlasAsync();

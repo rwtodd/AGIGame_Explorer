@@ -160,8 +160,8 @@ void main() {
 
     test('stops motion on PriorityBuffer barrier collision (priority 0)', () {
       final priBuf = PriorityBuffer();
-      // Place unconditional barrier (priority 0) at x=82, y=100
-      priBuf.setPriorityAt(82, 100, 0);
+      // Place unconditional barrier (priority 0) at x=85, y=100
+      priBuf.setPriorityAt(85, 100, 0);
 
       engine.currentPic = AgiPic(
         visualPixels: Uint8List(160 * 168),

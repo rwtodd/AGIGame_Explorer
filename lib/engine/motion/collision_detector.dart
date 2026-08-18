@@ -137,6 +137,87 @@ class CollisionDetector {
     return false;
   }
 
+  /// Shifts an object in an expanding counter-clockwise spiral until it rests
+  /// in a valid, walkable screen position (matching Sierra AGI `obj_pos_shuffle`).
+  void posShuffle({
+    required AnimatedObject obj,
+    required int width,
+    required int height,
+    List<AnimatedObject>? otherObjects,
+  }) {
+    if (obj.y <= horizon && !obj.ignoreHorizon) {
+      obj.y = horizon + 1;
+      obj.prevY = obj.y;
+    }
+
+    if (!isPositionBlocked(
+      obj: obj,
+      x: obj.x,
+      y: obj.y,
+      width: width,
+      height: height,
+      otherObjects: otherObjects,
+    )) {
+      return;
+    }
+
+    var shiftDir = 0;
+    var shiftCount = 1;
+    var shiftSize = 1;
+
+    for (int iter = 0; iter < 500; iter++) {
+      switch (shiftDir) {
+        case 0: // left
+          obj.x--;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 1;
+            shiftCount = shiftSize;
+          }
+          break;
+        case 1: // down
+          obj.y++;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 2;
+            shiftSize++;
+            shiftCount = shiftSize;
+          }
+          break;
+        case 2: // right
+          obj.x++;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 3;
+            shiftCount = shiftSize;
+          }
+          break;
+        case 3: // up
+          obj.y--;
+          shiftCount--;
+          if (shiftCount == 0) {
+            shiftDir = 0;
+            shiftSize++;
+            shiftCount = shiftSize;
+          }
+          break;
+      }
+
+      if (!isPositionBlocked(
+        obj: obj,
+        x: obj.x,
+        y: obj.y,
+        width: width,
+        height: height,
+        otherObjects: otherObjects,
+      )) {
+        obj.prevX = obj.x;
+        obj.prevY = obj.y;
+        return;
+      }
+    }
+  }
+
   /// Checks whether an object at `(x, y)` would collide with screen boundaries,
   /// horizon, priority buffer control lines, or active block regions.
   bool isPositionBlocked({

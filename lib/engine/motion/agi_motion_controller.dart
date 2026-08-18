@@ -515,6 +515,13 @@ class AgiMotionController {
     if (!blocked) {
       obj.x = newX;
       obj.y = newY;
+    } else {
+      collisionDetector.posShuffle(
+        obj: obj,
+        width: width,
+        height: height,
+        otherObjects: objects,
+      );
     }
 
     final edge = collisionDetector.processBorderHit(
