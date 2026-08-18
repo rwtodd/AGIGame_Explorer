@@ -201,12 +201,26 @@ void main() {
       expect(find.text('📸 SNAPSHOT'), findsOneWidget);
       expect(find.byType(SnapshotThumbnailWidget), findsWidgets);
 
+      // Check that Load JSON is removed, and Copy State JSON is available
+      expect(find.text('Load JSON'), findsNothing);
+      expect(find.text('Copy State JSON'), findsOneWidget);
+
+      // Copy State JSON
+      await tester.tap(find.text('Copy State JSON'));
+      await tester.pumpAndSettle();
+      expect(find.text('📋 Current State JSON (no thumbnail) copied to clipboard!'), findsOneWidget);
+
       // Filter by Manual snapshots only
       await tester.tap(find.text('📸 Manual (1)'));
       await tester.pumpAndSettle();
 
       expect(find.text('📸 SNAPSHOT'), findsOneWidget);
       expect(find.text('🚪 ROOM ENTRY'), findsNothing);
+
+      // Copy individual checkpoint JSON
+      await tester.tap(find.byTooltip('Copy JSON for this snapshot (no thumbnail)'));
+      await tester.pumpAndSettle();
+      expect(find.text('Snapshot JSON (no thumbnail) copied!'), findsOneWidget);
 
       // Filter by Room Entry snapshots only
       await tester.tap(find.text('🚪 Room Entry (1)'));

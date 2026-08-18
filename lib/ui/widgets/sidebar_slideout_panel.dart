@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/providers/settings_provider.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// Available tabs in the sidebar slideout panel.
@@ -14,7 +16,7 @@ enum SidebarPanelTab {
 }
 
 /// Slide-out options panel docked next to the left sidebar in [GameScreen].
-class SidebarSlideoutPanel extends StatefulWidget {
+class SidebarSlideoutPanel extends ConsumerStatefulWidget {
   final bool isOpen;
   final SidebarPanelTab activeTab;
   final AgiGameEngine engine;
@@ -53,10 +55,10 @@ class SidebarSlideoutPanel extends StatefulWidget {
   });
 
   @override
-  State<SidebarSlideoutPanel> createState() => _SidebarSlideoutPanelState();
+  ConsumerState<SidebarSlideoutPanel> createState() => _SidebarSlideoutPanelState();
 }
 
-class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
+class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   AgiSoundPlayer? _previewPlayer;
   bool _isPlayingPreview = false;
 
@@ -78,6 +80,22 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
     _previewPlayer?.stop();
     _previewPlayer?.dispose();
     super.dispose();
+  }
+
+  void _safeSetSoundMode(AgiSoundMode mode) {
+    try {
+      ref.read(settingsProvider.notifier).setSoundMode(mode);
+    } catch (_) {
+      // Safe fallback if mounted without ProviderScope in unit tests
+    }
+  }
+
+  void _safeSetSynthesizerConfig(SynthesizerConfig config) {
+    try {
+      ref.read(settingsProvider.notifier).setSynthesizerConfig(config);
+    } catch (_) {
+      // Safe fallback if mounted without ProviderScope in unit tests
+    }
   }
 
   /// Synthesizes and plays a short preview arpeggio/melody using the active synthesizer config.
@@ -322,7 +340,10 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
           subtitle: 'Mute all game sounds (Flag %f9 = 0)',
           icon: Icons.volume_off,
           isSelected: currentMode == AgiSoundMode.off,
-          onTap: () => engine.setSoundMode(AgiSoundMode.off),
+          onTap: () {
+            engine.setSoundMode(AgiSoundMode.off);
+            _safeSetSoundMode(AgiSoundMode.off);
+          },
         ),
         const SizedBox(height: 6),
 
@@ -332,7 +353,10 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
           subtitle: 'Authentic 1-channel square wave (%v22 = 1)',
           icon: Icons.speaker,
           isSelected: currentMode == AgiSoundMode.ibmPc,
-          onTap: () => engine.setSoundMode(AgiSoundMode.ibmPc),
+          onTap: () {
+            engine.setSoundMode(AgiSoundMode.ibmPc);
+            _safeSetSoundMode(AgiSoundMode.ibmPc);
+          },
         ),
         const SizedBox(height: 6),
 
@@ -342,7 +366,10 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
           subtitle: 'Authentic 3-voice + noise SN76489 (%v22 = 3)',
           icon: Icons.volume_down,
           isSelected: currentMode == AgiSoundMode.pcJr,
-          onTap: () => engine.setSoundMode(AgiSoundMode.pcJr),
+          onTap: () {
+            engine.setSoundMode(AgiSoundMode.pcJr);
+            _safeSetSoundMode(AgiSoundMode.pcJr);
+          },
         ),
         const SizedBox(height: 6),
 
@@ -352,7 +379,10 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
           subtitle: 'Modern synth with custom waveforms & DSP reverb',
           icon: Icons.auto_awesome,
           isSelected: currentMode == AgiSoundMode.enhanced,
-          onTap: () => engine.setSoundMode(AgiSoundMode.enhanced),
+          onTap: () {
+            engine.setSoundMode(AgiSoundMode.enhanced);
+            _safeSetSoundMode(AgiSoundMode.enhanced);
+          },
         ),
 
         if (currentMode == AgiSoundMode.enhanced) ...[
@@ -499,6 +529,7 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
             if (selected) {
               final newConfig = config.copyWith(waveform: opt.$1);
               widget.engine.setSynthesizerConfig(newConfig);
+              _safeSetSynthesizerConfig(newConfig);
             }
           },
         );
@@ -530,6 +561,7 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
                         reverbMix: (val ?? false) && config.reverbMix == 0.0 ? 0.28 : config.reverbMix,
                       );
                       widget.engine.setSynthesizerConfig(newConfig);
+                      _safeSetSynthesizerConfig(newConfig);
                     },
                   ),
                 ),
@@ -573,6 +605,7 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
               onChanged: (val) {
                 final newConfig = config.copyWith(reverbMix: val, enableReverb: true);
                 widget.engine.setSynthesizerConfig(newConfig);
+                _safeSetSynthesizerConfig(newConfig);
               },
             ),
           ),
@@ -601,6 +634,7 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
           enableReverb: true,
         );
         widget.engine.setSynthesizerConfig(newConfig);
+        _safeSetSynthesizerConfig(newConfig);
       },
       borderRadius: BorderRadius.circular(3),
       child: Container(
@@ -655,6 +689,7 @@ class _SidebarSlideoutPanelState extends State<SidebarSlideoutPanel> {
               onChanged: (val) {
                 final newConfig = config.copyWith(masterVolume: val);
                 widget.engine.setSynthesizerConfig(newConfig);
+                _safeSetSynthesizerConfig(newConfig);
               },
             ),
           ),

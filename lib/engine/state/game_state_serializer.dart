@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:path/path.dart' as p;
@@ -14,6 +15,7 @@ class SaveSlotInfo {
   final int maxScore;
   final String filePath;
   final bool exists;
+  final Uint8List? thumbnailRgba;
 
   const SaveSlotInfo({
     required this.slot,
@@ -24,6 +26,7 @@ class SaveSlotInfo {
     required this.maxScore,
     required this.filePath,
     required this.exists,
+    this.thumbnailRgba,
   });
 
   /// Formatted slot display string (e.g. `Slot 1: In front of castle (Score: 12/210, Room 1)`).
@@ -47,8 +50,8 @@ class SaveSlotInfo {
 
 /// Serializer and Deserializer for Sierra AGI save game states (`.sav` files).
 ///
-/// Implements full game state snapshots for `save.game()` (Opcode 125) and
-/// `restore.game()` (Opcode 126).
+/// Fully unified with [AgiGameStateSnapshot] for single-source-of-truth state
+/// management across both disk save games (F5/F7) and interactive debug checkpoints.
 class GameStateSerializer {
   /// Current save state format version.
   static const String version = '1.0';
@@ -60,78 +63,10 @@ class GameStateSerializer {
   static Map<String, dynamic> serialize(
     AgiGameEngine engine, {
     String description = '',
+    bool includeThumbnail = true,
   }) {
-    final mem = engine.memory;
-    final now = DateTime.now().toUtc().toIso8601String();
-
-    // 1. All 256 variables as a full List<int>
-    final variablesList = List<int>.from(mem.variables);
-
-    // 2. All 256 flags as a full List<bool>
-    final flagsList = List<bool>.from(mem.flags);
-
-    // 3. String registers 0..23
-    final stringsMap = <String, String>{};
-    for (int i = 0; i < mem.strings.length; i++) {
-      if (mem.strings[i].isNotEmpty) {
-        stringsMap['$i'] = mem.strings[i];
-      }
-    }
-
-    // 4. Inventory item room locations
-    final itemRoomsMap = <String, int>{};
-    mem.itemRooms.forEach((k, v) {
-      itemRoomsMap['$k'] = v;
-    });
-
-    // 5. Active controllers (controllers that are set)
-    final activeControllers = <int>[];
-    for (int i = 0; i < mem.controllers.length; i++) {
-      if (mem.controllers[i]) {
-        activeControllers.add(i);
-      }
-    }
-
-    // 6. Animated objects state
-    final objectsList = <Map<String, dynamic>>[];
-    for (final obj in engine.animatedObjects) {
-      if (obj.isDrawn || obj.isAnimated || obj.number == 0 || obj.view != 0) {
-        objectsList.add(AgiObjectSnapshot.fromObject(obj).toJson());
-      }
-    }
-
-    // 7. Interpreter call stack
-    final callStackList = engine.interpreter.callStack
-        .map((f) => AgiCallFrameSnapshot(scriptNumber: f.scriptNumber, ip: f.ip).toJson())
-        .toList();
-
-    return {
-      'version': version,
-      'timestamp': now,
-      'description': description.isNotEmpty
-          ? description
-          : 'Room ${mem.getVar(0)} (Score: ${mem.getVar(3)})',
-      'currentRoom': mem.getVar(0),
-      'previousRoom': mem.getVar(1),
-      'score': mem.getVar(3),
-      'scoreMax': mem.getVar(7),
-      'cycleCount': engine.cycleCount,
-      'speedHz': engine.speedHz,
-      'soundOn': mem.getFlag(9),
-      'isPaused': engine.isPaused,
-      'isInputEnabled': engine.isInputEnabled,
-      'isUserControl': engine.isUserControl,
-      'scanStartIp': mem.scanStartIp,
-      'scanStarts': mem.scanStarts.map((k, v) => MapEntry(k.toString(), v)),
-      'lastSubmittedCommand': engine.lastSubmittedCommand ?? '',
-      'variables': variablesList,
-      'flags': flagsList,
-      'strings': stringsMap,
-      'itemRooms': itemRoomsMap,
-      'activeControllers': activeControllers,
-      'animatedObjects': objectsList,
-      'callStack': callStackList,
-    };
+    final snap = engine.createSnapshot(label: description);
+    return snap.toJson(includeThumbnail: includeThumbnail);
   }
 
   /// Formats serialized state as a JSON string.
@@ -139,149 +74,22 @@ class GameStateSerializer {
     AgiGameEngine engine, {
     String description = '',
     bool pretty = true,
+    bool includeThumbnail = true,
   }) {
-    final map = serialize(engine, description: description);
-    if (pretty) {
-      return const JsonEncoder.withIndent('  ').convert(map);
-    }
-    return jsonEncode(map);
+    final snap = engine.createSnapshot(label: description);
+    return snap.toJsonString(pretty: pretty, includeThumbnail: includeThumbnail);
   }
 
   /// Deserializes game state from [data] Map and restores it into [engine].
   static void deserialize(Map<String, dynamic> data, AgiGameEngine engine) {
-    final mem = engine.memory;
-
-    // 1. Restore Variables
-    final varsRaw = data['variables'];
-    if (varsRaw is List) {
-      for (int i = 0; i < varsRaw.length && i < mem.variables.length; i++) {
-        mem.setVar(i, (varsRaw[i] as num).toInt());
-      }
-    } else if (varsRaw is Map) {
-      mem.variables.fillRange(0, mem.variables.length, 0);
-      varsRaw.forEach((k, v) {
-        final idx = int.tryParse(k.toString());
-        if (idx != null && idx >= 0 && idx < mem.variables.length) {
-          mem.setVar(idx, (v as num).toInt());
-        }
-      });
-    }
-
-    // 2. Restore Flags
-    final flagsRaw = data['flags'];
-    if (flagsRaw is List) {
-      if (flagsRaw.isNotEmpty && flagsRaw.first is bool) {
-        for (int i = 0; i < flagsRaw.length && i < mem.flags.length; i++) {
-          if (flagsRaw[i] == true) {
-            mem.setFlag(i);
-          } else {
-            mem.resetFlag(i);
-          }
-        }
-      } else {
-        // List of active flag indices (integers)
-        mem.flags.fillRange(0, mem.flags.length, false);
-        for (final item in flagsRaw) {
-          final idx = (item as num).toInt();
-          if (idx >= 0 && idx < mem.flags.length) {
-            mem.setFlag(idx);
-          }
-        }
-      }
-    }
-
-    // 3. Restore Strings
-    final strRaw = data['strings'];
-    mem.strings.fillRange(0, mem.strings.length, '');
-    if (strRaw is Map) {
-      strRaw.forEach((k, v) {
-        final idx = int.tryParse(k.toString());
-        if (idx != null && idx >= 0 && idx < mem.strings.length) {
-          mem.setString(idx, v.toString());
-        }
-      });
-    } else if (strRaw is List) {
-      for (int i = 0; i < strRaw.length && i < mem.strings.length; i++) {
-        mem.setString(i, strRaw[i]?.toString() ?? '');
-      }
-    }
-
-    // 4. Restore Inventory Item Locations
-    final itemRoomsRaw = data['itemRooms'];
-    mem.itemRooms.clear();
-    if (itemRoomsRaw is Map) {
-      itemRoomsRaw.forEach((k, v) {
-        final idx = int.tryParse(k.toString());
-        if (idx != null) {
-          mem.itemRooms[idx] = (v as num).toInt();
-        }
-      });
-    }
-
-    // 5. Restore Controllers
-    final ctrlRaw = data['activeControllers'];
-    mem.resetControllers();
-    if (ctrlRaw is List) {
-      for (final c in ctrlRaw) {
-        final idx = (c as num).toInt();
-        mem.setController(idx, true);
-      }
-    }
-
-    // 6. Restore Scan Starts
-    mem.scanStarts.clear();
-    if (data['scanStarts'] is Map) {
-      (data['scanStarts'] as Map).forEach((k, v) {
-        final idx = int.tryParse(k.toString());
-        if (idx != null && v is num) {
-          mem.setScanStart(idx, v.toInt());
-        }
-      });
-    } else {
-      final scanStartIp = (data['scanStartIp'] as num?)?.toInt() ?? 0;
-      if (scanStartIp != 0) {
-        mem.scanStartIp = scanStartIp;
-      }
-    }
-
-    // 7. Restore Animated Objects
-    for (final obj in engine.animatedObjects) {
-      obj.reset();
-    }
-    final objsRaw = data['animatedObjects'] ?? data['objects'];
-    if (objsRaw is List) {
-      for (final item in objsRaw) {
-        if (item is Map<String, dynamic>) {
-          final snap = AgiObjectSnapshot.fromJson(item);
-          if (snap.number >= 0 && snap.number < engine.animatedObjects.length) {
-            snap.restoreToObject(engine.animatedObjects[snap.number]);
-          }
-        }
-      }
-    }
-
-    // 8. Restore Engine Parameters
-    final speed = (data['speedHz'] as num?)?.toDouble() ?? 20.0;
-    engine.setSpeedHz(speed);
-
-    engine.isUserControl = (data['isUserControl'] as bool?) ?? true;
-    engine.isInputEnabled = (data['isInputEnabled'] as bool?) ?? true;
-
-    // 9. Flag 12 (restore_in_progress) is set on restore per AGI specification
-    // (Flag 5 / new_room is NOT set on restore in authentic Sierra AGI / NAGI / ScummVM)
-    mem.setFlag(12); // restore_game command executed
-
-    // 10. Reload current room resources if loader is present (without wiping animated objects)
-    final currentRoom = mem.getVar(0);
-    if (engine.resourceLoader != null) {
-      engine.reloadRoomForRestore(currentRoom);
-    }
+    final snap = AgiGameStateSnapshot.fromJson(data);
+    snap.restore(engine);
   }
 
   /// Deserializes game state from a JSON string into [engine].
   static void deserializeFromJson(String jsonString, AgiGameEngine engine) {
-    final map = jsonDecode(jsonString) as Map<String, dynamic>;
-    deserialize(map, engine);
+    final snap = AgiGameStateSnapshot.fromJsonString(jsonString);
+    snap.restore(engine);
   }
 
   /// Parses slot metadata from a JSON string without full engine instantiation.
@@ -305,6 +113,14 @@ class GameStateSerializer {
           (map['maxScore'] as num?)?.toInt() ??
           0;
 
+      Uint8List? thumb;
+      final thumbRaw = map['thumbnail'];
+      if (thumbRaw != null && thumbRaw is String && thumbRaw.isNotEmpty) {
+        try {
+          thumb = base64Decode(thumbRaw);
+        } catch (_) {}
+      }
+
       return SaveSlotInfo(
         slot: slot,
         description: desc,
@@ -314,6 +130,7 @@ class GameStateSerializer {
         maxScore: maxScore,
         filePath: filePath,
         exists: true,
+        thumbnailRgba: thumb,
       );
     } catch (_) {
       return SaveSlotInfo(
@@ -347,11 +164,10 @@ class GameStateSerializer {
     final filePath = p.join(saveDir.path, getSlotFileName(slot));
     final file = File(filePath);
 
-    final jsonContent = serializeToJson(
-      engine,
-      description: description.isNotEmpty ? description : 'Slot $slot Save',
-      pretty: true,
+    final snap = engine.createSnapshot(
+      label: description.isNotEmpty ? description : 'Slot $slot Save',
     );
+    final jsonContent = snap.toJsonString(pretty: true, includeThumbnail: true);
 
     file.writeAsStringSync(jsonContent, flush: true);
     return file;
@@ -387,7 +203,8 @@ class GameStateSerializer {
     }
 
     final jsonContent = file.readAsStringSync();
-    deserializeFromJson(jsonContent, engine);
+    final snap = AgiGameStateSnapshot.fromJsonString(jsonContent);
+    engine.restoreSnapshot(snap);
     return true;
   }
 

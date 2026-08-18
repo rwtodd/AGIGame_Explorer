@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
+import 'package:flutter_agigame/ui/providers/settings_provider.dart';
 import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/objects_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
@@ -9,6 +12,7 @@ import 'package:flutter_agigame/ui/screens/browsers/sound_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/words_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
+import 'package:flutter_agigame/ui/widgets/av_settings_dialog.dart';
 
 class LauncherScreen extends ConsumerStatefulWidget {
   const LauncherScreen({super.key});
@@ -41,7 +45,7 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(launcherState),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -70,7 +74,7 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(LauncherState state) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       decoration: const BoxDecoration(
@@ -121,6 +125,27 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
               ],
             ),
           ),
+          OutlinedButton.icon(
+            onPressed: () => AvSettingsDialog.show(
+              context,
+              resourceLoader: state.loader,
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              side: const BorderSide(color: AgiTheme.egaCyan),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+            ),
+            icon: const Icon(Icons.tune, size: 14, color: AgiTheme.egaCyan),
+            label: const Text(
+              'A/V Settings',
+              style: TextStyle(
+                color: AgiTheme.egaCyan,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -376,38 +401,102 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                 ),
                 const SizedBox(height: 18),
 
-                // Main Gameplay Action
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => GameScreen(
-                            resourceLoader: state.loader,
+                // Main Gameplay Action & A/V Configuration
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => GameScreen(
+                                resourceLoader: state.loader,
+                                initialSettings: ref.read(settingsProvider),
+                              ),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF059669), // Emerald EGA Green
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6),
+                            side: const BorderSide(color: Color(0xFF34D399), width: 1.5),
                           ),
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF059669), // Emerald EGA Green
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        side: const BorderSide(color: Color(0xFF34D399), width: 1.5),
+                        icon: const Icon(Icons.play_circle_filled, size: 20),
+                        label: const Text(
+                          'PLAY GAME',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
                       ),
                     ),
-                    icon: const Icon(Icons.play_circle_filled, size: 20),
-                    label: const Text(
-                      'PLAY GAME',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.0,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton.icon(
+                        onPressed: () => AvSettingsDialog.show(
+                          context,
+                          resourceLoader: state.loader,
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: const BorderSide(color: AgiTheme.egaCyan, width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        icon: const Icon(Icons.tune, size: 18, color: AgiTheme.egaCyan),
+                        label: const Text(
+                          'CONFIGURE A/V',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                            color: AgiTheme.egaCyan,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Pre-launch A/V Summary Chips
+                Consumer(
+                  builder: (context, ref, _) {
+                    final settings = ref.watch(settingsProvider);
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _buildSettingSummaryChip(
+                          icon: Icons.tv,
+                          label: settings.display.showCrtShader
+                              ? 'CRT Scanlines ON'
+                              : (settings.display.correctAspectRatio ? '4:3 CRT Aspect' : '1:1 Square Pixels'),
+                          onTap: () => AvSettingsDialog.show(context, resourceLoader: state.loader),
+                        ),
+                        _buildSettingSummaryChip(
+                          icon: Icons.music_note,
+                          label: _formatAudioSummary(settings.audio),
+                          onTap: () => AvSettingsDialog.show(context, resourceLoader: state.loader),
+                        ),
+                        if (settings.display.strictIntegerScaling)
+                          _buildSettingSummaryChip(
+                            icon: Icons.fit_screen,
+                            label: 'Integer Scaling',
+                            onTap: () => AvSettingsDialog.show(context, resourceLoader: state.loader),
+                          ),
+                      ],
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 20),
@@ -600,6 +689,59 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildSettingSummaryChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131D31),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFF27354A)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: AgiTheme.egaCyan),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AgiTheme.egaWhite,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatAudioSummary(AgiAudioSettings audio) {
+    switch (audio.soundMode) {
+      case AgiSoundMode.off:
+        return 'Audio Muted';
+      case AgiSoundMode.ibmPc:
+        return 'IBM PC Speaker';
+      case AgiSoundMode.pcJr:
+        return 'Tandy 3-Voice';
+      case AgiSoundMode.enhanced:
+        final wave = audio.waveform.name.toUpperCase();
+        if (audio.enableReverb && audio.reverbMix > 0.0) {
+          final rev = (audio.reverbMix * 100).toInt();
+          return 'Enhanced ($wave + $rev% Rev)';
+        }
+        return 'Enhanced ($wave)';
+    }
   }
 
   Widget _buildStatusBar(LauncherState state) {

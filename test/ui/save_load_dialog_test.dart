@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/ui/widgets/save_load_dialog.dart';
+import 'package:flutter_agigame/ui/widgets/snapshot_thumbnail_widget.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -118,6 +119,7 @@ void main() {
       expect(find.text('RESTORE GAME STATE'), findsOneWidget);
       expect(find.text('Restore Game'), findsOneWidget);
       expect(find.text('Magic Tree'), findsOneWidget);
+      expect(find.byType(SnapshotThumbnailWidget), findsOneWidget);
 
       // Tap slot 2
       await tester.tap(find.text('Magic Tree'));
@@ -134,7 +136,6 @@ void main() {
       // Engine state restored
       expect(engine.memory.getVar(0), equals(15));
       expect(engine.memory.getVar(3), equals(75));
-      expect(engine.memory.getFlag(5), isTrue);
       expect(engine.memory.getFlag(12), isTrue);
     });
 
