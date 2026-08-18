@@ -182,13 +182,19 @@ class AgiPicturePainter extends CustomPainter {
             if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
               canvas.save();
               canvas.translate(0.0, -playfieldRow * 8.0);
-              _paintTextOverlay(canvas);
+              _paintTextBackgroundFills(canvas);
               canvas.restore();
             }
             if (actors.isNotEmpty) {
               for (final actor in actors) {
                 actor.draw(canvas, paint);
               }
+            }
+            if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+              canvas.save();
+              canvas.translate(0.0, -playfieldRow * 8.0);
+              _paintTextGlyphs(canvas);
+              canvas.restore();
             }
             break;
 
@@ -396,25 +402,63 @@ class AgiPicturePainter extends CustomPainter {
   }
 
   void _paintTextOverlay(Canvas canvas) {
+    _paintTextBackgroundFills(canvas);
+    _paintTextGlyphs(canvas);
+  }
+
+  void _paintTextBackgroundFills(Canvas canvas) {
     if (textScreenBuffer == null) return;
 
     for (int r = 0; r < AgiTextScreenBuffer.rows; r++) {
       int c = 0;
       while (c < AgiTextScreenBuffer.columns) {
         final cell = textScreenBuffer!.getCell(r, c);
-        if (cell.isBlank && cell.bg == 0) {
+        if (cell.bg == 0) {
+          c++;
+          continue;
+        }
+
+        final startCol = c;
+        final bg = cell.bg;
+
+        while (c < AgiTextScreenBuffer.columns) {
+          final nextCell = textScreenBuffer!.getCell(r, c);
+          if (nextCell.bg != bg) {
+            break;
+          }
+          c++;
+        }
+
+        final cellBgPaint = Paint()
+          ..color = EgaColors.palette[bg.clamp(0, 15)]
+          ..style = PaintingStyle.fill;
+        canvas.drawRect(
+          Rect.fromLTWH(startCol * 8.0, r * 8.0, (c - startCol) * 8.0, 8.0),
+          cellBgPaint,
+        );
+      }
+    }
+  }
+
+  void _paintTextGlyphs(Canvas canvas) {
+    if (textScreenBuffer == null) return;
+
+    for (int r = 0; r < AgiTextScreenBuffer.rows; r++) {
+      int c = 0;
+      while (c < AgiTextScreenBuffer.columns) {
+        final cell = textScreenBuffer!.getCell(r, c);
+        if (cell.isBlank) {
           c++;
           continue;
         }
 
         final startCol = c;
         final fg = cell.fg;
-        final bg = cell.bg;
         final sb = StringBuffer();
 
         while (c < AgiTextScreenBuffer.columns) {
           final nextCell = textScreenBuffer!.getCell(r, c);
-          if (nextCell.fg != fg || nextCell.bg != bg) {
+          if (nextCell.fg != fg || nextCell.isBlank) {
             break;
           }
           sb.write(nextCell.char);
@@ -423,16 +467,6 @@ class AgiPicturePainter extends CustomPainter {
 
         final runText = sb.toString();
         final textTrimmed = runText.trimRight();
-
-        if (bg != 0) {
-          final cellBgPaint = Paint()
-            ..color = EgaColors.palette[bg.clamp(0, 15)]
-            ..style = PaintingStyle.fill;
-          canvas.drawRect(
-            Rect.fromLTWH(startCol * 8.0, r * 8.0, (c - startCol) * 8.0, 8.0),
-            cellBgPaint,
-          );
-        }
 
         if (textTrimmed.isNotEmpty) {
           _paintTextRun(canvas, textTrimmed, startCol, r, fg);
@@ -450,7 +484,7 @@ class AgiPicturePainter extends CustomPainter {
       if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextOverlay(canvas);
+        _paintTextBackgroundFills(canvas);
         canvas.restore();
       }
       if (actors.isNotEmpty) {
@@ -465,6 +499,12 @@ class AgiPicturePainter extends CustomPainter {
         for (final actor in sortedActors) {
           actor.draw(canvas, paint);
         }
+      }
+      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+        canvas.save();
+        canvas.translate(0.0, -playfieldRow * 8.0);
+        _paintTextGlyphs(canvas);
+        canvas.restore();
       }
       return;
     }
@@ -494,17 +534,26 @@ class AgiPicturePainter extends CustomPainter {
         canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
       }
 
+      // Draw background text fills (e.g. solid white newspaper backdrop from clear.text.rect)
+      // on the base playfield layer (priority 4) before actors are composited.
+      if (p == 4 && textScreenBuffer != null && textScreenBuffer!.hasContent) {
+        canvas.save();
+        canvas.translate(0.0, -playfieldRow * 8.0);
+        _paintTextBackgroundFills(canvas);
+        canvas.restore();
+      }
+
       final bandActors = priorityBuckets[p];
       for (final actor in bandActors) {
         actor.draw(canvas, paint);
       }
     }
 
-    // Text overlay (status line, input prompt, and display() text) renders on top of playfield picture and actors
+    // Text glyphs (status line, input prompt, and display() text) float on top of all picture slices and actors
     if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
       canvas.save();
       canvas.translate(0.0, -playfieldRow * 8.0);
-      _paintTextOverlay(canvas);
+      _paintTextGlyphs(canvas);
       canvas.restore();
     }
   }
