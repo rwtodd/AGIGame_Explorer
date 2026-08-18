@@ -27,6 +27,11 @@ class AgiTextScreenBuffer {
   final List<List<AgiTextCell>> _grid;
   int currentFg = 15;
   int currentBg = 0;
+  int _version = 0;
+  int _nonBlankCellCount = 0;
+
+  /// Mutation version number incremented on every buffer modification.
+  int get version => _version;
 
   AgiTextScreenBuffer()
       : _grid = List.generate(
@@ -42,6 +47,20 @@ class AgiTextScreenBuffer {
     return _grid[row][col];
   }
 
+  void _recalculateStats() {
+    _version++;
+    int count = 0;
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < columns; c++) {
+        final cell = _grid[r][c];
+        if (!cell.isBlank || cell.bg != 0) {
+          count++;
+        }
+      }
+    }
+    _nonBlankCellCount = count;
+  }
+
   /// Clears the entire 40x25 text screen with spaces and given or current colors.
   void clear({int? fg, int? bg}) {
     final effectiveFg = fg ?? currentFg;
@@ -53,6 +72,8 @@ class AgiTextScreenBuffer {
         _grid[r][c].bg = effectiveBg;
       }
     }
+    _nonBlankCellCount = (effectiveBg != 0) ? (rows * columns) : 0;
+    _version++;
   }
 
   /// Clears lines from [top] to [bottom] inclusive with [color] (EGA 0..15).
@@ -69,6 +90,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].bg = color.clamp(0, 15);
       }
     }
+    _recalculateStats();
   }
 
   /// Clears character rectangle between [top, left] and [bottom, right] inclusive.
@@ -90,6 +112,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].bg = color.clamp(0, 15);
       }
     }
+    _recalculateStats();
   }
 
   /// Writes [text] starting at ([row], [col]) using active or specified colors.
@@ -131,16 +154,9 @@ class AgiTextScreenBuffer {
       _grid[curRow][curCol].bg = effectiveBg;
       curCol++;
     }
+    _recalculateStats();
   }
 
   /// Returns true if there are any non-space characters or non-zero background colors in the buffer.
-  bool get hasContent {
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < columns; c++) {
-        final cell = _grid[r][c];
-        if (!cell.isBlank || cell.bg != 0) return true;
-      }
-    }
-    return false;
-  }
+  bool get hasContent => _nonBlankCellCount > 0;
 }

@@ -233,7 +233,27 @@ class AgiPicturePainter extends CustomPainter {
     canvas.restore();
   }
 
+  static final List<TextStyle> _egaStyles = List.generate(
+    16,
+    (fg) => TextStyle(
+      color: EgaColors.palette[fg],
+      fontSize: 7.5,
+      fontWeight: FontWeight.w600,
+      fontFamily: 'SF Mono',
+      fontFamilyFallback: const ['Menlo', 'Consolas', 'Courier New', 'monospace'],
+      height: 1.0,
+      letterSpacing: 0.1,
+    ),
+  );
+
+  static final Map<int, double> _scaleCache = {};
+  static final Map<String, TextPainter> _textPainterCache = {};
+  static const int _maxCachedPainters = 256;
+
   static TextStyle _monospaceStyle(int fg, {double fontSize = 7.5}) {
+    if (fontSize == 7.5 && fg >= 0 && fg < 16) {
+      return _egaStyles[fg];
+    }
     return TextStyle(
       color: EgaColors.palette[fg.clamp(0, 15)],
       fontSize: fontSize,
@@ -247,23 +267,31 @@ class AgiPicturePainter extends CustomPainter {
 
   static double _measureMonospaceWidth(String text, int fg, {double fontSize = 7.5}) {
     if (text.isEmpty) return 0.0;
-    final tp = TextPainter(
-      text: TextSpan(text: text, style: _monospaceStyle(fg, fontSize: fontSize)),
-      textDirection: TextDirection.ltr,
-    )..layout();
+    final tp = _getTextPainter(text, fg, fontSize: fontSize);
     return tp.width;
   }
 
   static double _getHorizontalScale(int fg, {double fontSize = 7.5}) {
+    final key = (fg.clamp(0, 15) << 8) | (fontSize * 10).toInt();
+    final cached = _scaleCache[key];
+    if (cached != null) return cached;
+
     final sampleWidth = _measureMonospaceWidth('0123456789ABCDEF', fg, fontSize: fontSize);
-    if (sampleWidth <= 0) return 1.75;
-    final charWidth = sampleWidth / 16.0;
-    return 8.0 / charWidth;
+    final scale = sampleWidth <= 0 ? 1.75 : (8.0 / (sampleWidth / 16.0));
+    _scaleCache[key] = scale;
+    return scale;
   }
 
-  void _paintTextRun(Canvas canvas, String text, int startCol, int r, int fg, {double fontSize = 7.5}) {
-    if (text.isEmpty) return;
-    final textPainter = TextPainter(
+  static TextPainter _getTextPainter(String text, int fg, {double fontSize = 7.5}) {
+    final key = '$fg:$fontSize:$text';
+    final cached = _textPainterCache[key];
+    if (cached != null) return cached;
+
+    if (_textPainterCache.length >= _maxCachedPainters) {
+      _textPainterCache.clear();
+    }
+
+    final tp = TextPainter(
       text: TextSpan(
         text: text,
         style: _monospaceStyle(fg, fontSize: fontSize),
@@ -271,6 +299,13 @@ class AgiPicturePainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     )..layout();
 
+    _textPainterCache[key] = tp;
+    return tp;
+  }
+
+  void _paintTextRun(Canvas canvas, String text, int startCol, int r, int fg, {double fontSize = 7.5}) {
+    if (text.isEmpty) return;
+    final textPainter = _getTextPainter(text, fg, fontSize: fontSize);
     final sx = _getHorizontalScale(fg, fontSize: fontSize);
     final yOffset = r * 8.0 + ((8.0 - textPainter.height) / 2.0).clamp(0.0, 4.0);
 
@@ -562,14 +597,7 @@ class AgiPicturePainter extends CustomPainter {
           );
 
           // Draw item text in white
-          final itemTextPainter = TextPainter(
-            text: TextSpan(
-              text: item.text,
-              style: _monospaceStyle(15),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-
+          final itemTextPainter = _getTextPainter(item.text, 15);
           final sx = _getHorizontalScale(15);
           canvas.save();
           canvas.translate(left + 8.0, top + idx * 8.0 + 2.0);
@@ -578,14 +606,7 @@ class AgiPicturePainter extends CustomPainter {
           canvas.restore();
         } else {
           final fgColor = item.isEnabled ? 0 : 8;
-          final itemTextPainter = TextPainter(
-            text: TextSpan(
-              text: item.text,
-              style: _monospaceStyle(fgColor),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-
+          final itemTextPainter = _getTextPainter(item.text, fgColor);
           final sx = _getHorizontalScale(fgColor);
           canvas.save();
           canvas.translate(left + 8.0, top + idx * 8.0 + 2.0);
@@ -599,9 +620,8 @@ class AgiPicturePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant AgiPicturePainter oldDelegate) {
-    return oldDelegate.picture != picture ||
+    if (oldDelegate.picture != picture ||
         oldDelegate.renderMode != renderMode ||
-        oldDelegate.actors != actors ||
         oldDelegate.isTextScreen != isTextScreen ||
         oldDelegate.textBgColor != textBgColor ||
         oldDelegate.textScreenBuffer != textScreenBuffer ||
@@ -621,7 +641,16 @@ class AgiPicturePainter extends CustomPainter {
         oldDelegate.showPixelGrid != showPixelGrid ||
         oldDelegate.menuManager?.isOpen != menuManager?.isOpen ||
         oldDelegate.menuManager?.activeMenuIndex != menuManager?.activeMenuIndex ||
-        oldDelegate.menuManager?.activeMenu?.selectedItemIndex != menuManager?.activeMenu?.selectedItemIndex;
+        oldDelegate.menuManager?.activeMenu?.selectedItemIndex != menuManager?.activeMenu?.selectedItemIndex) {
+      return true;
+    }
+
+    if (oldDelegate.actors.length != actors.length) return true;
+    for (int i = 0; i < actors.length; i++) {
+      if (oldDelegate.actors[i] != actors[i]) return true;
+    }
+
+    return false;
   }
 }
 

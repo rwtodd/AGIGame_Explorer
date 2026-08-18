@@ -73,25 +73,16 @@ class _GameScreenState extends State<GameScreen> {
     _engine.onSaveGameRequested = () => SaveLoadDialog.showSave(context, _engine);
     _engine.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, _engine);
     _engine.onRestartGameRequested = () => SaveLoadDialog.showRestartConfirmation(context, _engine);
-
-    _engine.addListener(_onEngineUpdated);
   }
 
   @override
   void dispose() {
-    _engine.removeListener(_onEngineUpdated);
     if (widget.engine == null) {
       _engine.soundPlayer?.dispose();
       _engine.dispose();
     }
     _gameFocusNode.dispose();
     super.dispose();
-  }
-
-  void _onEngineUpdated() {
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   void _handleSubmitCommand([String? text]) {
@@ -409,88 +400,100 @@ class _GameScreenState extends State<GameScreen> {
           child: Row(
             children: [
               _buildLeftSidebar(),
-              SidebarSlideoutPanel(
-                isOpen: _openPanelTab != null,
-                activeTab: _openPanelTab ?? SidebarPanelTab.audio,
-                engine: _engine,
-                onTabChanged: (tab) => setState(() => _openPanelTab = tab),
-                onClose: () => setState(() => _openPanelTab = null),
-                showCrtShader: _showCrtShader,
-                onCrtShaderChanged: (val) => setState(() => _showCrtShader = val),
-                showPixelGrid: _showPixelGrid,
-                onPixelGridChanged: (val) => setState(() => _showPixelGrid = val),
-                correctAspectRatio: _correctAspectRatio,
-                onAspectRatioChanged: (val) => setState(() => _correctAspectRatio = val),
-                strictIntegerScaling: _strictIntegerScaling,
-                onStrictIntegerScalingChanged: (val) => setState(() => _strictIntegerScaling = val),
-                renderMode: _renderMode,
-                onRenderModeChanged: (mode) => setState(() => _renderMode = mode),
+              ListenableBuilder(
+                listenable: _engine,
+                builder: (context, _) {
+                  return SidebarSlideoutPanel(
+                    isOpen: _openPanelTab != null,
+                    activeTab: _openPanelTab ?? SidebarPanelTab.audio,
+                    engine: _engine,
+                    onTabChanged: (tab) => setState(() => _openPanelTab = tab),
+                    onClose: () => setState(() => _openPanelTab = null),
+                    showCrtShader: _showCrtShader,
+                    onCrtShaderChanged: (val) => setState(() => _showCrtShader = val),
+                    showPixelGrid: _showPixelGrid,
+                    onPixelGridChanged: (val) => setState(() => _showPixelGrid = val),
+                    correctAspectRatio: _correctAspectRatio,
+                    onAspectRatioChanged: (val) => setState(() => _correctAspectRatio = val),
+                    strictIntegerScaling: _strictIntegerScaling,
+                    onStrictIntegerScalingChanged: (val) => setState(() => _strictIntegerScaling = val),
+                    renderMode: _renderMode,
+                    onRenderModeChanged: (mode) => setState(() => _renderMode = mode),
+                  );
+                },
               ),
               Expanded(
                 child: Container(
                   color: Colors.black,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Main Game Playfield Compositor (takes full height!)
-                      Positioned.fill(
-                        child: GamePlayfieldWidget(
-                          engine: _engine,
-                          renderMode: _renderMode,
-                          showCrtShader: _showCrtShader,
-                          showPixelGrid: _showPixelGrid,
-                          correctAspectRatio: _correctAspectRatio,
-                          strictIntegerScaling: _strictIntegerScaling,
-                          currentInputText: _currentInputText,
-                        ),
-                      ),
-
-                      // Modal Dialog Box Overlay
-                      if (_engine.activeDialog != null)
-                        Positioned.fill(
-                          child: DialogBoxWidget(
-                            dialogState: _engine.activeDialog!,
-                            onDismiss: _engine.dismissDialog,
-                            correctAspectRatio: _correctAspectRatio,
-                            strictIntegerScaling: _strictIntegerScaling,
+                  child: ListenableBuilder(
+                    listenable: _engine,
+                    builder: (context, _) {
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Main Game Playfield Compositor with RepaintBoundary
+                          Positioned.fill(
+                            child: RepaintBoundary(
+                              child: GamePlayfieldWidget(
+                                engine: _engine,
+                                renderMode: _renderMode,
+                                showCrtShader: _showCrtShader,
+                                showPixelGrid: _showPixelGrid,
+                                correctAspectRatio: _correctAspectRatio,
+                                strictIntegerScaling: _strictIntegerScaling,
+                                currentInputText: _currentInputText,
+                              ),
+                            ),
                           ),
-                        ),
 
-                      // Modal Input Prompt Popup Overlay
-                      if (_engine.activeInputPrompt != null)
-                        Positioned.fill(
-                          child: InputPromptDialog(
-                            promptState: _engine.activeInputPrompt!,
-                            onChanged: _engine.updateInputPrompt,
-                            onSubmit: _engine.submitInputPrompt,
-                            onCancel: _engine.cancelInputPrompt,
-                          ),
-                        ),
+                          // Modal Dialog Box Overlay
+                          if (_engine.activeDialog != null)
+                            Positioned.fill(
+                              child: DialogBoxWidget(
+                                dialogState: _engine.activeDialog!,
+                                onDismiss: _engine.dismissDialog,
+                                correctAspectRatio: _correctAspectRatio,
+                                strictIntegerScaling: _strictIntegerScaling,
+                              ),
+                            ),
 
-                      // Inventory Dialog Overlay
-                      if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
-                        Positioned.fill(
-                          child: InventoryDialog(
-                            engine: _engine,
-                            onClose: () => _engine.closeInventory(),
-                            onSelect: (selectedObj) => _engine.closeInventory(selectedObj),
-                            correctAspectRatio: _correctAspectRatio,
-                            strictIntegerScaling: _strictIntegerScaling,
-                          ),
-                        ),
+                          // Modal Input Prompt Popup Overlay
+                          if (_engine.activeInputPrompt != null)
+                            Positioned.fill(
+                              child: InputPromptDialog(
+                                promptState: _engine.activeInputPrompt!,
+                                onChanged: _engine.updateInputPrompt,
+                                onSubmit: _engine.submitInputPrompt,
+                                onCancel: _engine.cancelInputPrompt,
+                              ),
+                            ),
 
-                      // Object Inspection Dialog Overlay
-                      if (_engine.inspectingObjectNumber != null)
-                        Positioned.fill(
-                          child: ObjectInspectionDialog(
-                            engine: _engine,
-                            objectNumber: _engine.inspectingObjectNumber!,
-                            onClose: _engine.closeObjectInspection,
-                            correctAspectRatio: _correctAspectRatio,
-                            strictIntegerScaling: _strictIntegerScaling,
-                          ),
-                        ),
-                    ],
+                          // Inventory Dialog Overlay
+                          if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
+                            Positioned.fill(
+                              child: InventoryDialog(
+                                engine: _engine,
+                                onClose: () => _engine.closeInventory(),
+                                onSelect: (selectedObj) => _engine.closeInventory(selectedObj),
+                                correctAspectRatio: _correctAspectRatio,
+                                strictIntegerScaling: _strictIntegerScaling,
+                              ),
+                            ),
+
+                          // Object Inspection Dialog Overlay
+                          if (_engine.inspectingObjectNumber != null)
+                            Positioned.fill(
+                              child: ObjectInspectionDialog(
+                                engine: _engine,
+                                objectNumber: _engine.inspectingObjectNumber!,
+                                onClose: _engine.closeObjectInspection,
+                                correctAspectRatio: _correctAspectRatio,
+                                strictIntegerScaling: _strictIntegerScaling,
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -523,32 +526,40 @@ class _GameScreenState extends State<GameScreen> {
 
           const Divider(height: 10, thickness: 1, color: AgiTheme.egaBorder),
 
-          // Pause / Play toggle
-          IconButton(
-            icon: Icon(
-              _engine.isPaused ? Icons.play_arrow : Icons.pause,
-              size: 18,
-              color: _engine.isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
-            ),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              if (_engine.isPaused) {
-                _engine.resume();
-              } else {
-                _engine.pause();
-              }
+          // Pause / Play toggle & Single Step (scoped to engine state)
+          ListenableBuilder(
+            listenable: _engine,
+            builder: (context, _) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      _engine.isPaused ? Icons.play_arrow : Icons.pause,
+                      size: 18,
+                      color: _engine.isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      if (_engine.isPaused) {
+                        _engine.resume();
+                      } else {
+                        _engine.pause();
+                      }
+                    },
+                    tooltip: _engine.isPaused ? 'Resume Engine' : 'Pause Engine',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_next, size: 18, color: AgiTheme.egaCyan),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    onPressed: _engine.isPaused ? () => _engine.tick() : null,
+                    tooltip: 'Step Single Cycle',
+                  ),
+                ],
+              );
             },
-            tooltip: _engine.isPaused ? 'Resume Engine' : 'Pause Engine',
-          ),
-
-          // Single Step
-          IconButton(
-            icon: const Icon(Icons.skip_next, size: 18, color: AgiTheme.egaCyan),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: _engine.isPaused ? () => _engine.tick() : null,
-            tooltip: 'Step Single Cycle',
           ),
 
           // Save Game (F5)
@@ -596,8 +607,9 @@ class _GameScreenState extends State<GameScreen> {
           ),
 
           // Sound Options Slideout Button
-          Builder(
-            builder: (context) {
+          ListenableBuilder(
+            listenable: _engine,
+            builder: (context, _) {
               final isAudioOpen = _openPanelTab == SidebarPanelTab.audio;
               IconData soundIcon;
               Color soundColor;

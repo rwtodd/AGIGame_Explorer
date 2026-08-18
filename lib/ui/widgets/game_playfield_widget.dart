@@ -279,29 +279,31 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                   fit: StackFit.expand,
                   children: [
                     if (widget.engine.isTextScreen || currentPic != null)
-                      CustomPaint(
-                        painter: AgiPicturePainter(
-                          picture: currentPic,
-                          actors: _buildActorSprites(),
-                          displayedTexts: widget.engine.displayedTexts,
-                          textScreenBuffer: widget.engine.textScreenBuffer,
-                          isTextScreen: widget.engine.isTextScreen,
-                          textFgColor: widget.engine.textFgColor,
-                          textBgColor: widget.engine.textBgColor,
-                          playfieldRow: widget.engine.playfieldRow,
-                          showCursor: _cursorBlink && (widget.engine.activeInputPrompt?.row != null),
-                          cursorRow: widget.engine.activeInputPrompt?.row,
-                          cursorCol: widget.engine.activeInputPrompt?.col ?? 0,
-                          cursorPromptText: (widget.engine.activeInputPrompt != null && widget.engine.activeInputPrompt!.row != null)
-                              ? '${widget.engine.activeInputPrompt!.prompt}${widget.engine.activeInputPrompt!.currentText}'
-                              : null,
-                          renderMode: widget.renderMode,
-                          flatVisualImage: currentPic?.cachedFlatVisualImage,
-                          priorityMapImage: currentPic?.cachedPriorityMapImage,
-                          controlMapImage: currentPic?.cachedControlMapImage,
-                          isolatedPrioritySlice: widget.isolatedPrioritySlice,
-                          showPixelGrid: widget.showPixelGrid,
-                          menuManager: widget.engine.menuManager,
+                      RepaintBoundary(
+                        child: CustomPaint(
+                          painter: AgiPicturePainter(
+                            picture: currentPic,
+                            actors: _buildActorSprites(),
+                            displayedTexts: widget.engine.displayedTexts,
+                            textScreenBuffer: widget.engine.textScreenBuffer,
+                            isTextScreen: widget.engine.isTextScreen,
+                            textFgColor: widget.engine.textFgColor,
+                            textBgColor: widget.engine.textBgColor,
+                            playfieldRow: widget.engine.playfieldRow,
+                            showCursor: _cursorBlink && (widget.engine.activeInputPrompt?.row != null),
+                            cursorRow: widget.engine.activeInputPrompt?.row,
+                            cursorCol: widget.engine.activeInputPrompt?.col ?? 0,
+                            cursorPromptText: (widget.engine.activeInputPrompt != null && widget.engine.activeInputPrompt!.row != null)
+                                ? '${widget.engine.activeInputPrompt!.prompt}${widget.engine.activeInputPrompt!.currentText}'
+                                : null,
+                            renderMode: widget.renderMode,
+                            flatVisualImage: currentPic?.cachedFlatVisualImage,
+                            priorityMapImage: currentPic?.cachedPriorityMapImage,
+                            controlMapImage: currentPic?.cachedControlMapImage,
+                            isolatedPrioritySlice: widget.isolatedPrioritySlice,
+                            showPixelGrid: widget.showPixelGrid,
+                            menuManager: widget.engine.menuManager,
+                          ),
                         ),
                       )
                     else
