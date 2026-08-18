@@ -128,6 +128,7 @@ void main() {
       expect(engine.cycleCount, greaterThan(cycleWhenOpened), reason: 'Cycle count must resume advancing after menu is closed');
 
       engine.stop();
+      await tester.pump(const Duration(milliseconds: 100));
     });
   });
 

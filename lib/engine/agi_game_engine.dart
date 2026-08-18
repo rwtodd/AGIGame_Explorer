@@ -138,7 +138,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int? _inspectingObjectNumber;
   double _speedHz;
   int _lastSynchronizedDelay = 2;
-  Timer? _gameLoopTimer;
+  int _loopGeneration = 0;
   Timer? _dialogAutoCloseTimer;
   int? _dialogAutoCloseTicks;
   double shakeOffsetX = 0.0;
@@ -352,12 +352,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     notifyListeners();
   }
 
-  /// Starts the game loop timer.
+  /// Starts the self-rescheduling game loop.
   void start() {
-    if (_isRunning) return;
+    if (_isRunning && !_isPaused) return;
     _isRunning = true;
     _isPaused = false;
-    _scheduleLoop();
+    _loopGeneration++;
+    _runLoop(_loopGeneration);
     notifyListeners();
   }
 
@@ -409,10 +410,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final delay = hzToDelay(hz);
     _lastSynchronizedDelay = delay;
     memory.setVar(10, delay);
-    if (_isRunning) {
-      _gameLoopTimer?.cancel();
-      _scheduleLoop();
-    }
     notifyListeners();
   }
 
@@ -420,31 +417,43 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void stop() {
     _isRunning = false;
     _isPaused = false;
-    _gameLoopTimer?.cancel();
-    _gameLoopTimer = null;
+    _loopGeneration++;
     notifyListeners();
   }
 
-  bool _isTicking = false;
+  /// Self-rescheduling single-threaded game loop.
+  /// Guarantees sequential tick execution with zero timer drift or concurrency races.
+  Future<void> _runLoop(int generation) async {
+    while (_isRunning && _loopGeneration == generation) {
+      if (!_isPaused &&
+          !(activeDialog?.isModal ?? false) &&
+          activeInputPrompt == null &&
+          !_isInventoryOpen &&
+          _inspectingObjectNumber == null &&
+          !isMenuOpen &&
+          !interpreter.hasPendingYield &&
+          !interpreter.isExecuting) {
+        final frameStart = DateTime.now();
 
-  void _scheduleLoop() {
-    _gameLoopTimer?.cancel();
-    final intervalMs = (_speedHz > 0) ? (1000.0 / _speedHz).round() : 50;
-    _gameLoopTimer = Timer.periodic(
-      Duration(milliseconds: intervalMs.clamp(1, 1000)),
-      (_) async {
-        if (_isRunning &&
-            !_isPaused &&
-            !_isTicking &&
-            !(activeDialog?.isModal ?? false) &&
-            activeInputPrompt == null &&
-            !_isInventoryOpen &&
-            _inspectingObjectNumber == null &&
-            !isMenuOpen) {
-          await tick();
+        await tick();
+
+        if (!_isRunning || _loopGeneration != generation) break;
+
+        final targetIntervalMs = (_speedHz > 0) ? (1000.0 / _speedHz).round() : 50;
+        final elapsedMs = DateTime.now().difference(frameStart).inMilliseconds;
+        final remainingMs = targetIntervalMs - elapsedMs;
+
+        if (remainingMs > 0) {
+          await Future.delayed(Duration(milliseconds: remainingMs));
+        } else {
+          // Yield to event loop so input events and microtasks process smoothly
+          await Future.delayed(Duration.zero);
         }
-      },
-    );
+      } else {
+        // Paused or in modal state: sleep briefly to avoid busy-wait
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+    }
   }
 
   /// Initializes game with authentic Sierra AGI opening registers, loading root LOGIC 0
@@ -543,69 +552,59 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       _applyCommand(cmd);
     }
     if (_bufferedControllers.isNotEmpty) {
-      for (final ctl in _bufferedControllers) {
+      final ctls = List<int>.from(_bufferedControllers);
+      _bufferedControllers.clear();
+      for (final ctl in ctls) {
         controllerManager.triggerController(ctl, memory);
       }
-      _bufferedControllers.clear();
     }
   }
 
   /// Executes exactly one full 20 Hz AGI cycle.
   FutureOr<void> tick() {
-    if (_isTicking || interpreter.isExecuting) return null;
-    _isTicking = true;
-    bool isAsync = false;
-    try {
-      _cycleCount++;
-      _drainInputQueue();
+    if (interpreter.isExecuting) return null;
+    _cycleCount++;
+    _drainInputQueue();
 
-      // ----------------------------------------------------
-      // Phase 1: Input handling
-      // ----------------------------------------------------
-      // Update Ego direction variable (%v6)
-      memory.setVar(6, ego.direction);
+    // ----------------------------------------------------
+    // Phase 1: Input handling
+    // ----------------------------------------------------
+    // Update Ego direction variable (%v6)
+    memory.setVar(6, ego.direction);
 
-      // ----------------------------------------------------
-      // Phase 2: Motion & Cel Animation Physics
-      // ----------------------------------------------------
-      _updateMotionAndAnimation();
+    // ----------------------------------------------------
+    // Phase 2: Motion & Cel Animation Physics
+    // ----------------------------------------------------
+    _updateMotionAndAnimation();
 
-      // ----------------------------------------------------
-      // Phase 3: LOGIC 0 Scan Cycle Execution
-      // ----------------------------------------------------
-      if (interpreter.rootScript != null || interpreter.currentFrame != null) {
-        try {
-          final res = interpreter.executeCycle();
-          if (res is Future<InterpreterStatus>) {
-            isAsync = true;
-            return res.then((status) {
-              _finishTickExecution(status);
-            }).catchError((e) {
-              _lastError = 'Interpreter error in cycle $_cycleCount: $e';
-              if (kDebugMode) {
-                print(_lastError);
-              }
-            }).whenComplete(() {
-              _isTicking = false;
-            });
-          } else {
-            if (_finishTickExecution(res)) return null;
-            return null;
-          }
-        } catch (e) {
-          _lastError = 'Interpreter error in cycle $_cycleCount: $e';
-          if (kDebugMode) {
-            print(_lastError);
-          }
+    // ----------------------------------------------------
+    // Phase 3: LOGIC 0 Scan Cycle Execution
+    // ----------------------------------------------------
+    if (interpreter.rootScript != null || interpreter.currentFrame != null) {
+      try {
+        final res = interpreter.executeCycle();
+        if (res is Future<InterpreterStatus>) {
+          return res.then((status) {
+            _finishTickExecution(status);
+          }).catchError((e) {
+            _lastError = 'Interpreter error in cycle $_cycleCount: $e';
+            if (kDebugMode) {
+              print(_lastError);
+            }
+          });
+        } else {
+          if (_finishTickExecution(res)) return null;
+          return null;
+        }
+      } catch (e) {
+        _lastError = 'Interpreter error in cycle $_cycleCount: $e';
+        if (kDebugMode) {
+          print(_lastError);
         }
       }
-
-      _finishTickExecution(InterpreterStatus.completed);
-    } finally {
-      if (!isAsync) {
-        _isTicking = false;
-      }
     }
+
+    _finishTickExecution(InterpreterStatus.completed);
   }
 
   bool _finishTickExecution(InterpreterStatus status) {
@@ -641,9 +640,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       final targetHz = delayToHz(currentDelay);
       if ((_speedHz - targetHz).abs() > 0.01) {
         _speedHz = targetHz;
-        if (_isRunning) {
-          _scheduleLoop();
-        }
       }
     }
 
@@ -653,7 +649,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     // Reset transient per-cycle flags and parsed input tokens
-    memory.resetFlag(1); // Ego completely obscured reset
     memory.resetFlag(2); // have.input reset
     memory.resetFlag(4); // said.accepted reset
     memory.resetFlag(5); // init.log / new_room first execution reset
@@ -721,12 +716,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// If [toggleIfSame] is true and Ego is already moving in [direction] (and [direction] != 0),
   /// Ego stops (direction 0).
   void setEgoDirection(int direction, {bool toggleIfSame = true}) {
-    if (_isTicking) {
+    if (_isRunning) {
       _bufferedEgoDirection = direction;
       _bufferedToggleIfSame = toggleIfSame;
-      return;
+    } else {
+      _applyEgoDirection(direction, toggleIfSame: toggleIfSame);
     }
-    _applyEgoDirection(direction, toggleIfSame: toggleIfSame);
     notifyListeners();
   }
 
@@ -739,7 +734,19 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// Whether sound is actively enabled and outputting audio.
   bool get isSoundOn => _soundMode != AgiSoundMode.off && memory.getFlag(9);
 
-  /// Sets the active sound playback mode ([AgiSoundMode]).
+  /// Sets sound enable flag (Flag 9) and updates audio engine.
+  void setSoundOn(bool value) {
+    if (value) {
+      memory.setFlag(9);
+      soundPlayer?.resume();
+    } else {
+      memory.resetFlag(9);
+      soundPlayer?.pause();
+    }
+    notifyListeners();
+  }
+
+  /// Sets sound output hardware emulation mode.
   void setSoundMode(AgiSoundMode mode) {
     _soundMode = mode;
     switch (mode) {
@@ -827,11 +834,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final cleanInput = input.trim();
     if (cleanInput.isEmpty) return;
 
-    if (_isTicking) {
+    if (_isRunning) {
       _bufferedCommands.add(cleanInput);
-      return;
+    } else {
+      _applyCommand(cleanInput);
     }
-    _applyCommand(cleanInput);
     notifyListeners();
   }
 
@@ -952,26 +959,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     dialog.dismissCompleter?.complete();
     activeDialog = null;
     if (interpreter.hasPendingYield) {
-      _isTicking = true;
-      try {
-        final res = interpreter.resume();
-        if (res is Future<InterpreterStatus>) {
-          return res.then((status) {
-            if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-              _performPostScanCleanup();
-            }
-            notifyListeners();
-          }).whenComplete(() {
-            _isTicking = false;
-          });
-        }
-        if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-          _performPostScanCleanup();
-        }
-      } finally {
-        if (!interpreter.isExecuting) {
-          _isTicking = false;
-        }
+      final res = interpreter.resume();
+      if (res is Future<InterpreterStatus>) {
+        return res.then((status) {
+          if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+            _performPostScanCleanup();
+          }
+          notifyListeners();
+        });
+      }
+      if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
       }
     }
     notifyListeners();
@@ -1013,26 +1011,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         prompt.numCompleter?.complete(num);
       }
       activeInputPrompt = null;
-      _isTicking = true;
-      try {
-        final res = interpreter.resumeWithInput(resultValue);
-        if (res is Future<InterpreterStatus>) {
-          return res.then((status) {
-            if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-              _performPostScanCleanup();
-            }
-            notifyListeners();
-          }).whenComplete(() {
-            _isTicking = false;
-          });
-        }
-        if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-          _performPostScanCleanup();
-        }
-      } finally {
-        if (!interpreter.isExecuting) {
-          _isTicking = false;
-        }
+      final res = interpreter.resumeWithInput(resultValue);
+      if (res is Future<InterpreterStatus>) {
+        return res.then((status) {
+          if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+            _performPostScanCleanup();
+          }
+          notifyListeners();
+        });
+      }
+      if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
       }
       notifyListeners();
     }
@@ -1048,26 +1037,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         prompt.numCompleter?.complete(null);
       }
       activeInputPrompt = null;
-      _isTicking = true;
-      try {
-        final res = interpreter.resumeWithInput(null);
-        if (res is Future<InterpreterStatus>) {
-          return res.then((status) {
-            if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-              _performPostScanCleanup();
-            }
-            notifyListeners();
-          }).whenComplete(() {
-            _isTicking = false;
-          });
-        }
-        if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-          _performPostScanCleanup();
-        }
-      } finally {
-        if (!interpreter.isExecuting) {
-          _isTicking = false;
-        }
+      final res = interpreter.resumeWithInput(null);
+      if (res is Future<InterpreterStatus>) {
+        return res.then((status) {
+          if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+            _performPostScanCleanup();
+          }
+          notifyListeners();
+        });
+      }
+      if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
+        _performPostScanCleanup();
       }
       notifyListeners();
     }
@@ -2500,11 +2480,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Triggers controller action by [controllerCode] (0..49) and notifies listeners.
   void triggerController(int controllerCode) {
-    if (_isTicking) {
+    if (_isRunning) {
       _bufferedControllers.add(controllerCode);
-      return;
+    } else {
+      controllerManager.triggerController(controllerCode, memory);
     }
-    controllerManager.triggerController(controllerCode, memory);
     notifyListeners();
   }
 
