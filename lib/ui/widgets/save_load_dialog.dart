@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/widgets/snapshot_thumbnail_widget.dart';
 
 /// Operational mode for [SaveLoadDialog].
 enum SaveLoadMode {
@@ -394,7 +395,20 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
+                                  const SizedBox(width: 10),
+
+                                  // Thumbnail preview for populated slots
+                                  if (isPopulated && slotInfo.thumbnailRgba != null) ...[
+                                    SnapshotThumbnailWidget(
+                                      thumbnailRgba: slotInfo.thumbnailRgba,
+                                      width: 52,
+                                      height: 39,
+                                      borderColor: isSelected
+                                          ? const Color(0xFF38BDF8)
+                                          : const Color(0xFF334155),
+                                    ),
+                                    const SizedBox(width: 10),
+                                  ],
 
                                   // Description & Metadata
                                   Expanded(

@@ -87,9 +87,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
 
   void _handleCopyCurrentJson() {
     final snap = widget.engine.createSnapshot();
-    final jsonStr = snap.toJsonString(pretty: true);
+    final jsonStr = snap.toJsonString(pretty: true, includeThumbnail: false);
     Clipboard.setData(ClipboardData(text: jsonStr));
-    _showToast('📋 Current State JSON copied to clipboard!');
+    _showToast('📋 Current State JSON (no thumbnail) copied to clipboard!');
   }
 
   void _handleCopyDiff() {
@@ -114,53 +114,6 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     setState(() {
       _computedDiffMarkdown = diff.toMarkdown();
     });
-  }
-
-  void _handlePasteJsonDialog() {
-    final textController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AgiTheme.egaDarkSurface,
-        title: const Text(
-          'Load State from JSON',
-          style: TextStyle(color: AgiTheme.egaCyan, fontSize: 16),
-        ),
-        content: SizedBox(
-          width: 500,
-          child: TextField(
-            controller: textController,
-            maxLines: 12,
-            style: const TextStyle(fontSize: 11, fontFamily: 'Courier'),
-            decoration: const InputDecoration(
-              hintText: 'Paste AGI State Snapshot JSON here...',
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final raw = textController.text.trim();
-              if (raw.isNotEmpty) {
-                try {
-                  final snap = AgiGameStateSnapshot.fromJsonString(raw);
-                  widget.engine.restoreSnapshot(snap);
-                  Navigator.of(ctx).pop();
-                  _showToast('✅ State restored successfully!');
-                } catch (e) {
-                  _showToast('❌ Invalid JSON: $e');
-                }
-              }
-            },
-            child: const Text('Restore State'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showToast(String message) {
@@ -563,11 +516,6 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     icon: const Icon(Icons.copy, size: 13),
                     label: const Text('Copy State JSON', style: TextStyle(fontSize: 10)),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: _handlePasteJsonDialog,
-                    icon: const Icon(Icons.file_upload, size: 13),
-                    label: const Text('Load JSON', style: TextStyle(fontSize: 10)),
-                  ),
                   if (allHistory.isNotEmpty)
                     TextButton(
                       onPressed: () => widget.engine.clearCheckpoints(),
@@ -707,10 +655,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                                 ),
                                 IconButton(
                                   icon: const Icon(Icons.copy, size: 14, color: AgiTheme.egaCyan),
-                                  tooltip: 'Copy JSON for this snapshot',
+                                  tooltip: 'Copy JSON for this snapshot (no thumbnail)',
                                   onPressed: () {
-                                    Clipboard.setData(ClipboardData(text: snap.toJsonString(pretty: true)));
-                                    _showToast('Snapshot JSON copied!');
+                                    Clipboard.setData(ClipboardData(text: snap.toJsonString(pretty: true, includeThumbnail: false)));
+                                    _showToast('Snapshot JSON (no thumbnail) copied!');
                                   },
                                 ),
                                 IconButton(

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 
 /// Standard Sierra AGI Variable Names (Variables 0 to 26).
 const Map<int, String> agiVariableNames = {
@@ -297,6 +298,47 @@ class AgiCallFrameSnapshot {
       );
 }
 
+/// Serialized record of an `add.to.pic` visual/priority background modification.
+class AgiAddToPicEntry {
+  final int view;
+  final int loop;
+  final int cel;
+  final int x;
+  final int y;
+  final int priority;
+  final int boxPriority;
+
+  const AgiAddToPicEntry({
+    required this.view,
+    required this.loop,
+    required this.cel,
+    required this.x,
+    required this.y,
+    required this.priority,
+    required this.boxPriority,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'view': view,
+        'loop': loop,
+        'cel': cel,
+        'x': x,
+        'y': y,
+        'priority': priority,
+        'boxPriority': boxPriority,
+      };
+
+  factory AgiAddToPicEntry.fromJson(Map<String, dynamic> json) => AgiAddToPicEntry(
+        view: (json['view'] as num?)?.toInt() ?? 0,
+        loop: (json['loop'] as num?)?.toInt() ?? 0,
+        cel: (json['cel'] as num?)?.toInt() ?? 0,
+        x: (json['x'] as num?)?.toInt() ?? 0,
+        y: (json['y'] as num?)?.toInt() ?? 0,
+        priority: (json['priority'] as num?)?.toInt() ?? 0,
+        boxPriority: (json['boxPriority'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// Complete serializable snapshot of Sierra AGI Game State.
 class AgiGameStateSnapshot {
   final String timestamp;
@@ -345,6 +387,18 @@ class AgiGameStateSnapshot {
   /// Whether this snapshot was recorded automatically upon a room transition.
   final bool isRoomTransition;
 
+  /// Room horizon line Y coordinate (default 36).
+  final int horizon;
+
+  /// Active script block area `[x1, y1, x2, y2]` or null if none.
+  final List<int>? activeBlock;
+
+  /// Numbers of all loaded secondary/auxiliary logic scripts.
+  final List<int> loadedLogics;
+
+  /// Recorded `add.to.pic` modifications in the current room.
+  final List<AgiAddToPicEntry> addToPicEntries;
+
   const AgiGameStateSnapshot({
     required this.timestamp,
     this.label = '',
@@ -370,6 +424,10 @@ class AgiGameStateSnapshot {
     this.scanStarts = const {},
     this.thumbnailRgba,
     this.isRoomTransition = false,
+    this.horizon = CollisionDetector.defaultHorizon,
+    this.activeBlock,
+    this.loadedLogics = const [],
+    this.addToPicEntries = const [],
   });
 
   /// Captures a complete snapshot from live [AgiGameEngine].
@@ -439,6 +497,10 @@ class AgiGameStateSnapshot {
     // Capture screen thumbnail if not explicitly provided
     final thumbnail = thumbnailRgba ?? engine.captureScreenThumbnailRgba();
 
+    final block = engine.activeBlock != null
+        ? [engine.activeBlock!.x1, engine.activeBlock!.y1, engine.activeBlock!.x2, engine.activeBlock!.y2]
+        : null;
+
     return AgiGameStateSnapshot(
       timestamp: now,
       label: label.isEmpty ? 'Room ${engine.currentRoom} (Cycle ${engine.cycleCount})' : label,
@@ -464,6 +526,10 @@ class AgiGameStateSnapshot {
       scanStarts: mem.scanStarts.map((k, v) => MapEntry(k.toString(), v)),
       thumbnailRgba: thumbnail,
       isRoomTransition: isRoomTransition,
+      horizon: engine.horizon,
+      activeBlock: block,
+      loadedLogics: engine.loadedLogicNumbers.toList(),
+      addToPicEntries: engine.addToPicCalls.toList(),
     );
   }
 
@@ -555,14 +621,30 @@ class AgiGameStateSnapshot {
       }
     }
 
-    // If room loader is present, reload room picture and logic without wiping objects
-    if (engine.resourceLoader != null) {
-      engine.reloadRoomForRestore(roomNumber);
-    }
+    // Restore horizon & block
+    engine.horizon = horizon;
+    final block = activeBlock != null && activeBlock!.length == 4
+        ? AgiBlockArea(
+            x1: activeBlock![0],
+            y1: activeBlock![1],
+            x2: activeBlock![2],
+            y2: activeBlock![3],
+          )
+        : null;
+    engine.activeBlock = block;
+
+    // Reload room picture, replay add.to.pic, and logic without wiping objects
+    engine.reloadRoomForRestore(
+      roomNumber,
+      restoredHorizon: horizon,
+      restoredBlock: block,
+      loadedLogics: loadedLogics,
+      addToPicEntries: addToPicEntries,
+    );
   }
 
   /// Serializes to Map.
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson({bool includeThumbnail = true}) => {
         'version': '1.0',
         'timestamp': timestamp,
         'label': label,
@@ -587,38 +669,91 @@ class AgiGameStateSnapshot {
         'scanStartIp': scanStartIp,
         'scanStarts': scanStarts,
         'isRoomTransition': isRoomTransition,
-        if (thumbnailRgba != null) 'thumbnail': base64Encode(thumbnailRgba!),
+        'horizon': horizon,
+        if (activeBlock != null) 'activeBlock': activeBlock,
+        if (loadedLogics.isNotEmpty) 'loadedLogics': loadedLogics,
+        if (addToPicEntries.isNotEmpty) 'addToPic': addToPicEntries.map((e) => e.toJson()).toList(),
+        if (includeThumbnail && thumbnailRgba != null) 'thumbnail': base64Encode(thumbnailRgba!),
       };
 
   /// Formats snapshot as a JSON string.
-  String toJsonString({bool pretty = true}) {
+  String toJsonString({bool pretty = true, bool includeThumbnail = true}) {
+    final map = toJson(includeThumbnail: includeThumbnail);
     if (pretty) {
-      return const JsonEncoder.withIndent('  ').convert(toJson());
+      return const JsonEncoder.withIndent('  ').convert(map);
     }
-    return jsonEncode(toJson());
+    return jsonEncode(map);
   }
 
   /// Deserializes from Map.
   factory AgiGameStateSnapshot.fromJson(Map<String, dynamic> json) {
-    final varsRaw = (json['variables'] as Map?) ?? {};
-    final vars = varsRaw.map((k, v) => MapEntry(k.toString(), v as int));
+    // Handle variables: Map or List (legacy GameStateSerializer)
+    final vars = <String, int>{};
+    final varsRaw = json['variables'];
+    if (varsRaw is Map) {
+      varsRaw.forEach((k, v) {
+        final idx = int.tryParse(k.toString());
+        if (idx != null && v is num) {
+          vars['$idx'] = v.toInt();
+        }
+      });
+    } else if (varsRaw is List) {
+      for (int i = 0; i < varsRaw.length; i++) {
+        final v = varsRaw[i];
+        if (v is num && v != 0) {
+          vars['$i'] = v.toInt();
+        }
+      }
+    }
 
-    final flagsRaw = json['activeFlags'] as List<dynamic>? ?? [];
-    final activeFlags = flagsRaw.cast<int>();
+    // Handle flags: activeFlags (indices) or flags (List<bool>)
+    final activeFlags = <int>[];
+    final flagsRaw = json['activeFlags'] ?? json['flags'];
+    if (flagsRaw is List) {
+      if (flagsRaw.isNotEmpty && flagsRaw.first is bool) {
+        for (int i = 0; i < flagsRaw.length; i++) {
+          if (flagsRaw[i] == true) {
+            activeFlags.add(i);
+          }
+        }
+      } else {
+        for (final item in flagsRaw) {
+          if (item is num) {
+            activeFlags.add(item.toInt());
+          }
+        }
+      }
+    }
 
     final ctrlRaw = json['activeControllers'] as List<dynamic>? ?? [];
-    final activeControllers = ctrlRaw.cast<int>();
+    final activeControllers = ctrlRaw.map((e) => (e as num).toInt()).toList();
 
     final itemsRaw = (json['itemRooms'] as Map?) ?? {};
-    final itemRooms = itemsRaw.map((k, v) => MapEntry(k.toString(), v as int));
+    final itemRooms = itemsRaw.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
 
-    final strRaw = (json['strings'] as Map?) ?? {};
-    final strings = strRaw.map((k, v) => MapEntry(k.toString(), v.toString()));
+    final strings = <String, String>{};
+    final strRaw = json['strings'];
+    if (strRaw is Map) {
+      strRaw.forEach((k, v) {
+        strings[k.toString()] = v.toString();
+      });
+    } else if (strRaw is List) {
+      for (int i = 0; i < strRaw.length; i++) {
+        if (strRaw[i] != null && strRaw[i].toString().isNotEmpty) {
+          strings['$i'] = strRaw[i].toString();
+        }
+      }
+    }
 
-    final objsRaw = json['objects'] as List<dynamic>? ?? [];
-    final objects = objsRaw
-        .map((o) => AgiObjectSnapshot.fromJson((o as Map).cast<String, dynamic>()))
-        .toList();
+    final objsRaw = json['objects'] ?? json['animatedObjects'];
+    final objects = <AgiObjectSnapshot>[];
+    if (objsRaw is List) {
+      for (final o in objsRaw) {
+        if (o is Map) {
+          objects.add(AgiObjectSnapshot.fromJson(o.cast<String, dynamic>()));
+        }
+      }
+    }
 
     final stackRaw = json['callStack'] as List<dynamic>? ?? [];
     final callStack = stackRaw
@@ -626,20 +761,40 @@ class AgiGameStateSnapshot {
         .toList();
 
     final scanStartsRaw = (json['scanStarts'] as Map?) ?? {};
-    final scanStarts = scanStartsRaw.map((k, v) => MapEntry(k.toString(), v as int));
+    final scanStarts = scanStartsRaw.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
 
     final thumbnailRaw = json['thumbnail'] as String?;
     final thumbnailRgba = thumbnailRaw != null ? base64Decode(thumbnailRaw) : null;
     final isRoomTransition = json['isRoomTransition'] as bool? ?? false;
 
+    final room = (json['roomNumber'] as num?)?.toInt() ??
+        (json['currentRoom'] as num?)?.toInt() ??
+        0;
+    final score = (json['score'] as num?)?.toInt() ?? 0;
+    final maxScore = (json['maxScore'] as num?)?.toInt() ??
+        (json['scoreMax'] as num?)?.toInt() ??
+        0;
+    final label = json['label'] as String? ?? (json['description'] as String? ?? '');
+
+    final horizon = (json['horizon'] as num?)?.toInt() ?? CollisionDetector.defaultHorizon;
+    final blockRaw = json['activeBlock'] as List<dynamic>?;
+    final activeBlock = blockRaw?.map((e) => (e as num).toInt()).toList();
+    final logicsRaw = json['loadedLogics'] as List<dynamic>?;
+    final loadedLogics = logicsRaw?.map((e) => (e as num).toInt()).toList() ?? const <int>[];
+
+    final addToPicRaw = json['addToPic'] as List<dynamic>?;
+    final addToPicEntries = addToPicRaw != null
+        ? addToPicRaw.map((e) => AgiAddToPicEntry.fromJson((e as Map).cast<String, dynamic>())).toList()
+        : const <AgiAddToPicEntry>[];
+
     return AgiGameStateSnapshot(
       timestamp: json['timestamp'] as String? ?? '',
-      label: json['label'] as String? ?? '',
-      roomNumber: json['roomNumber'] as int? ?? 0,
-      cycleCount: json['cycleCount'] as int? ?? 0,
+      label: label,
+      roomNumber: room,
+      cycleCount: (json['cycleCount'] as num?)?.toInt() ?? 0,
       speedHz: (json['speedHz'] as num?)?.toDouble() ?? 20.0,
-      score: json['score'] as int? ?? 0,
-      maxScore: json['maxScore'] as int? ?? 0,
+      score: score,
+      maxScore: maxScore,
       soundOn: json['soundOn'] as bool? ?? true,
       isPaused: json['isPaused'] as bool? ?? false,
       isInputEnabled: json['isInputEnabled'] as bool? ?? true,
@@ -657,6 +812,10 @@ class AgiGameStateSnapshot {
       scanStarts: scanStarts,
       thumbnailRgba: thumbnailRgba,
       isRoomTransition: isRoomTransition,
+      horizon: horizon,
+      activeBlock: activeBlock,
+      loadedLogics: loadedLogics,
+      addToPicEntries: addToPicEntries,
     );
   }
 

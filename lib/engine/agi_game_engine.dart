@@ -165,6 +165,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   SynthesizerConfig _synthesizerConfig = const SynthesizerConfig();
   int horizon = CollisionDetector.defaultHorizon;
   AgiBlockArea? activeBlock;
+  final List<AgiAddToPicEntry> _addToPicCalls = [];
+
+  /// Active list of `add.to.pic` background modifications in the current room.
+  List<AgiAddToPicEntry> get addToPicCalls => List.unmodifiable(_addToPicCalls);
 
   final AgiDictionary? _customDictionary;
 
@@ -1603,6 +1607,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     onStopSound();
     horizon = CollisionDetector.defaultHorizon;
     activeBlock = null;
+    _addToPicCalls.clear();
     final currentRoom = memory.getVar(0);
     if (currentRoom != roomNumber) {
       memory.setVar(1, currentRoom); // %v1 = previous room
@@ -1656,27 +1661,70 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Reloads room picture and root logic (LOGIC 0) after state restoration
   /// without resetting or wiping restored animated objects.
-  void reloadRoomForRestore(int roomNumber) {
+  void reloadRoomForRestore(
+    int roomNumber, {
+    int? restoredHorizon,
+    AgiBlockArea? restoredBlock,
+    List<int>? loadedLogics,
+    List<AgiAddToPicEntry>? addToPicEntries,
+  }) {
     onStopSound();
-    horizon = CollisionDetector.defaultHorizon;
-    activeBlock = null;
+    horizon = restoredHorizon ?? CollisionDetector.defaultHorizon;
+    activeBlock = restoredBlock;
     _displayedTexts.clear();
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
     _isTextScreen = false;
 
+    _addToPicCalls.clear();
+    if (addToPicEntries != null) {
+      _addToPicCalls.addAll(addToPicEntries);
+    }
+
     // Load room picture if available
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(roomNumber)) {
       currentPic = resourceLoader!.loadPic(roomNumber);
+
+      // Replay all recorded add.to.pic calls
+      for (final call in _addToPicCalls) {
+        try {
+          _burnAddToPic(call);
+        } catch (_) {}
+      }
+
+      if (_addToPicCalls.isNotEmpty) {
+        final newSlices = PictureSlicer.slice(
+          visualPixels: currentPic!.visualPixels,
+          priorityBuffer: currentPic!.priorityBuffer,
+        );
+        currentPic!.slices.clear();
+        currentPic!.slices.addAll(newSlices);
+      }
+
       currentPic?.preloadGpuTextures();
     }
 
-    // Load root room logic (LOGIC 0) for execution scan
+    // Load root room logic (LOGIC 0) and any restored active logics for execution scan
     _loadedLogicNumbers.clear();
     _loadedLogicNumbers.add(0);
     _loadedLogicNumbers.add(roomNumber);
-    if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
-      final logic0 = resourceLoader!.loadLogic(0);
-      interpreter.loadRootScript(logic0, scriptNumber: 0);
+    if (loadedLogics != null) {
+      _loadedLogicNumbers.addAll(loadedLogics);
+    }
+
+    if (resourceLoader != null) {
+      if (resourceLoader!.presentLogicNumbers.contains(0)) {
+        final logic0 = resourceLoader!.loadLogic(0);
+        interpreter.loadRootScript(logic0, scriptNumber: 0);
+      }
+
+      // Preload all active secondary logics if present
+      for (final logicNum in _loadedLogicNumbers) {
+        if (logicNum != 0 && resourceLoader!.presentLogicNumbers.contains(logicNum)) {
+          try {
+            resourceLoader!.loadLogic(logicNum);
+          } catch (_) {}
+        }
+      }
     }
 
     notifyListeners();
@@ -2114,52 +2162,21 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void onAddToPic(int view, int loop, int cel, int x, int y, int pri, int boxPri) {
+    final entry = AgiAddToPicEntry(
+      view: view,
+      loop: loop,
+      cel: cel,
+      x: x,
+      y: y,
+      priority: pri,
+      boxPriority: boxPri,
+    );
+    _addToPicCalls.add(entry);
+
     if (resourceLoader == null || currentPic == null) return;
 
     try {
-      final viewRes = resourceLoader!.loadView(view);
-      final celRes = viewRes.getCel(loop, cel);
-      if (celRes == null) return;
-
-      final pixels = celRes.getPixels(parentView: viewRes, celIndex: cel);
-      final cw = celRes.width;
-      final ch = celRes.height;
-      final startY = y - ch + 1;
-
-      final effectivePri = pri > 0 ? pri : 4;
-
-      // Burn pixels into visual buffer and priority buffer respecting background priority
-      for (int cy = 0; cy < ch; cy++) {
-        final py = startY + cy;
-        if (py < 0 || py >= AgiPic.nativeHeight) continue;
-
-        for (int cx = 0; cx < cw; cx++) {
-          final px = x + cx;
-          if (px < 0 || px >= AgiPic.nativeWidth) continue;
-
-          final colorIndex = pixels[cy * cw + cx] & 0x0F;
-          if (colorIndex != celRes.transparentColor) {
-            final bgPri = currentPic!.priorityBuffer.priorityAt(px, py);
-            // In Sierra AGI: sprite pixels are only drawn if sprite priority >= background priority.
-            // If background priority > sprite priority, the background is in front of the sprite!
-            if (effectivePri >= bgPri) {
-              currentPic!.visualPixels[py * AgiPic.nativeWidth + px] = colorIndex;
-              if (pri > 0) {
-                currentPic!.priorityBuffer.setPriorityAt(px, py, pri);
-              }
-            }
-          }
-        }
-      }
-
-      // If boxPri > 0, burn solid priority bar at base
-      if (boxPri > 0 && y >= 0 && y < AgiPic.nativeHeight) {
-        for (int bx = x; bx < x + cw; bx++) {
-          if (bx >= 0 && bx < AgiPic.nativeWidth) {
-            currentPic!.priorityBuffer.setPriorityAt(bx, y, boxPri);
-          }
-        }
-      }
+      _burnAddToPic(entry);
 
       // Re-slice picture with updated buffers
       final newSlices = PictureSlicer.slice(
@@ -2172,6 +2189,53 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     } catch (e) {
       if (kDebugMode) {
         print('Error executing add.to.pic: $e');
+      }
+    }
+  }
+
+  void _burnAddToPic(AgiAddToPicEntry entry) {
+    if (resourceLoader == null || currentPic == null) return;
+
+    final viewRes = resourceLoader!.loadView(entry.view);
+    final celRes = viewRes.getCel(entry.loop, entry.cel);
+    if (celRes == null) return;
+
+    final pixels = celRes.getPixels(parentView: viewRes, celIndex: entry.cel);
+    final cw = celRes.width;
+    final ch = celRes.height;
+    final startY = entry.y - ch + 1;
+
+    final effectivePri = entry.priority > 0 ? entry.priority : 4;
+
+    // Burn pixels into visual buffer and priority buffer respecting background priority
+    for (int cy = 0; cy < ch; cy++) {
+      final py = startY + cy;
+      if (py < 0 || py >= AgiPic.nativeHeight) continue;
+
+      for (int cx = 0; cx < cw; cx++) {
+        final px = entry.x + cx;
+        if (px < 0 || px >= AgiPic.nativeWidth) continue;
+
+        final colorIndex = pixels[cy * cw + cx] & 0x0F;
+        if (colorIndex != celRes.transparentColor) {
+          final bgPri = currentPic!.priorityBuffer.priorityAt(px, py);
+          // In Sierra AGI: sprite pixels are only drawn if sprite priority >= background priority.
+          if (effectivePri >= bgPri) {
+            currentPic!.visualPixels[py * AgiPic.nativeWidth + px] = colorIndex;
+            if (entry.priority > 0) {
+              currentPic!.priorityBuffer.setPriorityAt(px, py, entry.priority);
+            }
+          }
+        }
+      }
+    }
+
+    // If boxPri > 0, burn solid priority bar at base
+    if (entry.boxPriority > 0 && entry.y >= 0 && entry.y < AgiPic.nativeHeight) {
+      for (int bx = entry.x; bx < entry.x + cw; bx++) {
+        if (bx >= 0 && bx < AgiPic.nativeWidth) {
+          currentPic!.priorityBuffer.setPriorityAt(bx, entry.y, entry.boxPriority);
+        }
       }
     }
   }

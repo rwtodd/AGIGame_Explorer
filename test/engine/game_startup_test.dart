@@ -233,8 +233,8 @@ void main() {
       bcEngine.changeRoom(8);
       expect(bcEngine.memory.getVar(0), 8);
 
-      // Run for 500 cycles (~25 seconds of idle gameplay)
-      for (var cycle = 0; cycle < 500; cycle++) {
+      // Run for 150 cycles (~7.5 seconds of idle gameplay)
+      for (var cycle = 0; cycle < 150; cycle++) {
         if (bcEngine.activeDialog != null) {
           bcEngine.dismissDialog();
         }

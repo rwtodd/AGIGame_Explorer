@@ -60,26 +60,26 @@ void main() {
       );
 
       expect(serialized['version'], equals('1.0'));
-      expect(serialized['description'], equals('Before Dragon Lair'));
-      expect(serialized['currentRoom'], equals(14));
-      expect(serialized['previousRoom'], equals(12));
+      expect(serialized['label'], equals('Before Dragon Lair'));
+      expect(serialized['roomNumber'], equals(14));
       expect(serialized['score'], equals(42));
-      expect(serialized['scoreMax'], equals(210));
+      expect(serialized['maxScore'], equals(210));
       expect(serialized['scanStartIp'], equals(42));
+      expect(serialized['thumbnail'], isNotNull);
 
       // Variables
-      final vars = (serialized['variables'] as List).cast<int>();
-      expect(vars[0], equals(14));
-      expect(vars[1], equals(12));
-      expect(vars[3], equals(42));
-      expect(vars[7], equals(210));
-      expect(vars[100], equals(255));
+      final vars = serialized['variables'] as Map<String, dynamic>;
+      expect(vars['0'], equals(14));
+      expect(vars['1'], equals(12));
+      expect(vars['3'], equals(42));
+      expect(vars['7'], equals(210));
+      expect(vars['100'], equals(255));
 
       // Flags
-      final flags = (serialized['flags'] as List).cast<bool>();
-      expect(flags[9], isTrue);
-      expect(flags[50], isTrue);
-      expect(flags[51], isFalse);
+      final activeFlags = (serialized['activeFlags'] as List).cast<int>();
+      expect(activeFlags, contains(9));
+      expect(activeFlags, contains(50));
+      expect(activeFlags, isNot(contains(51)));
 
       // Strings
       final strings = serialized['strings'] as Map<String, dynamic>;
@@ -92,7 +92,7 @@ void main() {
       expect(items['1'], equals(14));
 
       // Objects
-      final objs = serialized['animatedObjects'] as List;
+      final objs = serialized['objects'] as List;
       expect(objs, isNotEmpty);
       final egoSnap = objs.firstWhere((o) => o['number'] == 0);
       expect(egoSnap['x'], equals(80));
@@ -160,6 +160,47 @@ void main() {
       expect(restoredEgo.view, equals(2));
       expect(restoredEgo.isDrawn, isTrue);
     });
+
+    test('backward-compatibility: deserializes legacy format save game files', () {
+      final legacyJson = jsonEncode({
+        'version': '1.0',
+        'description': 'Legacy Save File',
+        'currentRoom': 22,
+        'score': 55,
+        'scoreMax': 100,
+        'variables': [0, 0, 0, 55, 0, 0, 0, 100, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22],
+        'flags': [false, false, false, false, false, false, false, false, false, true, false, false, false, true],
+        'strings': {'0': 'Legacy String'},
+        'itemRooms': {'1': 22},
+        'animatedObjects': [
+          {
+            'number': 0,
+            'x': 50,
+            'y': 60,
+            'view': 1,
+            'loop': 0,
+            'cel': 0,
+            'priority': 4,
+            'fixedPriority': false,
+            'isDrawn': true,
+            'isAnimated': true,
+          }
+        ]
+      });
+
+      final targetEngine = AgiGameEngine();
+      GameStateSerializer.deserializeFromJson(legacyJson, targetEngine);
+
+      expect(targetEngine.memory.getVar(3), equals(55));
+      expect(targetEngine.memory.getVar(7), equals(100));
+      expect(targetEngine.memory.getVar(21), equals(22));
+      expect(targetEngine.memory.getFlag(9), isTrue);
+      expect(targetEngine.memory.getFlag(13), isTrue);
+      expect(targetEngine.memory.getString(0), equals('Legacy String'));
+      expect(targetEngine.memory.itemRooms[1], equals(22));
+      expect(targetEngine.animatedObjects[0].x, equals(50));
+      expect(targetEngine.animatedObjects[0].y, equals(60));
+    });
   });
 
   group('Multi-Slot Save & Restore File Management', () {
@@ -179,9 +220,10 @@ void main() {
 
       final content = await file.readAsString();
       final map = jsonDecode(content) as Map<String, dynamic>;
-      expect(map['description'], equals('Test Slot 1'));
-      expect(map['currentRoom'], equals(5));
+      expect(map['label'], equals('Test Slot 1'));
+      expect(map['roomNumber'], equals(5));
       expect(map['score'], equals(20));
+      expect(map['thumbnail'], isNotNull);
     });
 
     test('listSlots returns info for all 12 slots with accurate exists flag and metadata', () async {
@@ -270,7 +312,7 @@ void main() {
       expect(engine.memory.getVar(0), equals(18));
       expect(engine.memory.getVar(3), equals(99));
       expect(engine.memory.getFlag(77), isTrue);
-      expect(engine.memory.getFlag(5), isTrue);
+      expect(engine.memory.getFlag(5), isFalse);
       expect(engine.memory.getFlag(12), isTrue);
       expect(engine.ego.x, equals(110));
       expect(engine.ego.y, equals(130));
@@ -356,6 +398,53 @@ void main() {
       expect(restoredNpc.motionType, equals(1));
       expect(restoredNpc.isUpdating, isTrue);
       expect(restoredNpc.isCycling, isTrue);
+    });
+
+    test('save and restore preserves custom horizon, activeBlock, loadedLogics, and addToPicCalls with thumbnails', () async {
+      engine.horizon = 48;
+      engine.onBlock(20, 30, 80, 90);
+      engine.loadLogic(104);
+      engine.onAddToPic(5, 0, 0, 100, 120, 4, 3);
+
+      await GameStateSerializer.saveToSlot(
+        engine,
+        4,
+        description: 'Custom Barrier Room',
+        directory: tempDir,
+      );
+
+      // Verify slot info has thumbnail
+      final slotInfo = await GameStateSerializer.getSlotInfo(4, directory: tempDir);
+      expect(slotInfo, isNotNull);
+      expect(slotInfo!.exists, isTrue);
+      expect(slotInfo.description, equals('Custom Barrier Room'));
+      expect(slotInfo.thumbnailRgba, isNotNull);
+      expect(slotInfo.thumbnailRgba!.length, 80 * 84 * 4);
+
+      // Reset engine horizon, block, and change room
+      engine.horizon = 36;
+      engine.onUnblock();
+      engine.changeRoom(2);
+      expect(engine.horizon, 36);
+      expect(engine.activeBlock, isNull);
+      expect(engine.addToPicCalls, isEmpty);
+
+      // Restore
+      final restored = await GameStateSerializer.restoreFromSlot(engine, 4, directory: tempDir);
+      expect(restored, isTrue);
+
+      expect(engine.horizon, equals(48));
+      expect(engine.activeBlock, isNotNull);
+      expect(engine.activeBlock!.x1, equals(20));
+      expect(engine.activeBlock!.y1, equals(30));
+      expect(engine.activeBlock!.x2, equals(80));
+      expect(engine.activeBlock!.y2, equals(90));
+      expect(engine.loadedLogicNumbers, contains(104));
+      expect(engine.addToPicCalls.length, 1);
+      expect(engine.addToPicCalls[0].view, 5);
+      expect(engine.addToPicCalls[0].x, 100);
+      expect(engine.addToPicCalls[0].y, 120);
+      expect(engine.addToPicCalls[0].boxPriority, 3);
     });
   });
 

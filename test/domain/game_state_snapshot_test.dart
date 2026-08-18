@@ -167,13 +167,22 @@ void main() {
       expect(snap.thumbnailRgba, isNotNull);
       expect(snap.thumbnailRgba!.length, 80 * 84 * 4);
 
-      // JSON round-trip preserves thumbnail and room transition flag
+      // JSON round-trip preserves thumbnail and room transition flag by default
       final jsonStr = snap.toJsonString();
+      expect(jsonStr.contains('"thumbnail"'), isTrue);
       final decoded = AgiGameStateSnapshot.fromJsonString(jsonStr);
 
       expect(decoded.isRoomTransition, isTrue);
       expect(decoded.thumbnailRgba, isNotNull);
       expect(decoded.thumbnailRgba!.length, 80 * 84 * 4);
+
+      // JSON string with includeThumbnail: false omits thumbnail
+      final jsonNoThumb = snap.toJsonString(includeThumbnail: false);
+      expect(jsonNoThumb.contains('"thumbnail"'), isFalse);
+      final decodedNoThumb = AgiGameStateSnapshot.fromJsonString(jsonNoThumb);
+      expect(decodedNoThumb.thumbnailRgba, isNull);
+      expect(decodedNoThumb.roomNumber, snap.roomNumber);
+      expect(decodedNoThumb.cycleCount, snap.cycleCount);
     });
 
     test('automatically captures rolling 5 room transition checkpoints upon room change', () {
@@ -246,6 +255,46 @@ void main() {
 
       engine.restoreSnapshot(snap);
       expect(engine.isPaused, isFalse, reason: 'Restoring snapshot while running must keep engine running');
+    });
+
+    test('captures, serializes, and restores add.to.pic background modifications', () {
+      expect(engine.addToPicCalls, isEmpty);
+
+      // Trigger add.to.pic calls
+      engine.onAddToPic(10, 0, 1, 40, 50, 4, 0);
+      engine.onAddToPic(12, 1, 0, 80, 90, 8, 4);
+
+      expect(engine.addToPicCalls.length, 2);
+      expect(engine.addToPicCalls[0].view, 10);
+      expect(engine.addToPicCalls[0].x, 40);
+      expect(engine.addToPicCalls[1].view, 12);
+      expect(engine.addToPicCalls[1].priority, 8);
+      expect(engine.addToPicCalls[1].boxPriority, 4);
+
+      // Capture snapshot
+      final snap = engine.createSnapshot(label: 'Add to pic test');
+      expect(snap.addToPicEntries.length, 2);
+      expect(snap.addToPicEntries[0].view, 10);
+      expect(snap.addToPicEntries[1].view, 12);
+
+      // JSON round-trip
+      final jsonStr = snap.toJsonString();
+      final decoded = AgiGameStateSnapshot.fromJsonString(jsonStr);
+      expect(decoded.addToPicEntries.length, 2);
+      expect(decoded.addToPicEntries[0].view, 10);
+      expect(decoded.addToPicEntries[0].y, 50);
+      expect(decoded.addToPicEntries[1].view, 12);
+      expect(decoded.addToPicEntries[1].boxPriority, 4);
+
+      // Changing room clears addToPicCalls
+      engine.changeRoom(8);
+      expect(engine.addToPicCalls, isEmpty);
+
+      // Restoring snapshot repopulates addToPicCalls
+      engine.restoreSnapshot(decoded);
+      expect(engine.addToPicCalls.length, 2);
+      expect(engine.addToPicCalls[0].view, 10);
+      expect(engine.addToPicCalls[1].view, 12);
     });
   });
 }

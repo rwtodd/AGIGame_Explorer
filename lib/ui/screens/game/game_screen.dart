@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/models/user_settings.dart';
+import 'package:flutter_agigame/ui/providers/settings_provider.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/ui/widgets/debug_inspector_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
@@ -23,23 +26,25 @@ import 'package:flutter_agigame/ui/widgets/sidebar_slideout_panel.dart';
 /// - Keyboard Arrow / WASD Directional Controller
 /// - Retro Modal Dialog Popups with Unicode text support
 /// - Live Speed and Diagnostics Toolbar
-class GameScreen extends StatefulWidget {
+class GameScreen extends ConsumerStatefulWidget {
   final AgiResourceLoader? resourceLoader;
   final AgiGameEngine? engine;
   final int startingRoom;
+  final AgiUserSettings? initialSettings;
 
   const GameScreen({
     super.key,
     this.resourceLoader,
     this.engine,
     this.startingRoom = 0,
+    this.initialSettings,
   });
 
   @override
-  State<GameScreen> createState() => _GameScreenState();
+  ConsumerState<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> {
+class _GameScreenState extends ConsumerState<GameScreen> {
   late final AgiGameEngine _engine;
   final FocusNode _gameFocusNode = FocusNode();
   String _currentInputText = '';
@@ -57,14 +62,34 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void initState() {
     super.initState();
+
+    final initSettings = widget.initialSettings;
+    if (initSettings != null) {
+      _showCrtShader = initSettings.display.showCrtShader;
+      _showPixelGrid = initSettings.display.showPixelGrid;
+      _correctAspectRatio = initSettings.display.correctAspectRatio;
+      _strictIntegerScaling = initSettings.display.strictIntegerScaling;
+      _renderMode = initSettings.display.renderMode;
+    }
+
     if (widget.engine != null) {
       _engine = widget.engine!;
+      if (initSettings != null) {
+        _engine.setSoundMode(initSettings.audio.soundMode);
+        _engine.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+      }
     } else {
       final soundPlayer = AgiSoundPlayer();
       _engine = AgiGameEngine(
         resourceLoader: widget.resourceLoader,
         soundPlayer: soundPlayer,
       );
+
+      if (initSettings != null) {
+        _engine.setSoundMode(initSettings.audio.soundMode);
+        _engine.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+      }
+
       _engine.initializeGame(startingRoom: widget.startingRoom);
       _engine.start();
     }
@@ -80,6 +105,7 @@ class _GameScreenState extends State<GameScreen> {
   void dispose() {
     _engine.removeListener(_onEngineUpdated);
     if (widget.engine == null) {
+      _engine.stop();
       _engine.soundPlayer?.dispose();
       _engine.dispose();
     }
@@ -395,6 +421,26 @@ class _GameScreenState extends State<GameScreen> {
     return KeyEventResult.ignored;
   }
 
+  void _safeUpdateDisplay({
+    bool? showCrtShader,
+    bool? showPixelGrid,
+    bool? correctAspectRatio,
+    bool? strictIntegerScaling,
+    AgiPictureRenderMode? renderMode,
+  }) {
+    try {
+      ref.read(settingsProvider.notifier).updateDisplay(
+            showCrtShader: showCrtShader,
+            showPixelGrid: showPixelGrid,
+            correctAspectRatio: correctAspectRatio,
+            strictIntegerScaling: strictIntegerScaling,
+            renderMode: renderMode,
+          );
+    } catch (_) {
+      // Safe fallback if mounted without ProviderScope in unit tests
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -414,15 +460,30 @@ class _GameScreenState extends State<GameScreen> {
                 onTabChanged: (tab) => setState(() => _openPanelTab = tab),
                 onClose: () => setState(() => _openPanelTab = null),
                 showCrtShader: _showCrtShader,
-                onCrtShaderChanged: (val) => setState(() => _showCrtShader = val),
+                onCrtShaderChanged: (val) {
+                  setState(() => _showCrtShader = val);
+                  _safeUpdateDisplay(showCrtShader: val);
+                },
                 showPixelGrid: _showPixelGrid,
-                onPixelGridChanged: (val) => setState(() => _showPixelGrid = val),
+                onPixelGridChanged: (val) {
+                  setState(() => _showPixelGrid = val);
+                  _safeUpdateDisplay(showPixelGrid: val);
+                },
                 correctAspectRatio: _correctAspectRatio,
-                onAspectRatioChanged: (val) => setState(() => _correctAspectRatio = val),
+                onAspectRatioChanged: (val) {
+                  setState(() => _correctAspectRatio = val);
+                  _safeUpdateDisplay(correctAspectRatio: val);
+                },
                 strictIntegerScaling: _strictIntegerScaling,
-                onStrictIntegerScalingChanged: (val) => setState(() => _strictIntegerScaling = val),
+                onStrictIntegerScalingChanged: (val) {
+                  setState(() => _strictIntegerScaling = val);
+                  _safeUpdateDisplay(strictIntegerScaling: val);
+                },
                 renderMode: _renderMode,
-                onRenderModeChanged: (mode) => setState(() => _renderMode = mode),
+                onRenderModeChanged: (mode) {
+                  setState(() => _renderMode = mode);
+                  _safeUpdateDisplay(renderMode: mode);
+                },
               ),
               Expanded(
                 child: Container(
