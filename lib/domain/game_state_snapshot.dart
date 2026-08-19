@@ -399,10 +399,14 @@ class AgiGameStateSnapshot {
   /// Recorded `add.to.pic` modifications in the current room.
   final List<AgiAddToPicEntry> addToPicEntries;
 
+  /// The active background picture resource number if known.
+  final int? pictureNumber;
+
   const AgiGameStateSnapshot({
     required this.timestamp,
     this.label = '',
     required this.roomNumber,
+    this.pictureNumber,
     required this.cycleCount,
     required this.speedHz,
     required this.score,
@@ -505,6 +509,7 @@ class AgiGameStateSnapshot {
       timestamp: now,
       label: label.isEmpty ? 'Room ${engine.currentRoom} (Cycle ${engine.cycleCount})' : label,
       roomNumber: engine.currentRoom,
+      pictureNumber: engine.currentPic?.picNumber,
       cycleCount: engine.cycleCount,
       speedHz: engine.speedHz,
       score: mem.getVar(3),
@@ -647,6 +652,7 @@ class AgiGameStateSnapshot {
     // Reload room picture, replay add.to.pic, and logic without wiping objects
     engine.reloadRoomForRestore(
       roomNumber,
+      pictureNumber: pictureNumber,
       restoredHorizon: horizon,
       restoredBlock: block,
       loadedLogics: loadedLogics,
@@ -660,6 +666,7 @@ class AgiGameStateSnapshot {
         'timestamp': timestamp,
         'label': label,
         'roomNumber': roomNumber,
+        if (pictureNumber != null) 'pictureNumber': pictureNumber,
         'cycleCount': cycleCount,
         'speedHz': speedHz,
         'score': score,
@@ -717,70 +724,122 @@ class AgiGameStateSnapshot {
       }
     }
 
-    // Handle flags: activeFlags (indices) or flags (List<bool>)
+    // Handle flags: List of ints (active indices) or List of bools
     final activeFlags = <int>[];
     final flagsRaw = json['activeFlags'] ?? json['flags'];
     if (flagsRaw is List) {
-      if (flagsRaw.isNotEmpty && flagsRaw.first is bool) {
-        for (int i = 0; i < flagsRaw.length; i++) {
-          if (flagsRaw[i] == true) {
-            activeFlags.add(i);
-          }
-        }
-      } else {
-        for (final item in flagsRaw) {
-          if (item is num) {
-            activeFlags.add(item.toInt());
-          }
+      for (int i = 0; i < flagsRaw.length; i++) {
+        final val = flagsRaw[i];
+        if (val is int) {
+          activeFlags.add(val);
+        } else if (val is bool && val) {
+          activeFlags.add(i);
         }
       }
     }
 
-    final ctrlRaw = json['activeControllers'] as List<dynamic>? ?? [];
-    final activeControllers = ctrlRaw.map((e) => (e as num).toInt()).toList();
+    // Handle controllers
+    final activeControllers = <int>[];
+    final controllersRaw = json['activeControllers'] ?? json['controllers'];
+    if (controllersRaw is List) {
+      for (int i = 0; i < controllersRaw.length; i++) {
+        final val = controllersRaw[i];
+        if (val is int) {
+          activeControllers.add(val);
+        } else if (val is bool && val) {
+          activeControllers.add(i);
+        }
+      }
+    }
 
-    final itemsRaw = (json['itemRooms'] as Map?) ?? {};
-    final itemRooms = itemsRaw.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
-
-    final strings = <String, String>{};
-    final strRaw = json['strings'];
-    if (strRaw is Map) {
-      strRaw.forEach((k, v) {
-        strings[k.toString()] = v.toString();
+    // Handle itemRooms: Map<String, int> or List<int>
+    final itemRooms = <String, int>{};
+    final itemRoomsRaw = json['itemRooms'];
+    if (itemRoomsRaw is Map) {
+      itemRoomsRaw.forEach((k, v) {
+        final idx = int.tryParse(k.toString());
+        if (idx != null && v is num) {
+          itemRooms['$idx'] = v.toInt();
+        }
       });
-    } else if (strRaw is List) {
-      for (int i = 0; i < strRaw.length; i++) {
-        if (strRaw[i] != null && strRaw[i].toString().isNotEmpty) {
-          strings['$i'] = strRaw[i].toString();
+    } else if (itemRoomsRaw is List) {
+      for (int i = 0; i < itemRoomsRaw.length; i++) {
+        final v = itemRoomsRaw[i];
+        if (v is num) {
+          itemRooms['$i'] = v.toInt();
         }
       }
     }
 
-    final objsRaw = json['objects'] ?? json['animatedObjects'];
+    // Handle strings
+    final strings = <String, String>{};
+    final stringsRaw = json['strings'];
+    if (stringsRaw is Map) {
+      stringsRaw.forEach((k, v) {
+        final idx = int.tryParse(k.toString());
+        if (idx != null) {
+          strings['$idx'] = v.toString();
+        }
+      });
+    } else if (stringsRaw is List) {
+      for (int i = 0; i < stringsRaw.length; i++) {
+        final str = stringsRaw[i]?.toString() ?? '';
+        if (str.isNotEmpty) {
+          strings['$i'] = str;
+        }
+      }
+    }
+
+    // Handle objects
     final objects = <AgiObjectSnapshot>[];
-    if (objsRaw is List) {
-      for (final o in objsRaw) {
-        if (o is Map) {
-          objects.add(AgiObjectSnapshot.fromJson(o.cast<String, dynamic>()));
+    final objectsRaw = json['objects'] ?? json['animatedObjects'];
+    if (objectsRaw is List) {
+      for (final objRaw in objectsRaw) {
+        if (objRaw is Map) {
+          objects.add(AgiObjectSnapshot.fromJson(objRaw.cast<String, dynamic>()));
         }
       }
     }
 
-    final stackRaw = json['callStack'] as List<dynamic>? ?? [];
-    final callStack = stackRaw
-        .map((c) => AgiCallFrameSnapshot.fromJson((c as Map).cast<String, dynamic>()))
-        .toList();
+    // Handle callStack
+    final callStack = <AgiCallFrameSnapshot>[];
+    final callStackRaw = json['callStack'];
+    if (callStackRaw is List) {
+      for (final frameRaw in callStackRaw) {
+        if (frameRaw is Map) {
+          callStack.add(AgiCallFrameSnapshot.fromJson(frameRaw.cast<String, dynamic>()));
+        }
+      }
+    }
 
-    final scanStartsRaw = (json['scanStarts'] as Map?) ?? {};
-    final scanStarts = scanStartsRaw.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+    // Handle scanStarts
+    final scanStarts = <String, int>{};
+    final scanStartsRaw = json['scanStarts'];
+    if (scanStartsRaw is Map) {
+      scanStartsRaw.forEach((k, v) {
+        final idx = int.tryParse(k.toString());
+        if (idx != null && v is num) {
+          scanStarts['$idx'] = v.toInt();
+        }
+      });
+    }
 
-    final thumbnailRaw = json['thumbnail'] as String?;
-    final thumbnailRgba = thumbnailRaw != null ? base64Decode(thumbnailRaw) : null;
+    // Decode thumbnail if present
+    Uint8List? thumbnailRgba;
+    final thumbStr = json['thumbnail'] as String?;
+    if (thumbStr != null && thumbStr.isNotEmpty) {
+      try {
+        thumbnailRgba = base64Decode(thumbStr);
+      } catch (_) {}
+    }
+
     final isRoomTransition = json['isRoomTransition'] as bool? ?? false;
 
     final room = (json['roomNumber'] as num?)?.toInt() ??
         (json['currentRoom'] as num?)?.toInt() ??
         0;
+    final pictureNumber = (json['pictureNumber'] as num?)?.toInt() ??
+        (json['roomNumber'] as num?)?.toInt();
     final score = (json['score'] as num?)?.toInt() ?? 0;
     final maxScore = (json['maxScore'] as num?)?.toInt() ??
         (json['scoreMax'] as num?)?.toInt() ??
@@ -802,6 +861,7 @@ class AgiGameStateSnapshot {
       timestamp: json['timestamp'] as String? ?? '',
       label: label,
       roomNumber: room,
+      pictureNumber: pictureNumber,
       cycleCount: (json['cycleCount'] as num?)?.toInt() ?? 0,
       speedHz: (json['speedHz'] as num?)?.toDouble() ?? 20.0,
       score: score,

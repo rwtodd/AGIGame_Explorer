@@ -573,7 +573,7 @@ class AgiMotionController {
   /// Maps a direction code (0..8) to a view loop index.
   ///
   /// - For 4+ loops: Loop 0 = East (2, 3, 4), Loop 1 = West (6, 7, 8), Loop 2 = South (5), Loop 3 = North (1).
-  /// - For 2-3 loops: Loop 0 = East, Loop 1 = West.
+  /// - For 2-3 loops: Loop 0 = East (2, 3, 4), Loop 1 = West (6, 7, 8), retain loop on North/South/Stopped.
   static int selectLoopForDirection(int direction, int loopCount, int currentLoop) {
     if (loopCount >= 4) {
       switch (direction) {
@@ -603,7 +603,7 @@ class AgiMotionController {
         case 8:
           return 1;
         default:
-          return currentLoop;
+          return (currentLoop >= 0 && currentLoop < 2) ? currentLoop : 0;
       }
     }
     return 0;

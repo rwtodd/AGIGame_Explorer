@@ -124,22 +124,49 @@ void main() {
     });
 
     group('Script Block Area (block and unblock)', () {
-      test('setBlock and unblock dynamically restricts walkability', () {
+      test('setBlock and unblock dynamically restricts boundary crossing', () {
         detector.setBlock(20, 40, 60, 80);
 
+        // Moving inside the block (30, 50 -> 32, 50) is allowed
+        ego.x = 30;
+        ego.y = 50;
         expect(
-          detector.isBaselineBlocked(x: 25, y: 50, width: 4),
-          isTrue,
-        );
-        // Outside the block area
-        expect(
-          detector.isBaselineBlocked(x: 10, y: 50, width: 4),
+          detector.isPositionBlocked(obj: ego, x: 32, y: 50, width: 4, height: 10),
           isFalse,
         );
 
+        // Moving from inside across the block boundary (30, 50 -> 15, 50) is blocked
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 15, y: 50, width: 4, height: 10),
+          isTrue,
+        );
+
+        // Moving outside the block (10, 50 -> 12, 50) is allowed
+        ego.x = 10;
+        ego.y = 50;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 50, width: 4, height: 10),
+          isFalse,
+        );
+
+        // Moving from outside across into the block (10, 50 -> 30, 50) is blocked
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 30, y: 50, width: 4, height: 10),
+          isTrue,
+        );
+
+        // ignoreBlocks allows crossing the boundary
+        ego.ignoreBlocks = true;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 30, y: 50, width: 4, height: 10),
+          isFalse,
+        );
+        ego.ignoreBlocks = false;
+
+        // unblock allows crossing
         detector.unblock();
         expect(
-          detector.isBaselineBlocked(x: 25, y: 50, width: 4),
+          detector.isPositionBlocked(obj: ego, x: 30, y: 50, width: 4, height: 10),
           isFalse,
         );
       });

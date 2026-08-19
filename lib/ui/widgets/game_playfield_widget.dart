@@ -405,21 +405,22 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
     for (final obj in widget.engine.animatedObjects) {
       if (!obj.isDrawn) continue;
-      if (obj.view == 0 && obj.number != 0) continue;
 
       try {
         final viewRes = obj.cachedView ?? widget.engine.getView(obj.view);
         if (obj.cachedView == null && viewRes != null) {
           obj.updateCachedView(viewRes);
         }
-        final celHeight = obj.getCelHeight(null, null, viewRes);
+        final loop = viewRes?.getLoop(obj.loop);
+        final safeCel = (loop != null && loop.celCount > 0 && obj.cel >= loop.celCount) ? 0 : obj.cel;
+        final celHeight = obj.getCelHeight(null, safeCel, viewRes);
         final renderX = (obj.x * 2).toDouble();
         final renderY = (obj.y - celHeight + 1).toDouble();
 
-        final targetAtlas = atlasMgr.getAtlasForCel(obj.view, obj.loop, obj.cel) ?? atlasMgr.primaryAtlas;
-        final cel = viewRes?.getCel(obj.loop, obj.cel);
+        final targetAtlas = atlasMgr.getAtlasForCel(obj.view, obj.loop, safeCel) ?? atlasMgr.primaryAtlas;
+        final cel = loop?.getCel(safeCel);
 
-        if (targetAtlas != null && targetAtlas.containsCel(obj.view, obj.loop, obj.cel) && targetAtlas.hasImage) {
+        if (targetAtlas != null && targetAtlas.containsCel(obj.view, obj.loop, safeCel) && targetAtlas.hasImage) {
           actors.add(
             AgiActorSprite(
               priority: obj.effectivePriority,
@@ -428,7 +429,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               position: Offset(renderX, renderY),
               viewNumber: obj.view,
               loopNumber: obj.loop,
-              celNumber: obj.cel,
+              celNumber: safeCel,
               atlas: targetAtlas,
             ),
           );
@@ -439,7 +440,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             atlasMgr.prepareAtlasAsync();
           }
 
-          final cacheKey = 'v${obj.view}_l${obj.loop}_c${obj.cel}';
+          final cacheKey = 'v${obj.view}_l${obj.loop}_c$safeCel';
           final cachedImage = _spriteTextureCache[cacheKey];
 
           actors.add(
@@ -450,16 +451,15 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               position: Offset(renderX, renderY),
               viewNumber: obj.view,
               loopNumber: obj.loop,
-              celNumber: obj.cel,
+              celNumber: safeCel,
               image: cachedImage,
-              atlas: (targetAtlas != null && targetAtlas.hasImage && targetAtlas.containsCel(obj.view, obj.loop, 0))
+              atlas: (targetAtlas != null && targetAtlas.hasImage && targetAtlas.containsCel(obj.view, obj.loop, safeCel))
                   ? targetAtlas
                   : null,
             ),
           );
-
-          if (cachedImage == null && viewRes != null && cel != null) {
-            _decodeSpriteCel(cacheKey, cel, viewRes, obj.cel);
+          if (cachedImage == null && cel != null && viewRes != null) {
+            _decodeSpriteCel(cacheKey, cel, viewRes, safeCel);
           }
         }
       } catch (_) {}

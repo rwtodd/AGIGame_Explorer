@@ -15,6 +15,7 @@ import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/controllers/agi_controller_manager.dart';
+import 'package:flutter_agigame/engine/motion/agi_motion_controller.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
@@ -573,8 +574,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // ----------------------------------------------------
     // Phase 1: Input handling
     // ----------------------------------------------------
-    // Update Ego direction variable (%v6)
-    memory.setVar(6, ego.direction);
+    // Update Ego direction variable (%v6) per Sierra MAIN.C:80-82
+    if (!_isUserControl) {
+      memory.setVar(6, ego.direction);
+    } else {
+      ego.direction = memory.getVar(6);
+    }
 
     // ----------------------------------------------------
     // Phase 2: Motion & Cel Animation Physics
@@ -622,6 +627,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       ego.direction = memory.getVar(6);
       if (ego.direction != 0) {
         ego.isCycling = true;
+      } else {
+        ego.isCycling = false;
       }
     }
 
@@ -966,17 +973,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       final res = interpreter.resume();
       if (res is Future<InterpreterStatus>) {
         return res.then((status) {
-          if (status == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-            _performPostScanCleanup();
-          }
-          notifyListeners();
+          _finishTickExecution(status);
         });
       }
-      if (res == InterpreterStatus.completed && interpreter.callStack.isEmpty) {
-        _performPostScanCleanup();
-      }
+      _finishTickExecution(res);
+    } else {
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   /// Updates the current interactive prompt text and synchronizes with the on-screen text buffer.
@@ -1095,13 +1098,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         });
 
       for (final obj in sortedObjects) {
-        if (obj.view == 0 && obj.number != 0) continue;
         try {
           final viewRes = loader.loadView(obj.view);
-          final cel = viewRes.getCel(obj.loop, obj.cel);
+          final loop = viewRes.getLoop(obj.loop);
+          final safeCel = (loop != null && loop.celCount > 0 && obj.cel >= loop.celCount) ? 0 : obj.cel;
+          final cel = loop?.getCel(safeCel);
           if (cel == null) continue;
 
-          final celPixels = cel.getPixels(parentView: viewRes, celIndex: obj.cel);
+          final celPixels = cel.getPixels(parentView: viewRes, celIndex: safeCel);
           final cw = cel.width;
           final ch = cel.height;
           final startX = obj.x;
@@ -1409,31 +1413,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   void _updateLoopForDirection(AnimatedObject obj) {
-    if (obj.direction == 0) return;
+    if (obj.fixedLoop || obj.direction == 0) return;
 
     final loopCount = obj.getLoopCount();
-    final oldLoop = obj.loop;
+    final newLoop = AgiMotionController.selectLoopForDirection(
+      obj.direction,
+      loopCount,
+      obj.loop,
+    );
 
-    switch (obj.direction) {
-      case 1: // North
-        if (loopCount >= 4) obj.loop = 3;
-        break;
-      case 2: // North-East
-      case 3: // East
-      case 4: // South-East
-        if (loopCount >= 1) obj.loop = 0;
-        break;
-      case 5: // South
-        if (loopCount >= 3) obj.loop = 2;
-        break;
-      case 6: // South-West
-      case 7: // West
-      case 8: // North-West
-        if (loopCount >= 2) obj.loop = 1;
-        break;
-    }
-
-    if (obj.loop != oldLoop) {
+    if (newLoop != obj.loop) {
+      obj.loop = newLoop;
       final celCount = obj.getCelCount();
       if (celCount > 0 && obj.cel >= celCount) {
         obj.cel = 0;
@@ -1521,11 +1511,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Determine cel dimensions for bounds & barrier checks
     final objWidth = obj.getCelWidth();
+    final objHeight = obj.getCelHeight();
 
     // Screen boundary clamping
     const minX = 0;
     final maxX = (160 - objWidth).clamp(0, 159);
-    final minY = obj.ignoreHorizon ? 0 : horizon;
+    final minScreenY = math.max(0, objHeight - 1);
+    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
     const maxY = 167;
 
     var clampedX = targetX.clamp(minX, maxX);
@@ -1533,7 +1525,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Border collision triggers for variables %v2 (Ego) and %v4/%v5 (other objects)
     int border = 0;
-    if (targetY <= minY) {
+    if (targetY <= minY || (targetY - objHeight < -1)) {
       border = 1; // Top (reaching/touching horizon line or screen top)
     } else if (targetX > maxX) {
       border = 2; // Right (moving beyond right boundary)
@@ -1571,8 +1563,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       }
     }
 
-    // Script block area check
-    if (!obj.ignoreBlocks && activeBlock != null && activeBlock!.overlapsBaseline(clampedX, clampedY, objWidth)) {
+    // Script block boundary crossing check (matching Sierra AGI BLOCK.C & ANIMATE.C)
+    if (!obj.ignoreBlocks && activeBlock != null && activeBlock!.crossesBoundary(obj.x, obj.y, clampedX, clampedY)) {
       if (obj.motionType == 1) {
         obj.direction = _rng.nextInt(9);
       } else if (obj.number == 0 && obj.motionType == 0) {
@@ -1787,6 +1779,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(2, 0);
     memory.setVar(4, 0);
     memory.setVar(5, 0);
+    memory.setVar(9, 0);
+    memory.resetFlag(2);
+    memory.resetFlag(4);
+    memory.resetControllers();
+    _parsedWordIds.clear();
+    _inputWords.clear();
+    _bufferedCommands.clear();
+    _bufferedControllers.clear();
+    _bufferedEgoDirection = null;
     _displayedTexts.clear();
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
     _statusLineNeedsRedraw = true;
@@ -1831,6 +1832,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// without resetting or wiping restored animated objects.
   void reloadRoomForRestore(
     int roomNumber, {
+    int? pictureNumber,
     int? restoredHorizon,
     AgiBlockArea? restoredBlock,
     List<int>? loadedLogics,
@@ -1876,9 +1878,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       atlasManager.prepareAtlasAsync();
     }
 
-    // Load room picture if available
-    if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(roomNumber)) {
-      currentPic = resourceLoader!.loadPic(roomNumber);
+    // Load room picture if recorded in snapshot; otherwise set currentPic to null (black screen)
+    if (pictureNumber != null &&
+        resourceLoader != null &&
+        resourceLoader!.presentPicNumbers.contains(pictureNumber)) {
+      currentPic = resourceLoader!.loadPic(pictureNumber);
+      currentPic?.picNumber = pictureNumber;
 
       // Replay all recorded add.to.pic calls
       for (final call in _addToPicCalls) {
@@ -1897,6 +1902,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       }
 
       currentPic?.preloadGpuTextures();
+    } else {
+      currentPic = null;
     }
 
     // Load root room logic (LOGIC 0) and any restored active logics for execution scan
@@ -1996,7 +2003,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   void onParse(String input) {
-    submitCommand(input);
+    final clean = input.trim();
+    if (clean.isEmpty) {
+      _parsedWordIds.clear();
+      _inputWords.clear();
+      memory.resetFlag(2);
+      memory.resetFlag(4);
+      memory.setVar(9, 0);
+    } else {
+      _applyCommand(clean);
+    }
   }
 
   @override
@@ -2152,14 +2168,20 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final priBuf = currentPic?.priorityBuffer;
     if (priBuf == null) return;
 
-    if (obj.y <= horizon && !obj.ignoreHorizon) {
-      obj.y = horizon + 1;
+    final objHeight = obj.getCelHeight();
+    final minScreenY = math.max(0, objHeight - 1);
+    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
+
+    if (obj.y <= minY) {
+      obj.y = minY + 1;
       obj.prevY = obj.y;
     }
 
     bool isWalkablePos(int x, int y) {
       final w = obj.getCelWidth();
-      if (x < 0 || x + w > 160 || y > 167 || (y <= horizon && !obj.ignoreHorizon)) {
+      final h = obj.getCelHeight();
+      final minWalkY = obj.ignoreHorizon ? math.max(0, h - 1) : math.max(horizon, math.max(0, h - 1));
+      if (x < 0 || x + w > 160 || y > 167 || y <= minWalkY || (y - h < -1)) {
         return false;
       }
       for (int bx = x; bx < x + w; bx++) {
@@ -2247,11 +2269,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   FutureOr<void> onDraw(AnimatedObject obj) {
     final view = getView(obj.view);
     obj.updateCachedView(view);
-    if (!obj.ignoreHorizon && obj.y <= horizon) {
-      obj.y = horizon + 1;
+    final minScreenY = math.max(0, obj.getCelHeight() - 1);
+    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
+    if (obj.y <= minY) {
+      obj.y = minY + 1;
       obj.prevY = obj.y;
     }
     posShuffle(obj);
+    if (obj.number == 0) {
+      _updateEgoFlags(currentPic?.priorityBuffer);
+    }
     if (view != null && !atlasManager.containsView(obj.view)) {
       atlasManager.registerView(view);
       return atlasManager.prepareAtlasAsync();
@@ -2262,8 +2289,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void onSetHorizon(int horizon) {
     this.horizon = horizon;
     for (final obj in animatedObjects) {
-      if (!obj.ignoreHorizon && obj.y <= horizon) {
-        obj.y = horizon + 1;
+      final minScreenY = math.max(0, obj.getCelHeight() - 1);
+      final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
+      if (obj.y <= minY) {
+        obj.y = minY + 1;
         obj.prevY = obj.y;
       }
     }
@@ -2426,6 +2455,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   FutureOr<void> onDrawPic(int picNumber) {
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
       currentPic = resourceLoader!.loadPic(picNumber);
+      currentPic?.picNumber = picNumber;
       _displayedTexts.clear();
       textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
       _statusLineNeedsRedraw = true;
@@ -2435,6 +2465,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           posShuffle(obj);
         }
       }
+      _updateEgoFlags(currentPic?.priorityBuffer);
       return currentPic?.preloadGpuTextures();
     }
   }
@@ -2450,6 +2481,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         posShuffle(obj);
       }
     }
+    _updateEgoFlags(currentPic?.priorityBuffer);
     final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
     if (f1 is Future || f2 is Future) {

@@ -170,6 +170,7 @@ class AgiPicturePainter extends CustomPainter {
       } else if (pic != null) {
         canvas.save();
         canvas.translate(0.0, playfieldRow * 8.0);
+        canvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 168.0));
         switch (renderMode) {
           case AgiPictureRenderMode.compositedSlices:
             _paintCompositedSlices(canvas, paint, effectiveFlat, pic);

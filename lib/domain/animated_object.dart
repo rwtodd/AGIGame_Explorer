@@ -75,8 +75,12 @@ class AnimatedObject {
   int getCelWidth([int? targetLoop, int? targetCel, AgiView? fallbackView]) {
     final v = cachedView ?? fallbackView;
     final l = targetLoop ?? loop;
-    final c = targetCel ?? cel;
-    final w = v?.getCel(l, c)?.width;
+    final loopObj = v?.getLoop(l);
+    var c = targetCel ?? cel;
+    if (loopObj != null && loopObj.celCount > 0 && c >= loopObj.celCount) {
+      c = 0;
+    }
+    final w = loopObj?.getCel(c)?.width;
     if (w != null && w > 0) return w;
     return (v != null) ? 12 : 4;
   }
@@ -85,8 +89,12 @@ class AnimatedObject {
   int getCelHeight([int? targetLoop, int? targetCel, AgiView? fallbackView]) {
     final v = cachedView ?? fallbackView;
     final l = targetLoop ?? loop;
-    final c = targetCel ?? cel;
-    final h = v?.getCel(l, c)?.height;
+    final loopObj = v?.getLoop(l);
+    var c = targetCel ?? cel;
+    if (loopObj != null && loopObj.celCount > 0 && c >= loopObj.celCount) {
+      c = 0;
+    }
+    final h = loopObj?.getCel(c)?.height;
     if (h != null && h > 0) return h;
     return (v != null) ? 36 : 4;
   }

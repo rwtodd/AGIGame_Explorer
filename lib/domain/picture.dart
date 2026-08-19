@@ -98,7 +98,11 @@ class AgiPic {
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
 
+  /// The AGI picture resource number, if known.
+  int? picNumber;
+
   AgiPic({
+    this.picNumber,
     required this.visualPixels,
     required this.priorityBuffer,
     required this.slices,

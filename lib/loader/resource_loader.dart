@@ -136,7 +136,9 @@ class AgiResourceLoader {
   AgiPic loadPic(int number) {
     final rawBytes = loadRawPic(number);
     final interpreter = PicVectorInterpreter(isV3: meta.isV3);
-    return interpreter.interpret(rawBytes);
+    final pic = interpreter.interpret(rawBytes);
+    pic.picNumber = number;
+    return pic;
   }
 
   /// Loads raw uncompressed bytes for a VIEW resource.

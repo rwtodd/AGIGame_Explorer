@@ -29,17 +29,27 @@ class AgiBlockArea {
   /// The normalized bottom boundary.
   int get bottom => math.max(y1, y2);
 
-  /// Returns true if the point `(x, y)` lies within this block area.
+  /// Returns true if the point `(x, y)` lies strictly within this block area.
+  /// Matching Sierra AGI `InBlock`: `ox > ulx && ox < lrx && oy > uly && oy < lry`.
   bool contains(int x, int y) {
-    return x >= left && x <= right && y >= top && y <= bottom;
+    return x > left && x < right && y > top && y < bottom;
+  }
+
+  /// Returns true if moving from `(fromX, fromY)` to `(toX, toY)` crosses the block boundary.
+  /// In authentic Sierra AGI, an object can move freely inside or outside the block,
+  /// but cannot cross the boundary between inside and outside.
+  bool crossesBoundary(int fromX, int fromY, int toX, int toY) {
+    final fromIn = contains(fromX, fromY);
+    final toIn = contains(toX, toY);
+    return fromIn != toIn;
   }
 
   /// Returns true if the baseline segment `(x, y)` to `(x + width - 1, y)` overlaps this block.
   bool overlapsBaseline(int x, int y, int width) {
-    if (y < top || y > bottom) return false;
+    if (y <= top || y >= bottom) return false;
     final baseLeft = x;
     final baseRight = x + width - 1;
-    return baseRight >= left && baseLeft <= right;
+    return baseRight > left && baseLeft < right;
   }
 }
 
@@ -105,18 +115,13 @@ class CollisionDetector {
   ///
   /// Following Sierra AGI specification:
   /// - Priority 0 (Unconditional Barrier) ALWAYS blocks movement, even when [ignoreBlocks] is active.
-  /// - Priority 1 (Conditional Barrier) and script [activeBlock] areas block movement UNLESS [ignoreBlocks] is true.
+  /// - Priority 1 (Conditional Barrier) blocks movement UNLESS [ignoreBlocks] is true.
   bool isBaselineBlocked({
     required int x,
     required int y,
     required int width,
     bool ignoreBlocks = false,
   }) {
-    // Check script block area (ignored if ignoreBlocks is active)
-    if (!ignoreBlocks && activeBlock != null && activeBlock!.overlapsBaseline(x, y, width)) {
-      return true;
-    }
-
     // Check priority buffer pixels along baseline
     final effectiveWidth = math.max(1, width);
     for (var i = 0; i < effectiveWidth; i++) {
@@ -237,6 +242,13 @@ class CollisionDetector {
     final minAllowedY = obj.ignoreHorizon ? 0 : horizon;
     if (y < minAllowedY) return true;
 
+    // Script block boundary crossing check
+    if (!obj.ignoreBlocks && activeBlock != null) {
+      if (activeBlock!.crossesBoundary(obj.x, obj.y, x, y)) {
+        return true;
+      }
+    }
+
     // Baseline barrier collision check
     // Per Sierra AGI & ScummVM specification: priority 15 (0x0F) represents sky/background,
     // which bypasses ground control line barriers (priority 0, 1, water).
@@ -309,11 +321,11 @@ class CollisionDetector {
     return false;
   }
 
-  /// Checks if an object at `(x, y)` touches or crosses any screen border.
+  /// Checks if `(x, y)` has hit any screen border (top, right, bottom, left).
   ///
-  /// Returns one of [AgiBorderEdge]:
+  /// Returns border code:
   /// - 0: None
-  /// - 1: Top (Horizon or screen top)
+  /// - 1: Top (`y <= horizon` or sprite top goes above screen top)
   /// - 2: Right (`x + width >= 160`)
   /// - 3: Bottom (`y >= 167`)
   /// - 4: Left (`x <= 0`)
@@ -321,13 +333,15 @@ class CollisionDetector {
     required int x,
     required int y,
     required int width,
+    int height = 1,
     bool ignoreHorizon = false,
   }) {
     final effectiveWidth = math.max(1, width);
+    final effectiveHeight = math.max(1, height);
+    final minScreenY = effectiveHeight - 1;
+    final topLimit = ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
 
-    // Check borders according to AGI priority: Top, Right, Bottom, Left
-    final topLimit = ignoreHorizon ? 0 : horizon;
-    if (y <= topLimit) return AgiBorderEdge.top;
+    if (y <= topLimit || (y - effectiveHeight < -1)) return AgiBorderEdge.top;
     if (x + effectiveWidth >= screenWidth) return AgiBorderEdge.right;
     if (y >= maxActorY) return AgiBorderEdge.bottom;
     if (x <= 0) return AgiBorderEdge.left;
@@ -343,11 +357,13 @@ class CollisionDetector {
     required AnimatedObject obj,
     required AgiMemory memory,
     required int width,
+    int? height,
   }) {
     final edge = checkBorderHit(
       x: obj.x,
       y: obj.y,
       width: width,
+      height: height ?? obj.getCelHeight(),
       ignoreHorizon: obj.ignoreHorizon,
     );
 
@@ -369,11 +385,14 @@ class CollisionDetector {
     required int x,
     required int y,
     required int width,
+    int? height,
   }) {
     final effectiveWidth = math.max(1, width);
+    final effectiveHeight = math.max(1, height ?? obj.getCelHeight());
     final minX = 0;
     final maxX = screenWidth - effectiveWidth;
-    final minY = obj.ignoreHorizon ? 0 : horizon;
+    final minScreenY = math.max(0, effectiveHeight - 1);
+    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
     const maxY = maxActorY;
 
     final clampedX = x.clamp(minX, maxX);

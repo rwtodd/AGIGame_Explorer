@@ -854,12 +854,22 @@ class AgiLogicInterpreter {
         break;
 
       case 43: // set.loop(o, l)
-        getObj(code[frame.ip + 1]).loop = code[frame.ip + 2];
+        final obj43 = getObj(code[frame.ip + 1]);
+        obj43.loop = code[frame.ip + 2];
+        final celCount43 = obj43.getCelCount();
+        if (celCount43 > 0 && obj43.cel >= celCount43) {
+          obj43.cel = 0;
+        }
         frame.ip += 3;
         break;
 
       case 44: // set.loop.v(o, %v)
-        getObj(code[frame.ip + 1]).loop = memory.getVar(code[frame.ip + 2]);
+        final obj44 = getObj(code[frame.ip + 1]);
+        obj44.loop = memory.getVar(code[frame.ip + 2]);
+        final celCount44 = obj44.getCelCount();
+        if (celCount44 > 0 && obj44.cel >= celCount44) {
+          obj44.cel = 0;
+        }
         frame.ip += 3;
         break;
 
