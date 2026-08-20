@@ -151,7 +151,7 @@ class AgiMotionController {
   /// Step 1: Advance animation cycling timers and cels.
   void _updateAnimationCycling() {
     for (final obj in objects) {
-      if (!obj.isAnimated || !obj.isDrawn || !obj.isUpdating || !obj.isCycling) {
+      if (!obj.isAnimated || !obj.isDrawn || (!obj.isUpdating && obj.cycleMode != 2 && obj.cycleMode != 3 && obj.motionType == 0) || !obj.isCycling) {
         continue;
       }
 
@@ -212,7 +212,7 @@ class AgiMotionController {
   /// Step 2: Process motion mode dispatch and collision handling.
   void _updateMotionAndCollisions() {
     for (final obj in objects) {
-      if (!obj.isAnimated || !obj.isDrawn || !obj.isUpdating) {
+      if (!obj.isAnimated || !obj.isDrawn || (!obj.isUpdating && obj.motionType == 0)) {
         continue;
       }
 

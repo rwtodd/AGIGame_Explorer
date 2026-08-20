@@ -74,6 +74,8 @@ void main() {
 
       expect(decoded.label, snapshot.label);
       expect(decoded.score, snapshot.score);
+      expect(decoded.isStatusLineEnabled, snapshot.isStatusLineEnabled);
+      expect(decoded.statusRow, snapshot.statusRow);
       expect(decoded.variables['3'], 25);
       expect(decoded.activeFlags, containsAll([0, 3, 9]));
       expect(decoded.strings['0'], 'look room');

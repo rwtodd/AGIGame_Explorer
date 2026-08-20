@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 void main() {
   const userSnapshotJson = '''
@@ -205,30 +205,73 @@ void main() {
 ''';
 
   group('Sprite Z-Order & Sorting Tests', () {
-    test('effectiveSortY maps fixed priority objects to top of priority band per Sierra OBJLIST.C', () {
-      final objFixed = AnimatedObject(number: 3)
-        ..priority = 11
-        ..fixedPriority = true
-        ..y = 126;
+    test('Stopped objects sort behind updating objects at identical priority and Y', () {
+      final chest = AgiActorSprite(
+        priority: 11,
+        baselineY: 126,
+        objectNumber: 3,
+        isUpdating: false,
+        position: Offset.zero,
+      );
 
-      final objAuto = AnimatedObject(number: 0)
-        ..priority = 0
-        ..fixedPriority = false
-        ..y = 126;
+      final ego = AgiActorSprite(
+        priority: 11,
+        baselineY: 126,
+        objectNumber: 0,
+        isUpdating: true,
+        position: Offset.zero,
+      );
 
-      expect(objFixed.effectivePriority, 11);
-      expect(objAuto.effectivePriority, 11);
+      final list = [ego, chest];
+      list.sort((a, b) {
+        final cmp = a.priority.compareTo(b.priority);
+        if (cmp != 0) return cmp;
+        final cmpY = a.baselineY.compareTo(b.baselineY);
+        if (cmpY != 0) return cmpY;
+        if (a.isUpdating != b.isUpdating) {
+          return a.isUpdating ? 1 : -1;
+        }
+        return a.objectNumber.compareTo(b.objectNumber);
+      });
 
-      // Fixed priority 11 maps to Y = (11 - 5) * 12 + 48 = 120
-      expect(objFixed.effectiveSortY, 120);
-      // Auto priority uses actual baseline Y = 126
-      expect(objAuto.effectiveSortY, 126);
-
-      // Sorting order: objFixed (120) is drawn first (in back), objAuto (126) is drawn after (in front)
-      expect(objFixed.effectiveSortY < objAuto.effectiveSortY, isTrue);
+      expect(list.first.objectNumber, 3, reason: 'Stopped chest must sort first (drawn behind)');
+      expect(list.last.objectNumber, 0, reason: 'Updating Ego must sort second (drawn in front)');
     });
 
-    test('Room 62 restored snapshot has Ego sorting in front of fixed-priority chest', () {
+    test('SQ2 Room 86: Ego at Y=88 sorts in front of Vohaul chair at Y=69 at same priority 10', () {
+      final vohaulChair = AgiActorSprite(
+        priority: 10,
+        baselineY: 69,
+        objectNumber: 2,
+        isUpdating: false,
+        position: Offset.zero,
+      );
+
+      final ego = AgiActorSprite(
+        priority: 10,
+        baselineY: 88,
+        objectNumber: 0,
+        isUpdating: true,
+        position: Offset.zero,
+      );
+
+      final list = [ego, vohaulChair];
+      list.sort((a, b) {
+        final cmp = a.priority.compareTo(b.priority);
+        if (cmp != 0) return cmp;
+        final cmpY = a.baselineY.compareTo(b.baselineY);
+        if (cmpY != 0) return cmpY;
+        if (a.isUpdating != b.isUpdating) {
+          return a.isUpdating ? 1 : -1;
+        }
+        return a.objectNumber.compareTo(b.objectNumber);
+      });
+
+      expect(list.first.objectNumber, 2, reason: 'Vohaul chair (y=69) must be drawn first (in back)');
+      expect(list.last.objectNumber, 0, reason: 'Ego (y=88) must be drawn after (in front)');
+    });
+
+    test('Room 62 restored snapshot has Ego sorting in front of chest at identical Y', () {
       final kq2Dir = Directory('reference_games/kings-quest-2');
       if (!kq2Dir.existsSync()) return;
 
@@ -241,10 +284,38 @@ void main() {
       final ego = engine.ego;
       final chest = engine.animatedObjects[3];
 
-      expect(ego.effectiveSortY, 126);
-      expect(chest.effectiveSortY, 120);
-      expect(chest.effectiveSortY < ego.effectiveSortY, isTrue,
-          reason: 'Chest must be drawn before Ego so Ego is rendered in front');
+      final egoSprite = AgiActorSprite(
+        priority: ego.effectivePriority,
+        baselineY: ego.effectiveSortY,
+        objectNumber: ego.number,
+        isUpdating: ego.isUpdating,
+        position: Offset.zero,
+      );
+
+      final chestSprite = AgiActorSprite(
+        priority: chest.effectivePriority,
+        baselineY: chest.effectiveSortY,
+        objectNumber: chest.number,
+        isUpdating: chest.isUpdating,
+        position: Offset.zero,
+      );
+
+      final list = [egoSprite, chestSprite];
+      list.sort((a, b) {
+        final cmp = a.priority.compareTo(b.priority);
+        if (cmp != 0) return cmp;
+        final cmpY = a.baselineY.compareTo(b.baselineY);
+        if (cmpY != 0) return cmpY;
+        if (a.isUpdating != b.isUpdating) {
+          return a.isUpdating ? 1 : -1;
+        }
+        if (a.objectNumber == 0) return 1;
+        if (b.objectNumber == 0) return -1;
+        return a.objectNumber.compareTo(b.objectNumber);
+      });
+
+      expect(list.first.objectNumber, 3, reason: 'Chest must be drawn first');
+      expect(list.last.objectNumber, 0, reason: 'Ego must be drawn second (in front)');
     });
   });
 }

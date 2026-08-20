@@ -29,6 +29,7 @@ class AgiActorSprite {
   final int priority;
   final int baselineY;
   final int objectNumber;
+  final bool isUpdating;
   final ui.Image? image;
   final Offset position;
   final int viewNumber;
@@ -40,6 +41,7 @@ class AgiActorSprite {
     required this.priority,
     required this.baselineY,
     this.objectNumber = 0,
+    this.isUpdating = true,
     this.image,
     required this.position,
     this.viewNumber = 0,
@@ -73,6 +75,7 @@ class AgiActorSprite {
         other.priority == priority &&
         other.baselineY == baselineY &&
         other.objectNumber == objectNumber &&
+        other.isUpdating == isUpdating &&
         other.image == image &&
         other.position == position &&
         other.viewNumber == viewNumber &&
@@ -86,6 +89,7 @@ class AgiActorSprite {
         priority,
         baselineY,
         objectNumber,
+        isUpdating,
         image,
         position,
         viewNumber,
@@ -183,19 +187,26 @@ class AgiPicturePainter extends CustomPainter {
             if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
               canvas.save();
               canvas.translate(0.0, -playfieldRow * 8.0);
-              _paintTextBackgroundFills(canvas);
+              _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20);
               canvas.restore();
             }
             if (actors.isNotEmpty) {
-              for (final actor in actors) {
+              final sortedActors = List<AgiActorSprite>.from(actors)
+                ..sort((a, b) {
+                  final cmp = a.priority.compareTo(b.priority);
+                  if (cmp != 0) return cmp;
+                  final cmpY = a.baselineY.compareTo(b.baselineY);
+                  if (cmpY != 0) return cmpY;
+                  if (a.isUpdating != b.isUpdating) {
+                    return a.isUpdating ? 1 : -1;
+                  }
+                  if (a.objectNumber == 0) return 1;
+                  if (b.objectNumber == 0) return -1;
+                  return a.objectNumber.compareTo(b.objectNumber);
+                });
+              for (final actor in sortedActors) {
                 actor.draw(canvas, paint);
               }
-            }
-            if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
-              canvas.save();
-              canvas.translate(0.0, -playfieldRow * 8.0);
-              _paintTextGlyphs(canvas);
-              canvas.restore();
             }
             break;
 
@@ -220,8 +231,15 @@ class AgiPicturePainter extends CustomPainter {
         canvas.restore();
       }
 
-      if (pic == null && textScreenBuffer != null && textScreenBuffer!.hasContent) {
-        _paintTextOverlay(canvas);
+      // Draw text background fills for non-playfield rows (e.g. Row 0 white status bar)
+      // and float all text glyphs across all 25 rows on top of the complete 320x200 canvas.
+      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+        if (pic != null) {
+          _paintTextBackgroundFills(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
+        } else {
+          _paintTextBackgroundFills(canvas);
+        }
+        _paintTextGlyphs(canvas);
       }
 
       if (showCursor) {
@@ -402,15 +420,19 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
-  void _paintTextOverlay(Canvas canvas) {
-    _paintTextBackgroundFills(canvas);
-    _paintTextGlyphs(canvas);
-  }
-
-  void _paintTextBackgroundFills(Canvas canvas) {
+  void _paintTextBackgroundFills(
+    Canvas canvas, {
+    int minRow = 0,
+    int maxRow = AgiTextScreenBuffer.rows - 1,
+    bool excludePlayfield = false,
+    int playfieldRow = 1,
+  }) {
     if (textScreenBuffer == null) return;
 
-    for (int r = 0; r < AgiTextScreenBuffer.rows; r++) {
+    for (int r = minRow; r <= maxRow && r < AgiTextScreenBuffer.rows; r++) {
+      if (excludePlayfield && r >= playfieldRow && r < playfieldRow + 21) {
+        continue;
+      }
       int c = 0;
       while (c < AgiTextScreenBuffer.columns) {
         final cell = textScreenBuffer!.getCell(r, c);
@@ -485,7 +507,7 @@ class AgiPicturePainter extends CustomPainter {
       if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextBackgroundFills(canvas);
+        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20);
         canvas.restore();
       }
       if (actors.isNotEmpty) {
@@ -495,17 +517,16 @@ class AgiPicturePainter extends CustomPainter {
             if (cmp != 0) return cmp;
             final cmpY = a.baselineY.compareTo(b.baselineY);
             if (cmpY != 0) return cmpY;
+            if (a.isUpdating != b.isUpdating) {
+              return a.isUpdating ? 1 : -1;
+            }
+            if (a.objectNumber == 0) return 1;
+            if (b.objectNumber == 0) return -1;
             return a.objectNumber.compareTo(b.objectNumber);
           });
         for (final actor in sortedActors) {
           actor.draw(canvas, paint);
         }
-      }
-      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
-        canvas.save();
-        canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextGlyphs(canvas);
-        canvas.restore();
       }
       return;
     }
@@ -522,6 +543,11 @@ class AgiPicturePainter extends CustomPainter {
         bucket.sort((a, b) {
           final cmp = a.baselineY.compareTo(b.baselineY);
           if (cmp != 0) return cmp;
+          if (a.isUpdating != b.isUpdating) {
+            return a.isUpdating ? 1 : -1;
+          }
+          if (a.objectNumber == 0) return 1;
+          if (b.objectNumber == 0) return -1;
           return a.objectNumber.compareTo(b.objectNumber);
         });
       }
@@ -540,7 +566,7 @@ class AgiPicturePainter extends CustomPainter {
       if (p == 4 && textScreenBuffer != null && textScreenBuffer!.hasContent) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextBackgroundFills(canvas);
+        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20);
         canvas.restore();
       }
 
@@ -548,14 +574,6 @@ class AgiPicturePainter extends CustomPainter {
       for (final actor in bandActors) {
         actor.draw(canvas, paint);
       }
-    }
-
-    // Text glyphs (status line, input prompt, and display() text) float on top of all picture slices and actors
-    if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
-      canvas.save();
-      canvas.translate(0.0, -playfieldRow * 8.0);
-      _paintTextGlyphs(canvas);
-      canvas.restore();
     }
   }
 

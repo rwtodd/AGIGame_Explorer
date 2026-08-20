@@ -185,7 +185,7 @@ class AgiObjectSnapshot {
     obj.cycleTimer = cycleTimer;
     obj.isAnimated = isAnimated;
     obj.isDrawn = isDrawn;
-    obj.isUpdating = isUpdating;
+    obj.isUpdating = isUpdating || cycleMode == 2 || cycleMode == 3 || endOfLoopFlag != null || motionType != 0;
     obj.isCycling = isCycling;
     obj.cycleMode = cycleMode;
     obj.endOfLoopFlag = endOfLoopFlag;
@@ -402,6 +402,12 @@ class AgiGameStateSnapshot {
   /// The active background picture resource number if known.
   final int? pictureNumber;
 
+  /// Whether the top status bar (score and sound readout) is active.
+  final bool isStatusLineEnabled;
+
+  /// Row index where the status line is drawn (default 0).
+  final int statusRow;
+
   const AgiGameStateSnapshot({
     required this.timestamp,
     this.label = '',
@@ -415,6 +421,8 @@ class AgiGameStateSnapshot {
     required this.isPaused,
     required this.isInputEnabled,
     this.isUserControl = true,
+    this.isStatusLineEnabled = true,
+    this.statusRow = 0,
     required this.lastSubmittedCommand,
     this.lastError,
     required this.variables,
@@ -518,6 +526,8 @@ class AgiGameStateSnapshot {
       isPaused: engine.isPaused,
       isInputEnabled: engine.isInputEnabled,
       isUserControl: engine.isUserControl,
+      isStatusLineEnabled: engine.isStatusLineEnabled,
+      statusRow: engine.statusRow,
       lastSubmittedCommand: engine.lastSubmittedCommand ?? '',
       lastError: engine.lastError,
       variables: vars,
@@ -658,6 +668,11 @@ class AgiGameStateSnapshot {
       loadedLogics: loadedLogics,
       addToPicEntries: addToPicEntries,
     );
+
+    // Restore screen configuration and status line state
+    engine.onConfigureScreen(engine.playfieldRow, engine.inputRow, statusRow);
+    engine.onStatusLine(isStatusLineEnabled);
+    engine.updateStatusLine(force: true);
   }
 
   /// Serializes to Map.
@@ -675,6 +690,8 @@ class AgiGameStateSnapshot {
         'isPaused': isPaused,
         'isInputEnabled': isInputEnabled,
         'isUserControl': isUserControl,
+        'isStatusLineEnabled': isStatusLineEnabled,
+        'statusRow': statusRow,
         'lastSubmittedCommand': lastSubmittedCommand,
         if (lastError != null) 'lastError': lastError,
         'variables': variables,
@@ -870,6 +887,8 @@ class AgiGameStateSnapshot {
       isPaused: json['isPaused'] as bool? ?? false,
       isInputEnabled: json['isInputEnabled'] as bool? ?? true,
       isUserControl: json['isUserControl'] as bool? ?? true,
+      isStatusLineEnabled: json['isStatusLineEnabled'] as bool? ?? true,
+      statusRow: (json['statusRow'] as num?)?.toInt() ?? 0,
       lastSubmittedCommand: json['lastSubmittedCommand'] as String? ?? '',
       lastError: json['lastError'] as String?,
       variables: vars,

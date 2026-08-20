@@ -68,7 +68,7 @@ abstract class AgiInterpreterDelegate {
   void onGraphics() {}
 
   /// Called when `shake.screen` is executed.
-  void onShakeScreen(int count) {}
+  FutureOr<void> onShakeScreen(int count) {}
 
   /// Called when `configure.screen` is executed.
   void onConfigureScreen(int playTop, int inputLine, int statusLine) {}

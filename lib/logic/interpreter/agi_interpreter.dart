@@ -763,6 +763,7 @@ class AgiLogicInterpreter {
         final obj = getObj(code[frame.ip + 1]);
         obj.isDrawn = true;
         obj.isAnimated = true;
+        obj.isUpdating = true;
         final res35 = delegate.onDraw(obj);
         frame.ip += 2;
         if (res35 is Future) return res35.then((_) => InterpreterStatus.running);
@@ -1042,6 +1043,7 @@ class AgiLogicInterpreter {
         o.cycleMode = 2;
         o.endOfLoopFlag = flagNum;
         o.isCycling = true;
+        o.isUpdating = true;
         memory.resetFlag(flagNum);
         frame.ip += 3;
         break;
@@ -1059,6 +1061,7 @@ class AgiLogicInterpreter {
         o.cycleMode = 3;
         o.endOfLoopFlag = flagNum;
         o.isCycling = true;
+        o.isUpdating = true;
         memory.resetFlag(flagNum);
         frame.ip += 3;
         break;
@@ -1103,6 +1106,7 @@ class AgiLogicInterpreter {
       case 81: // move.obj(o, x, y, step, f)
         final objNum81 = code[frame.ip + 1];
         final o = getObj(objNum81);
+        o.isUpdating = true;
         o.motionType = 3;
         o.targetX = code[frame.ip + 2];
         o.targetY = code[frame.ip + 3];
@@ -1132,6 +1136,7 @@ class AgiLogicInterpreter {
       case 82: // move.obj.v(o, %vx, %vy, step, f)
         final objNum82 = code[frame.ip + 1];
         final o = getObj(objNum82);
+        o.isUpdating = true;
         o.motionType = 3;
         o.targetX = memory.getVar(code[frame.ip + 2]);
         o.targetY = memory.getVar(code[frame.ip + 3]);
@@ -1161,6 +1166,7 @@ class AgiLogicInterpreter {
       case 83: // follow.ego(o, step, f)
         final objNum83 = code[frame.ip + 1];
         final o = getObj(objNum83);
+        o.isUpdating = true;
         o.motionType = 2;
         o.stepDistance = code[frame.ip + 2];
         final targetFlag83 = code[frame.ip + 3];
@@ -1174,7 +1180,9 @@ class AgiLogicInterpreter {
 
       case 84: // wander(o)
         final objNum84 = code[frame.ip + 1];
-        getObj(objNum84).motionType = 1;
+        final o = getObj(objNum84);
+        o.isUpdating = true;
+        o.motionType = 1;
         if (objNum84 == 0) {
           delegate.onUserControl(false);
         }
@@ -1350,8 +1358,9 @@ class AgiLogicInterpreter {
         break;
 
       case 110: // shake.screen(n)
-        delegate.onShakeScreen(code[frame.ip + 1]);
+        final res110 = delegate.onShakeScreen(code[frame.ip + 1]);
         frame.ip += 2;
+        if (res110 is Future) return res110.then((_) => InterpreterStatus.running);
         break;
 
       case 111: // configure.screen(playTop, inputLine, statusLine)

@@ -1270,7 +1270,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final priBuf = pic?.priorityBuffer;
 
     for (final obj in animatedObjects) {
-      if (!obj.isAnimated || !obj.isDrawn || !obj.isUpdating) {
+      if (!obj.isAnimated || !obj.isDrawn || (!obj.isUpdating && obj.cycleMode != 2 && obj.cycleMode != 3 && obj.motionType == 0)) {
         continue;
       }
 
@@ -1850,7 +1850,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       _addToPicCalls.addAll(addToPicEntries);
     }
 
-    // Reset modals, dialogs, timers, prompts
+    // Reset modals, dialogs, timers, prompts, shake
     _dialogAutoCloseTimer?.cancel();
     _dialogAutoCloseTimer = null;
     _dialogAutoCloseTicks = null;
@@ -1858,6 +1858,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     activeInputPrompt = null;
     _isInventoryOpen = false;
     _inspectingObjectNumber = null;
+    shakeOffsetX = 0.0;
+    shakeOffsetY = 0.0;
+    _shakeTicksRemaining = 0;
+    _shakeCount = 0;
     if (isMenuOpen) {
       closeMenu();
     }
@@ -1929,6 +1933,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         }
       }
     }
+
+    _statusLineNeedsRedraw = true;
+    updateStatusLine(force: true);
 
     notifyListeners();
   }
@@ -2338,9 +2345,23 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onShakeScreen(int count) {
+  FutureOr<void> onShakeScreen(int count) async {
     _shakeCount = count;
-    _shakeTicksRemaining = (count * 8).clamp(8, 40);
+    final totalSteps = (count * 8).clamp(8, 48);
+    for (int step = 0; step < totalSteps; step++) {
+      if ((step & 1) == 1) {
+        shakeOffsetY = 0.0;
+        shakeOffsetX = 0.0;
+      } else {
+        shakeOffsetY = (step % 4 == 0) ? -3.0 : 3.0;
+        shakeOffsetX = (step % 3 == 0) ? 2.0 : -2.0;
+      }
+      notifyListeners();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+    }
+    shakeOffsetX = 0.0;
+    shakeOffsetY = 0.0;
+    _shakeTicksRemaining = 0;
     notifyListeners();
   }
 
