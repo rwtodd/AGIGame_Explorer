@@ -125,5 +125,51 @@ void main() {
         }
       }
     });
+
+    test('lowering a pixel priority leaves stale texels unless the old slice is resliced', () {
+      final visual = Uint8List(160 * 168);
+      visual.fillRange(0, visual.length, 2); // green
+      final pri = PriorityBuffer();
+      for (int y = 0; y < 168; y++) {
+        for (int x = 0; x < 160; x++) {
+          pri.setPriorityAt(x, y, 8);
+        }
+      }
+
+      final slices = PictureSlicer.slice(
+        visualPixels: visual,
+        priorityBuffer: pri,
+      );
+      expect(slices[8]!.hasVisiblePixels, isTrue);
+
+      // Lower one pixel from priority 8 to 5
+      pri.setPriorityAt(10, 10, 5);
+      visual[10 * 160 + 10] = 4; // red
+
+      final newSlice5 = PictureSlicer.sliceSinglePriority(
+        visualPixels: visual,
+        priorityBuffer: pri,
+        priority: 5,
+      );
+      expect(newSlice5.hasVisiblePixels, isTrue);
+
+      final offset = (10 * 320 + 20) * 4;
+      expect(
+        slices[8]!.rgbaBytes[offset + 3],
+        greaterThan(0),
+        reason: 'old slice 8 still holds the previous pixel if not rebuilt',
+      );
+
+      final rebuiltSlice8 = PictureSlicer.sliceSinglePriority(
+        visualPixels: visual,
+        priorityBuffer: pri,
+        priority: 8,
+      );
+      expect(
+        rebuiltSlice8.rgbaBytes[offset + 3],
+        equals(0),
+        reason: 'rebuilt slice 8 must be transparent at the lowered pixel',
+      );
+    });
   });
 }

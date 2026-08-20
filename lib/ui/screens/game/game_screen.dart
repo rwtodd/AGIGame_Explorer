@@ -446,43 +446,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           child: Row(
             children: [
               _buildLeftSidebar(),
-              ListenableBuilder(
-                listenable: _engine,
-                builder: (context, _) {
-                  return SidebarSlideoutPanel(
-                    isOpen: _openPanelTab != null,
-                    activeTab: _openPanelTab ?? SidebarPanelTab.audio,
-                    engine: _engine,
-                    onTabChanged: (tab) => setState(() => _openPanelTab = tab),
-                    onClose: () => setState(() => _openPanelTab = null),
-                    showCrtShader: _showCrtShader,
-                    onCrtShaderChanged: (val) {
-                      setState(() => _showCrtShader = val);
-                      _safeUpdateDisplay(showCrtShader: val);
-                    },
-                    showPixelGrid: _showPixelGrid,
-                    onPixelGridChanged: (val) {
-                      setState(() => _showPixelGrid = val);
-                      _safeUpdateDisplay(showPixelGrid: val);
-                    },
-                    correctAspectRatio: _correctAspectRatio,
-                    onAspectRatioChanged: (val) {
-                      setState(() => _correctAspectRatio = val);
-                      _safeUpdateDisplay(correctAspectRatio: val);
-                    },
-                    strictIntegerScaling: _strictIntegerScaling,
-                    onStrictIntegerScalingChanged: (val) {
-                      setState(() => _strictIntegerScaling = val);
-                      _safeUpdateDisplay(strictIntegerScaling: val);
-                    },
-                    renderMode: _renderMode,
-                    onRenderModeChanged: (mode) {
-                      setState(() => _renderMode = mode);
-                      _safeUpdateDisplay(renderMode: mode);
-                    },
-                  );
-                },
-              ),
+              _openPanelTab != null
+                  ? ListenableBuilder(
+                      listenable: _engine,
+                      builder: (context, _) => _buildSlideoutPanel(),
+                    )
+                  : _buildSlideoutPanel(),
               Expanded(
                 child: Container(
                   color: Colors.black,
@@ -562,6 +531,41 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSlideoutPanel() {
+    return SidebarSlideoutPanel(
+      isOpen: _openPanelTab != null,
+      activeTab: _openPanelTab ?? SidebarPanelTab.audio,
+      engine: _engine,
+      onTabChanged: (tab) => setState(() => _openPanelTab = tab),
+      onClose: () => setState(() => _openPanelTab = null),
+      showCrtShader: _showCrtShader,
+      onCrtShaderChanged: (val) {
+        setState(() => _showCrtShader = val);
+        _safeUpdateDisplay(showCrtShader: val);
+      },
+      showPixelGrid: _showPixelGrid,
+      onPixelGridChanged: (val) {
+        setState(() => _showPixelGrid = val);
+        _safeUpdateDisplay(showPixelGrid: val);
+      },
+      correctAspectRatio: _correctAspectRatio,
+      onAspectRatioChanged: (val) {
+        setState(() => _correctAspectRatio = val);
+        _safeUpdateDisplay(correctAspectRatio: val);
+      },
+      strictIntegerScaling: _strictIntegerScaling,
+      onStrictIntegerScalingChanged: (val) {
+        setState(() => _strictIntegerScaling = val);
+        _safeUpdateDisplay(strictIntegerScaling: val);
+      },
+      renderMode: _renderMode,
+      onRenderModeChanged: (mode) {
+        setState(() => _renderMode = mode);
+        _safeUpdateDisplay(renderMode: mode);
+      },
     );
   }
 

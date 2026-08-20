@@ -4,6 +4,29 @@ import 'dart:ui' as ui;
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 
+/// Completes a [ui.decodeImageFromPixels] callback without hanging if the
+/// owner was disposed while the GPU upload was in flight.
+void _completeGpuDecode({
+  required bool disposed,
+  required Completer<ui.Image> completer,
+  required ui.Image image,
+  required void Function(ui.Image image) onSuccess,
+}) {
+  if (disposed) {
+    image.dispose();
+    if (!completer.isCompleted) {
+      completer.completeError(
+        StateError('GPU image decode completed after dispose'),
+      );
+    }
+    return;
+  }
+  onSuccess(image);
+  if (!completer.isCompleted) {
+    completer.complete(image);
+  }
+}
+
 /// A single Impeller-ready 320x200 RGBA texture layer corresponding to a specific AGI priority level.
 ///
 /// In this modern rendering pipeline:
@@ -29,6 +52,7 @@ class PictureSlice {
   final bool hasVisiblePixels;
 
   ui.Image? _cachedUiImage;
+  bool _isDisposed = false;
 
   PictureSlice({
     required this.priority,
@@ -43,6 +67,9 @@ class PictureSlice {
 
   /// Decodes and caches the GPU [ui.Image] for direct drawing in Flutter / Impeller canvas passes.
   Future<ui.Image> toUiImage() async {
+    if (_isDisposed) {
+      throw StateError('Cannot decode ui.Image on a disposed PictureSlice.');
+    }
     if (_cachedUiImage != null) return _cachedUiImage!;
 
     final completer = Completer<ui.Image>();
@@ -52,8 +79,12 @@ class PictureSlice {
       height,
       ui.PixelFormat.rgba8888,
       (image) {
-        _cachedUiImage = image;
-        completer.complete(image);
+        _completeGpuDecode(
+          disposed: _isDisposed,
+          completer: completer,
+          image: image,
+          onSuccess: (img) => _cachedUiImage = img,
+        );
       },
     );
     return completer.future;
@@ -61,6 +92,7 @@ class PictureSlice {
 
   /// Disposes cached GPU textures.
   void dispose() {
+    _isDisposed = true;
     _cachedUiImage?.dispose();
     _cachedUiImage = null;
   }
@@ -97,6 +129,7 @@ class AgiPic {
   ui.Image? _cachedFlatVisualImage;
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
+  bool _isDisposed = false;
 
   /// The AGI picture resource number, if known.
   int? picNumber;
@@ -151,7 +184,11 @@ class AgiPic {
       if (_cachedControlMapImage == null) futures.add(toControlMapUiImage());
     }
     if (futures.isEmpty) return null;
-    return Future.wait(futures).then((_) {});
+    // Ignore decode errors from slices disposed while upload was in flight.
+    return Future.wait<ui.Image?>([
+      for (final f in futures)
+        f.then<ui.Image?>((img) => img, onError: (Object _, StackTrace _) => null),
+    ]).then((_) {});
   }
 
   /// Renders a complete 320x200 RGBA flat visual background (for diagnostic views or single-texture shaders).
@@ -183,6 +220,9 @@ class AgiPic {
 
   /// Decodes and returns the flat visual background as a Flutter [ui.Image].
   Future<ui.Image> toFlatVisualUiImage() async {
+    if (_isDisposed) {
+      throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
+    }
     if (_cachedFlatVisualImage != null) return _cachedFlatVisualImage!;
 
     final flatRgba = renderFlatVisualRgba();
@@ -193,8 +233,12 @@ class AgiPic {
       renderedHeight,
       ui.PixelFormat.rgba8888,
       (image) {
-        _cachedFlatVisualImage = image;
-        completer.complete(image);
+        _completeGpuDecode(
+          disposed: _isDisposed,
+          completer: completer,
+          image: image,
+          onSuccess: (img) => _cachedFlatVisualImage = img,
+        );
       },
     );
     return completer.future;
@@ -205,6 +249,9 @@ class AgiPic {
 
   /// Decodes and returns the depth priority map as a Flutter [ui.Image].
   Future<ui.Image> toPriorityMapUiImage() async {
+    if (_isDisposed) {
+      throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
+    }
     if (_cachedPriorityMapImage != null) return _cachedPriorityMapImage!;
 
     final priRgba = renderPriorityMapRgba();
@@ -215,8 +262,12 @@ class AgiPic {
       renderedHeight,
       ui.PixelFormat.rgba8888,
       (image) {
-        _cachedPriorityMapImage = image;
-        completer.complete(image);
+        _completeGpuDecode(
+          disposed: _isDisposed,
+          completer: completer,
+          image: image,
+          onSuccess: (img) => _cachedPriorityMapImage = img,
+        );
       },
     );
     return completer.future;
@@ -227,6 +278,9 @@ class AgiPic {
 
   /// Decodes and returns the control map as a Flutter [ui.Image].
   Future<ui.Image> toControlMapUiImage() async {
+    if (_isDisposed) {
+      throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
+    }
     if (_cachedControlMapImage != null) return _cachedControlMapImage!;
 
     final ctrlRgba = renderControlMapRgba();
@@ -237,8 +291,12 @@ class AgiPic {
       renderedHeight,
       ui.PixelFormat.rgba8888,
       (image) {
-        _cachedControlMapImage = image;
-        completer.complete(image);
+        _completeGpuDecode(
+          disposed: _isDisposed,
+          completer: completer,
+          image: image,
+          onSuccess: (img) => _cachedControlMapImage = img,
+        );
       },
     );
     return completer.future;
@@ -246,6 +304,7 @@ class AgiPic {
 
   /// Disposes GPU resources held by this picture and its slices.
   void dispose() {
+    _isDisposed = true;
     _cachedFlatVisualImage?.dispose();
     _cachedFlatVisualImage = null;
     _cachedPriorityMapImage?.dispose();

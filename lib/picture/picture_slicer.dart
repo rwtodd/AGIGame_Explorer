@@ -16,6 +16,8 @@ class PictureSlicer {
   const PictureSlicer._();
 
   /// Slices the visual and priority buffers into a map of [PictureSlice] keyed by priority level (0..15).
+  ///
+  /// Uses packed 32-bit writes and skips allocating full 256KB RGBA buffers for unused priority levels.
   static Map<int, PictureSlice> slice({
     required Uint8List visualPixels,
     required PriorityBuffer priorityBuffer,
@@ -24,58 +26,107 @@ class PictureSlicer {
     const srcHeight = AgiDisplay.pictureHeight; // 168
     const dstWidth = AgiDisplay.renderedWidth; // 320
     const dstHeight = AgiDisplay.renderedHeight; // 200
-    const sliceByteCount = dstWidth * dstHeight * 4;
 
-    // Allocate RGBA buffers for all 16 priority levels (0 to 15)
-    final sliceBuffers = List<Uint8List>.generate(
-      16,
-      (_) => Uint8List(sliceByteCount),
-      growable: false,
-    );
-    final hasVisible = List<bool>.filled(16, false);
+    // Lazily allocate 32-bit pixel views for active priority levels
+    final sliceViews = List<Uint32List?>.filled(16, null);
 
-    // Decompose pixels into priority slices
+    // Decompose pixels into priority slices with 32-bit packed writes
     for (int y = 0; y < srcHeight; y++) {
       final rowOffset = y * srcWidth;
-      final dstRowOffset = y * dstWidth * 4;
+      final dstRowOffset = y * dstWidth;
 
       for (int x = 0; x < srcWidth; x++) {
         final srcIdx = rowOffset + x;
         final vColor = visualPixels[srcIdx] & 0x0F;
         final targetPri = priorityBuffer.effectivePriorityAtIndex(srcIdx);
 
-        final targetBuffer = sliceBuffers[targetPri];
-        hasVisible[targetPri] = true;
+        var targetView = sliceViews[targetPri];
+        if (targetView == null) {
+          targetView = Uint32List(dstWidth * dstHeight);
+          sliceViews[targetPri] = targetView;
+        }
 
-        final col = EgaColors.rgbaBytes[vColor];
+        final packed = EgaColors.rgbaPacked[vColor];
 
-        // Pixel-doubling: write two 4-byte RGBA pixels horizontally
-        final dstOffset1 = dstRowOffset + (x * 2 * 4);
-        final dstOffset2 = dstOffset1 + 4;
-
-        targetBuffer[dstOffset1 + 0] = col[0];
-        targetBuffer[dstOffset1 + 1] = col[1];
-        targetBuffer[dstOffset1 + 2] = col[2];
-        targetBuffer[dstOffset1 + 3] = col[3];
-
-        targetBuffer[dstOffset2 + 0] = col[0];
-        targetBuffer[dstOffset2 + 1] = col[1];
-        targetBuffer[dstOffset2 + 2] = col[2];
-        targetBuffer[dstOffset2 + 3] = col[3];
+        // Pixel-doubling: write two 32-bit packed RGBA values horizontally
+        final dstPixelOffset = dstRowOffset + (x * 2);
+        targetView[dstPixelOffset] = packed;
+        targetView[dstPixelOffset + 1] = packed;
       }
     }
 
     final resultMap = <int, PictureSlice>{};
     for (int p = 0; p < 16; p++) {
-      resultMap[p] = PictureSlice(
-        priority: p,
-        width: dstWidth,
-        height: dstHeight,
-        rgbaBytes: sliceBuffers[p],
-        hasVisiblePixels: hasVisible[p],
-      );
+      final view = sliceViews[p];
+      if (view != null) {
+        resultMap[p] = PictureSlice(
+          priority: p,
+          width: dstWidth,
+          height: dstHeight,
+          rgbaBytes: Uint8List.view(view.buffer),
+          hasVisiblePixels: true,
+        );
+      } else {
+        resultMap[p] = PictureSlice(
+          priority: p,
+          width: dstWidth,
+          height: dstHeight,
+          rgbaBytes: Uint8List(0),
+          hasVisiblePixels: false,
+        );
+      }
     }
 
     return resultMap;
+  }
+
+  /// Slices a single priority level from visual and priority buffers.
+  /// Used by incremental `add.to.pic` to avoid full 16-layer reslicing.
+  static PictureSlice sliceSinglePriority({
+    required Uint8List visualPixels,
+    required PriorityBuffer priorityBuffer,
+    required int priority,
+  }) {
+    const srcWidth = AgiDisplay.nativeWidth; // 160
+    const srcHeight = AgiDisplay.pictureHeight; // 168
+    const dstWidth = AgiDisplay.renderedWidth; // 320
+    const dstHeight = AgiDisplay.renderedHeight; // 200
+
+    Uint32List? targetView;
+    for (int y = 0; y < srcHeight; y++) {
+      final rowOffset = y * srcWidth;
+      final dstRowOffset = y * dstWidth;
+
+      for (int x = 0; x < srcWidth; x++) {
+        final srcIdx = rowOffset + x;
+        final targetPri = priorityBuffer.effectivePriorityAtIndex(srcIdx);
+        if (targetPri == priority) {
+          targetView ??= Uint32List(dstWidth * dstHeight);
+          final vColor = visualPixels[srcIdx] & 0x0F;
+          final packed = EgaColors.rgbaPacked[vColor];
+          final dstPixelOffset = dstRowOffset + (x * 2);
+          targetView[dstPixelOffset] = packed;
+          targetView[dstPixelOffset + 1] = packed;
+        }
+      }
+    }
+
+    if (targetView == null) {
+      return PictureSlice(
+        priority: priority,
+        width: dstWidth,
+        height: dstHeight,
+        rgbaBytes: Uint8List(0),
+        hasVisiblePixels: false,
+      );
+    }
+
+    return PictureSlice(
+      priority: priority,
+      width: dstWidth,
+      height: dstHeight,
+      rgbaBytes: Uint8List.view(targetView.buffer),
+      hasVisiblePixels: true,
+    );
   }
 }

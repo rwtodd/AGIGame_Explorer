@@ -16,6 +16,7 @@ import 'package:flutter_agigame/loader/parsers/words_parser.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
 import 'package:flutter_agigame/picture/pic_vector_interpreter.dart';
+import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// Central resource loader for Sierra AGI games (v2 and v3).
 class AgiResourceLoader {
@@ -26,6 +27,8 @@ class AgiResourceLoader {
   final List<AgiObject> initialObjects;
   final int maxAnimated;
   final LruCache<int, AgiView> _viewCache;
+  final LruCache<int, AgiLogicScript> _logicCache;
+  final LruCache<int, AgiPic> _picCache;
 
   AgiResourceLoader._({
     required this.meta,
@@ -35,7 +38,11 @@ class AgiResourceLoader {
     required this.initialObjects,
     required this.maxAnimated,
     int viewCacheCapacity = 64,
-  }) : _viewCache = LruCache<int, AgiView>(viewCacheCapacity);
+    int logicCacheCapacity = 64,
+    int picCacheCapacity = 32,
+  })  : _viewCache = LruCache<int, AgiView>(viewCacheCapacity),
+        _logicCache = LruCache<int, AgiLogicScript>(logicCacheCapacity),
+        _picCache = LruCache<int, AgiPic>(picCacheCapacity);
 
   /// Creates an [AgiResourceLoader] with explicit [ResourceDirectory] and [VolumeManager] (useful for testing).
   factory AgiResourceLoader.custom({
@@ -133,11 +140,42 @@ class AgiResourceLoader {
   }
 
   /// Loads and interprets an AGI PICTURE resource into an [AgiPic] with priority slices.
+  /// Uses cached base vector raster buffers to make repeated room entries instantaneous.
   AgiPic loadPic(int number) {
+    final cached = _picCache.get(number);
+    if (cached != null) {
+      final visualCopy = Uint8List.fromList(cached.visualPixels);
+      final priCopy = cached.priorityBuffer.clone();
+      final slices = PictureSlicer.slice(
+        visualPixels: visualCopy,
+        priorityBuffer: priCopy,
+      );
+      return AgiPic(
+        picNumber: number,
+        visualPixels: visualCopy,
+        priorityBuffer: priCopy,
+        slices: slices,
+      );
+    }
+
     final rawBytes = loadRawPic(number);
     final interpreter = PicVectorInterpreter(isV3: meta.isV3);
     final pic = interpreter.interpret(rawBytes);
     pic.picNumber = number;
+
+    // Cache unmutated template buffers
+    final visualTemplate = Uint8List.fromList(pic.visualPixels);
+    final priTemplate = pic.priorityBuffer.clone();
+    _picCache.put(
+      number,
+      AgiPic(
+        picNumber: number,
+        visualPixels: visualTemplate,
+        priorityBuffer: priTemplate,
+        slices: const {},
+      ),
+    );
+
     return pic;
   }
 
@@ -187,16 +225,22 @@ class AgiResourceLoader {
     return vmgr.getResource(de);
   }
 
-  /// Loads and parses a [AgiLogicScript] for LOGIC resource [number].
+  /// Loads and parses a [AgiLogicScript] for LOGIC resource [number], with memory caching.
   AgiLogicScript loadLogic(int number) {
+    final cached = _logicCache.get(number);
+    if (cached != null) {
+      return cached;
+    }
     final raw = loadRawLogic(number);
     final isEncrypted = meta.version < 3.0;
-    return LogicParser.parse(
+    final script = LogicParser.parse(
       raw,
       isEncrypted: isEncrypted,
       key: meta.decryptionKey,
       logicNumber: number,
     );
+    _logicCache.put(number, script);
+    return script;
   }
 
   /// Summarizes current loaded game into a [GameInfo] snapshot.
@@ -217,6 +261,9 @@ class AgiResourceLoader {
   }
 
   void close() {
+    _viewCache.clear();
+    _logicCache.clear();
+    _picCache.clear();
     vmgr.close();
   }
 }

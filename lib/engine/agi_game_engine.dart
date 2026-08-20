@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
@@ -238,14 +239,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // Initial default state: Sound ON by default
     this.memory.setFlag(9);
 
-    // Dynamic flag hook for on-demand pixel-accurate Flag 1 (Ego obscured)
+    // Dynamic flag hook for on-demand pixel-accurate Flag 1 (Ego obscured) with per-tick cache
     this.memory.flagGetterHook = (flag) {
       if (flag == 1) {
-        return isEgoObscured();
+        _cachedFlag1Obscured ??= isEgoObscured();
+        return _cachedFlag1Obscured!;
       }
       return null;
     };
   }
+
+  bool? _cachedFlag1Obscured;
 
   bool get isRunning => _isRunning;
   bool get isPaused => _isPaused;
@@ -636,7 +640,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // Post-Scan: Clock update & transient flags cleanup
     // ----------------------------------------------------
     _performPostScanCleanup();
-    notifyListeners();
     return false;
   }
 
@@ -660,6 +663,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     // Reset transient per-cycle flags and parsed input tokens
+    _cachedFlag1Obscured = null;
     memory.resetFlag(2); // have.input reset
     memory.resetFlag(4); // said.accepted reset
     memory.resetFlag(5); // init.log / new_room first execution reset
@@ -1811,6 +1815,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     // Clear room picture until script explicitly draws new room picture via draw.pic
+    currentPic?.dispose();
     currentPic = null;
 
     // Load root room logic (LOGIC 0) for rescan
@@ -1886,6 +1891,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (pictureNumber != null &&
         resourceLoader != null &&
         resourceLoader!.presentPicNumbers.contains(pictureNumber)) {
+      currentPic?.dispose();
       currentPic = resourceLoader!.loadPic(pictureNumber);
       currentPic?.picNumber = pictureNumber;
 
@@ -1901,12 +1907,16 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           visualPixels: currentPic!.visualPixels,
           priorityBuffer: currentPic!.priorityBuffer,
         );
+        for (final oldSlice in currentPic!.slices.values) {
+          oldSlice.dispose();
+        }
         currentPic!.slices.clear();
         currentPic!.slices.addAll(newSlices);
       }
 
       currentPic?.preloadGpuTextures();
     } else {
+      currentPic?.dispose();
       currentPic = null;
     }
 
@@ -2475,6 +2485,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   FutureOr<void> onDrawPic(int picNumber) {
     if (resourceLoader != null && resourceLoader!.presentPicNumbers.contains(picNumber)) {
+      currentPic?.dispose();
       currentPic = resourceLoader!.loadPic(picNumber);
       currentPic?.picNumber = picNumber;
       _displayedTexts.clear();
@@ -2556,23 +2567,82 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       boxPriority: boxPri,
     );
     _addToPicCalls.add(entry);
-
     if (resourceLoader == null || currentPic == null) return null;
 
     try {
-      _burnAddToPic(entry);
+      final viewRes = resourceLoader!.loadView(entry.view);
+      final celRes = viewRes.getCel(entry.loop, entry.cel);
+      if (celRes == null) return null;
 
-      // Re-slice picture with updated buffers
-      final newSlices = PictureSlicer.slice(
-        visualPixels: currentPic!.visualPixels,
-        priorityBuffer: currentPic!.priorityBuffer,
+      final startY = entry.y - celRes.height + 1;
+      final dirtyPriorities = <int>{};
+      // Stamp may lower a pixel's priority. Collect bands from the cel
+      // rectangle both before and after the burn so leftover opaque texels
+      // are cleared from the old slice (painter's algorithm would otherwise
+      // keep occluding actors between the two bands).
+      _collectEffectivePrioritiesInRect(
+        dirtyPriorities,
+        x: entry.x,
+        y: startY,
+        width: celRes.width,
+        height: celRes.height,
       );
-      currentPic!.slices.clear();
-      currentPic!.slices.addAll(newSlices);
-      return currentPic!.preloadGpuTextures();
+      _burnAddToPic(entry);
+      _collectEffectivePrioritiesInRect(
+        dirtyPriorities,
+        x: entry.x,
+        y: startY,
+        width: celRes.width,
+        height: celRes.height,
+      );
+      if (entry.priority > 0) {
+        dirtyPriorities.add(entry.priority);
+      }
+      if (entry.boxPriority > 0) {
+        dirtyPriorities.add(entry.boxPriority);
+      }
+
+      // Re-slice only the dirty priority levels and re-upload GPU textures
+      final futures = <Future<ui.Image>>[];
+      for (final pri in dirtyPriorities) {
+        final oldSlice = currentPic!.slices[pri];
+        oldSlice?.dispose();
+        final newSlice = PictureSlicer.sliceSinglePriority(
+          visualPixels: currentPic!.visualPixels,
+          priorityBuffer: currentPic!.priorityBuffer,
+          priority: pri,
+        );
+        currentPic!.slices[pri] = newSlice;
+        if (newSlice.hasVisiblePixels) {
+          futures.add(newSlice.toUiImage());
+        }
+      }
+
+      if (futures.isNotEmpty) {
+        return Future.wait(futures).then((_) {});
+      }
+      return null;
     } catch (e) {
       if (kDebugMode) {
         print('Error executing add.to.pic: $e');
+      }
+    }
+  }
+
+  void _collectEffectivePrioritiesInRect(
+    Set<int> out, {
+    required int x,
+    required int y,
+    required int width,
+    required int height,
+  }) {
+    final pic = currentPic;
+    if (pic == null) return;
+    for (int r = y; r < y + height; r++) {
+      if (r < 0 || r >= AgiPic.nativeHeight) continue;
+      for (int c = x; c < x + width; c++) {
+        if (c < 0 || c >= AgiPic.nativeWidth) continue;
+        out.add(pic.priorityBuffer.effectivePriorityAt(c, r));
       }
     }
   }
@@ -2953,6 +3023,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _dialogAutoCloseTimer = null;
     onStopSound();
     stop();
+    currentPic?.dispose();
+    currentPic = null;
     atlasManager.dispose();
     super.dispose();
   }

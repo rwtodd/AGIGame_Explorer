@@ -134,12 +134,21 @@ class AgiViewCel {
           int a = 0;
 
           if (colorIdx != transparentColor) {
-            final color = colorIdx < effectivePalette.length
-                ? effectivePalette[colorIdx]
-                : effectivePalette[0];
-            r = (color.r * 255.0).round().clamp(0, 255);
-            g = (color.g * 255.0).round().clamp(0, 255);
-            b = (color.b * 255.0).round().clamp(0, 255);
+            if (palette != null) {
+              final color = colorIdx < effectivePalette.length
+                  ? effectivePalette[colorIdx]
+                  : effectivePalette[0];
+              r = (color.r * 255.0).round().clamp(0, 255);
+              g = (color.g * 255.0).round().clamp(0, 255);
+              b = (color.b * 255.0).round().clamp(0, 255);
+            } else {
+              final col = colorIdx < EgaColors.rgbaBytes.length
+                  ? EgaColors.rgbaBytes[colorIdx]
+                  : EgaColors.rgbaBytes[0];
+              r = col[0];
+              g = col[1];
+              b = col[2];
+            }
             a = 255;
           }
 

@@ -1,17 +1,11 @@
-import 'dart:collection';
 import 'dart:typed_data';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/picture/pen_pattern.dart';
 import 'package:flutter_agigame/picture/pic_pen.dart';
+import 'package:flutter_agigame/picture/pic_rasterizer.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
-
-class _Point {
-  final int x;
-  final int y;
-  const _Point(this.x, this.y);
-}
 
 /// A discrete drawing operation decoded from an AGI PICTURE vector stream.
 class PicDrawingStep {
@@ -75,86 +69,19 @@ class PicStepContext {
   }
 
   void drawLine(int x1, int y1, int x2, int y2) {
-    int height = y2 - y1;
-    int width = x2 - x1;
-    int addY = 1;
-    int addX = 1;
-    if (height < 0) {
-      addY = -1;
-      height = -height;
-    }
-    if (width < 0) {
-      addX = -1;
-      width = -width;
-    }
-
-    int i = width;
-    int threshold = width;
-    int errX = 0;
-    int errY = width ~/ 2;
-    if (height > width) {
-      i = height;
-      threshold = height;
-      errX = height ~/ 2;
-      errY = 0;
-    }
-    int x = x1;
-    int y = y1;
-    plotPoint(x, y);
-    while (i-- > 0) {
-      errY += height;
-      if (errY >= threshold) {
-        errY -= threshold;
-        y += addY;
-      }
-      errX += width;
-      if (errX >= threshold) {
-        errX -= threshold;
-        x += addX;
-      }
-      plotPoint(x, y);
-    }
+    PicRasterizer.drawLine(x1, y1, x2, y2, plotPoint);
   }
 
   void fill(int startX, int startY) {
-    Uint8List rasterCheck;
-    int searchingFor;
-
-    if (picColor != 15 && picColor != -1) {
-      rasterCheck = visualBuffer;
-      searchingFor = 15;
-    } else if (picColor == -1 && priColor != -1 && priColor != 4) {
-      rasterCheck = priorityBuffer.pixels;
-      searchingFor = 4;
-    } else {
-      return;
-    }
-
-    const maxWid = AgiDisplay.nativeWidth - 1;
-    const maxHt = AgiDisplay.pictureHeight - 1;
-
-    final queue = ListQueue<_Point>();
-    queue.add(_Point(startX, startY));
-
-    while (queue.isNotEmpty) {
-      final p = queue.removeFirst();
-      final baseIndex = p.y * AgiDisplay.nativeWidth + p.x;
-      if (rasterCheck[baseIndex] == searchingFor) {
-        plotPoint(p.x, p.y);
-        if (p.x > 0 && rasterCheck[baseIndex - 1] == searchingFor) {
-          queue.add(_Point(p.x - 1, p.y));
-        }
-        if (p.y > 0 && rasterCheck[baseIndex - AgiDisplay.nativeWidth] == searchingFor) {
-          queue.add(_Point(p.x, p.y - 1));
-        }
-        if (p.x < maxWid && rasterCheck[baseIndex + 1] == searchingFor) {
-          queue.add(_Point(p.x + 1, p.y));
-        }
-        if (p.y < maxHt && rasterCheck[baseIndex + AgiDisplay.nativeWidth] == searchingFor) {
-          queue.add(_Point(p.x, p.y + 1));
-        }
-      }
-    }
+    PicRasterizer.scanlineFill(
+      startX: startX,
+      startY: startY,
+      visualBuffer: visualBuffer,
+      priorityBuffer: priorityBuffer,
+      picColor: picColor,
+      priColor: priColor,
+      plotPoint: plotPoint,
+    );
   }
 
   AgiPic toAgiPic({bool computeSlices = true}) {

@@ -8,6 +8,7 @@ import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
+import 'package:flutter_agigame/ui/shaders/crt_shader_loader.dart';
 
 /// Render modes for visualizing AGI pictures in game and diagnostic views.
 enum AgiPictureRenderMode {
@@ -721,22 +722,125 @@ class AgiPicturePainter extends CustomPainter {
   }
 }
 
+/// Owns a single CRT [ui.FragmentShader] for the lifetime of the overlay.
+///
+/// [CrtShaderOverlayPainter] cannot dispose GPU objects, so this widget
+/// allocates the shader once and releases it in [State.dispose].
+class CrtShaderOverlay extends StatefulWidget {
+  final double scanlineIntensity;
+  final double vignetteIntensity;
+  final double curvature;
+  final double phosphorIntensity;
+
+  const CrtShaderOverlay({
+    super.key,
+    this.scanlineIntensity = 0.22,
+    this.vignetteIntensity = 0.35,
+    this.curvature = 0.05,
+    this.phosphorIntensity = 1.0,
+  });
+
+  @override
+  State<CrtShaderOverlay> createState() => _CrtShaderOverlayState();
+}
+
+class _CrtShaderOverlayState extends State<CrtShaderOverlay> {
+  ui.FragmentShader? _shader;
+
+  @override
+  void initState() {
+    super.initState();
+    _acquireShader();
+    if (_shader == null) {
+      CrtShaderLoader.initialize().then((_) {
+        if (!mounted) return;
+        _acquireShader();
+        if (_shader != null) setState(() {});
+      });
+    }
+  }
+
+  void _acquireShader() {
+    if (_shader != null) return;
+    final program = CrtShaderLoader.program;
+    if (program == null) return;
+    _shader = program.fragmentShader();
+  }
+
+  @override
+  void dispose() {
+    _shader?.dispose();
+    _shader = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: CrtShaderOverlayPainter(
+          scanlineIntensity: widget.scanlineIntensity,
+          vignetteIntensity: widget.vignetteIntensity,
+          curvature: widget.curvature,
+          phosphorIntensity: widget.phosphorIntensity,
+          shader: _shader,
+        ),
+      ),
+    );
+  }
+}
+
 /// CustomPainter that renders a retro CRT shader effect (scanlines, phosphor shadow mask, screen curvature & vignette).
+///
+/// Uses a caller-owned [shader] when provided. Does **not** allocate a
+/// [ui.FragmentShader] itself — that must live on a [State] so it can be disposed.
 class CrtShaderOverlayPainter extends CustomPainter {
   final double scanlineIntensity;
   final double vignetteIntensity;
   final double curvature;
+  final double phosphorIntensity;
+  final ui.FragmentShader? shader;
 
   const CrtShaderOverlayPainter({
     this.scanlineIntensity = 0.22,
     this.vignetteIntensity = 0.35,
     this.curvature = 0.05,
+    this.phosphorIntensity = 1.0,
+    this.shader,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
 
+    final activeShader = shader;
+    if (activeShader != null) {
+      try {
+        // Uniforms:
+        // uniform vec2 uResolution;
+        // uniform float uScanlineIntensity;
+        // uniform float uVignetteIntensity;
+        // uniform float uCurvature;
+        // uniform float uPhosphorIntensity;
+        activeShader.setFloat(0, size.width);
+        activeShader.setFloat(1, size.height);
+        activeShader.setFloat(2, scanlineIntensity);
+        activeShader.setFloat(3, vignetteIntensity);
+        activeShader.setFloat(4, curvature);
+        activeShader.setFloat(5, phosphorIntensity);
+
+        final paint = Paint()..shader = activeShader;
+        canvas.drawRect(Offset.zero & size, paint);
+        return;
+      } catch (_) {
+        // Fall back to CPU rendering if fragment shader execution fails
+      }
+    }
+
+    _paintCpuFallback(canvas, size);
+  }
+
+  void _paintCpuFallback(Canvas canvas, Size size) {
     // 1. Draw subtle horizontal scanlines
     final scanlinePaint = Paint()
       ..color = Colors.black.withValues(alpha: scanlineIntensity)
@@ -783,7 +887,9 @@ class CrtShaderOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant CrtShaderOverlayPainter oldDelegate) {
     return oldDelegate.scanlineIntensity != scanlineIntensity ||
         oldDelegate.vignetteIntensity != vignetteIntensity ||
-        oldDelegate.curvature != curvature;
+        oldDelegate.curvature != curvature ||
+        oldDelegate.phosphorIntensity != phosphorIntensity ||
+        oldDelegate.shader != shader;
   }
 }
 
@@ -973,11 +1079,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
                   // Optional CRT Shader Overlay
                   if (widget.enableCrtShader)
                     const Positioned.fill(
-                      child: IgnorePointer(
-                        child: CustomPaint(
-                          painter: CrtShaderOverlayPainter(),
-                        ),
-                      ),
+                      child: CrtShaderOverlay(),
                     ),
                 ],
               ),

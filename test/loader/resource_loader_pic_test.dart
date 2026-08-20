@@ -97,6 +97,39 @@ void main() {
       expect(pic.slices[15]!.hasVisiblePixels, isTrue);
     });
 
+    test('loadPic returns independent working copies from a cached template', () {
+      final srcBytes = File('test/fixtures/srcbytes.bin').readAsBytesSync();
+
+      final picDirBytes = Uint8List(18);
+      picDirBytes.fillRange(0, 15, 0xFF);
+      picDirBytes[15] = 0x00;
+      picDirBytes[16] = 0x10;
+      picDirBytes[17] = 0x00;
+
+      final loader = AgiResourceLoader.custom(
+        meta: _MockMetaData(),
+        rdir: V2ResourceDirectory(
+          logics: Uint8List(0),
+          pics: picDirBytes,
+          views: Uint8List(0),
+          sounds: Uint8List(0),
+        ),
+        vmgr: _MockVolumeManager({0x1000: srcBytes}),
+      );
+
+      final pic1 = loader.loadPic(5);
+      final pic2 = loader.loadPic(5);
+
+      expect(pic1.visualPixels, equals(pic2.visualPixels));
+      expect(identical(pic1, pic2), isFalse);
+      expect(identical(pic1.visualPixels, pic2.visualPixels), isFalse,
+          reason: 'working copies must not share the cached template buffer');
+
+      pic1.visualPixels[0] = (pic1.visualPixels[0] + 1) & 0x0F;
+      expect(pic2.visualPixels[0], isNot(equals(pic1.visualPixels[0])),
+          reason: 'mutating a drawn pic must not poison the cache');
+    });
+
     test('loadPic throws ResourceNotPresentException if pic not in directory', () {
       final rdir = V2ResourceDirectory(
         logics: Uint8List(0),

@@ -437,10 +437,12 @@ class ViewAtlasBuilder {
             rgbaBuffer[dstPixelOffset + 2] = 0;
             rgbaBuffer[dstPixelOffset + 3] = 0;
           } else {
-            final color = colorIdx < palette.length ? palette[colorIdx] : palette[0];
-            rgbaBuffer[dstPixelOffset] = (color.r * 255.0).round().clamp(0, 255);
-            rgbaBuffer[dstPixelOffset + 1] = (color.g * 255.0).round().clamp(0, 255);
-            rgbaBuffer[dstPixelOffset + 2] = (color.b * 255.0).round().clamp(0, 255);
+            final col = (colorIdx < EgaColors.rgbaBytes.length)
+                ? EgaColors.rgbaBytes[colorIdx]
+                : EgaColors.rgbaBytes[0];
+            rgbaBuffer[dstPixelOffset] = col[0];
+            rgbaBuffer[dstPixelOffset + 1] = col[1];
+            rgbaBuffer[dstPixelOffset + 2] = col[2];
             rgbaBuffer[dstPixelOffset + 3] = 255;
           }
         }

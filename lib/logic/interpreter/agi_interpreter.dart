@@ -121,20 +121,22 @@ class AgiLogicInterpreter {
     if (hasPendingYield) return InterpreterStatus.yielded;
     if (_rootScript == null && currentFrame == null) return InterpreterStatus.completed;
 
+    _startNewScan();
+    return _runExecutionLoop();
+  }
+
+  void _startNewScan() {
+    if (callStack.isEmpty && _rootScript != null) {
+      pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.getScanStart(_rootScriptNumber));
+    }
+    ip = memory.getScanStart(_rootScriptNumber);
+    isHalted = false;
+    _newRoomRequested = false;
+  }
+
+  FutureOr<InterpreterStatus> _runExecutionLoop({int maxRescans = 10}) {
     _isExecuting = true;
     int rescanCount = 0;
-    const maxRescans = 10;
-
-    void startNewScan() {
-      if (callStack.isEmpty && _rootScript != null) {
-        pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.getScanStart(_rootScriptNumber));
-      }
-      ip = memory.getScanStart(_rootScriptNumber);
-      isHalted = false;
-      _newRoomRequested = false;
-    }
-
-    startNewScan();
 
     FutureOr<InterpreterStatus> stepLoop() {
       while (rescanCount < maxRescans) {
@@ -160,7 +162,7 @@ class AgiLogicInterpreter {
 
         if (_newRoomRequested) {
           rescanCount++;
-          startNewScan();
+          _startNewScan();
           continue;
         }
 
@@ -192,55 +194,7 @@ class AgiLogicInterpreter {
       cb(value);
     }
 
-    _isExecuting = true;
-    int rescanCount = 0;
-    const maxRescans = 10;
-
-    void startNewScan() {
-      if (callStack.isEmpty && _rootScript != null) {
-        pushScript(_rootScript!, scriptNumber: _rootScriptNumber, startIp: memory.getScanStart(_rootScriptNumber));
-      }
-      ip = memory.getScanStart(_rootScriptNumber);
-      isHalted = false;
-      _newRoomRequested = false;
-    }
-
-    FutureOr<InterpreterStatus> stepLoop() {
-      while (rescanCount < maxRescans) {
-        while (!isHalted && callStack.isNotEmpty && !_newRoomRequested) {
-          final status = stepInstruction();
-          if (status is Future<InterpreterStatus>) {
-            return status.then((s) {
-              if (s != InterpreterStatus.running && !_newRoomRequested) {
-                _isExecuting = false;
-                return s;
-              }
-              return stepLoop();
-            }).catchError((e) {
-              _isExecuting = false;
-              throw e;
-            });
-          }
-          if (status != InterpreterStatus.running && !_newRoomRequested) {
-            _isExecuting = false;
-            return status;
-          }
-        }
-
-        if (_newRoomRequested) {
-          rescanCount++;
-          startNewScan();
-          continue;
-        }
-
-        break;
-      }
-
-      _isExecuting = false;
-      return InterpreterStatus.completed;
-    }
-
-    return stepLoop();
+    return _runExecutionLoop();
   }
 
   /// Resumes interpreter execution after a yielded input prompt (`get.string` or `get.num`).

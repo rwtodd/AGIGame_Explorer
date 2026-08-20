@@ -321,11 +321,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
                     // Optional CRT retro shader overlay
                     if (widget.showCrtShader)
-                      const IgnorePointer(
-                        child: CustomPaint(
-                          painter: CrtShaderOverlayPainter(),
-                        ),
-                      ),
+                      const CrtShaderOverlay(),
 
                     // Integrated Authentic On-Screen Command Prompt
                     if (widget.engine.isInputEnabled)

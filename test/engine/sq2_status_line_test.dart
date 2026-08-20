@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
-import 'package:flutter_agigame/logic/disassembler/disassembly_formatter.dart';
 
 void main() {
   test('Analyze SQ2 Room 87 and Status Line behavior', () async {
@@ -11,12 +10,6 @@ void main() {
     if (!sq2Dir.existsSync()) return;
 
     final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
-    final formatter = const DisassemblyFormatter();
-    final logic86 = loader.loadLogic(86);
-    File('scratch/sq2_logic86.txt').writeAsStringSync(formatter.formatScript(logic86));
-
-    final logic87 = loader.loadLogic(87);
-    File('scratch/sq2_logic87.txt').writeAsStringSync(formatter.formatScript(logic87));
 
     // Now let's test restoring the user's snapshot into engine!
     const jsonStr = '''{
