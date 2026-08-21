@@ -16,7 +16,7 @@ import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/controllers/agi_controller_manager.dart';
-import 'package:flutter_agigame/engine/motion/agi_motion_controller.dart';
+import 'package:flutter_agigame/engine/motion/agi_motion.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
@@ -1309,6 +1309,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         continue;
       }
 
+      // Sierra CanBHere: auto-priority is the Y-band, not a leftover set.priority.
+      CollisionDetector.syncAutoPriority(obj, obj.y);
+
       // Auto-assign loop based on motion direction if loop is not fixed
       if (!obj.fixedLoop) {
         _updateLoopForDirection(obj);
@@ -1337,7 +1340,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void _updateEgoFlags(PriorityBuffer? priBuf) {
     if (priBuf == null) return;
     final egoObj = ego;
-    if (egoObj.priority == 15) {
+    final egoPri = egoObj.fixedPriority
+        ? egoObj.priority
+        : AnimatedObject.calculatePriorityForY(egoObj.y);
+    if (egoPri == 15) {
       memory.resetFlag(0);
       memory.resetFlag(3);
       return;
@@ -1451,7 +1457,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     if (obj.fixedLoop || obj.direction == 0) return;
 
     final loopCount = obj.getLoopCount();
-    final newLoop = AgiMotionController.selectLoopForDirection(
+    final newLoop = AgiMotion.selectLoopForDirection(
       obj.direction,
       loopCount,
       obj.loop,
@@ -1497,7 +1503,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         } else {
           final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
           final dirY = diffY > 0 ? 1 : (diffY < 0 ? -1 : 0);
-          obj.direction = _vectorToDirection(dirX, dirY);
+          obj.direction = AgiMotion.directionFromDelta(dirX, dirY);
         }
         break;
 
@@ -1519,7 +1525,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         } else {
           final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
           final dirY = diffY > 0 ? 1 : (diffY < 0 ? -1 : 0);
-          obj.direction = _vectorToDirection(dirX, dirY);
+          obj.direction = AgiMotion.directionFromDelta(dirX, dirY);
         }
         break;
 
@@ -1527,7 +1533,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         break;
     }
 
-    final delta = _directionToVector(obj.direction);
+    final delta = AgiMotion.delta(obj.direction);
     final step = obj.stepSize > 0 ? obj.stepSize : 1;
     if (obj.motionType == 3) {
       final diffX = obj.targetX - obj.x;
@@ -1552,7 +1558,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     const minX = 0;
     final maxX = (160 - objWidth).clamp(0, 159);
     final minScreenY = math.max(0, objHeight - 1);
-    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
+    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon + 1, minScreenY);
     const maxY = 167;
 
     var clampedX = targetX.clamp(minX, maxX);
@@ -1560,7 +1566,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Border collision triggers for variables %v2 (Ego) and %v4/%v5 (other objects)
     int border = 0;
-    if (targetY <= minY || (targetY - objHeight < -1)) {
+    if ((!obj.ignoreHorizon && targetY <= horizon) || (targetY - objHeight < -1)) {
       border = 1; // Top (reaching/touching horizon line or screen top)
     } else if (targetX > maxX) {
       border = 2; // Right (moving beyond right boundary)
@@ -1610,27 +1616,25 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return;
     }
 
-    // Priority buffer collision check (priority 15 represents sky/background and bypasses ground barriers)
-    if (priBuf != null && obj.priority != 15) {
-      var isBlocked = false;
-      for (int bx = clampedX; bx < clampedX + objWidth; bx++) {
-        if (!priBuf.isWalkable(bx, clampedY, allowConditional: obj.ignoreBlocks)) {
-          isBlocked = true;
-          break;
-        }
+    // Priority buffer collision (Sierra CanBHere). Auto-priority uses the
+    // proposed Y-band so a released priority-15 drop-in still observes walls.
+    if (priBuf != null &&
+        !CollisionDetector.objectCanBeHere(
+          priorityBuffer: priBuf,
+          obj: obj,
+          x: clampedX,
+          y: clampedY,
+          width: objWidth,
+        )) {
+      if (obj.motionType == 1) {
+        obj.direction = _rng.nextInt(9);
+      } else if (obj.number == 0 && obj.motionType == 0) {
+        obj.direction = 0;
+        memory.setVar(6, 0);
+        obj.isCycling = false;
       }
-
-      if (isBlocked) {
-        if (obj.motionType == 1) {
-          obj.direction = _rng.nextInt(9);
-        } else if (obj.number == 0 && obj.motionType == 0) {
-          obj.direction = 0;
-          memory.setVar(6, 0);
-          obj.isCycling = false;
-        }
-        posShuffle(obj);
-        return;
-      }
+      posShuffle(obj);
+      return;
     }
 
     // Object-to-object collision check (baseline intersection & crossing per Sierra COLLIDE.C)
@@ -1669,6 +1673,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     obj.prevY = obj.y;
     obj.x = clampedX;
     obj.y = clampedY;
+    CollisionDetector.syncAutoPriority(obj, obj.y);
 
     if (obj.motionType == 3) {
       if (obj.x == obj.targetX && obj.y == obj.targetY) {
@@ -1726,41 +1731,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         }
         break;
     }
-  }
-
-  static (int, int) _directionToVector(int dir) {
-    switch (dir) {
-      case 1:
-        return (0, -1);
-      case 2:
-        return (1, -1);
-      case 3:
-        return (1, 0);
-      case 4:
-        return (1, 1);
-      case 5:
-        return (0, 1);
-      case 6:
-        return (-1, 1);
-      case 7:
-        return (-1, 0);
-      case 8:
-        return (-1, -1);
-      default:
-        return (0, 0);
-    }
-  }
-
-  static int _vectorToDirection(int dx, int dy) {
-    if (dx == 0 && dy < 0) return 1;
-    if (dx > 0 && dy < 0) return 2;
-    if (dx > 0 && dy == 0) return 3;
-    if (dx > 0 && dy > 0) return 4;
-    if (dx == 0 && dy > 0) return 5;
-    if (dx < 0 && dy > 0) return 6;
-    if (dx < 0 && dy == 0) return 7;
-    if (dx < 0 && dy < 0) return 8;
-    return 0;
   }
 
   void _updateClock() {
@@ -2218,10 +2188,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     final objHeight = obj.getCelHeight();
     final minScreenY = math.max(0, objHeight - 1);
-    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
 
-    if (obj.y <= minY) {
-      obj.y = minY + 1;
+    if (!obj.ignoreHorizon && obj.y <= horizon) {
+      obj.y = horizon + 1;
+      obj.prevY = obj.y;
+    } else if (obj.ignoreHorizon && obj.y < minScreenY) {
+      obj.y = minScreenY;
       obj.prevY = obj.y;
     }
 
@@ -2232,10 +2204,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       if (x < 0 || x + w > 160 || y > 167 || y <= minWalkY || (y - h < -1)) {
         return false;
       }
-      for (int bx = x; bx < x + w; bx++) {
-        if (!priBuf.isWalkable(bx, y, allowConditional: obj.ignoreBlocks)) {
-          return false;
-        }
+      if (!CollisionDetector.objectCanBeHere(
+        priorityBuffer: priBuf,
+        obj: obj,
+        x: x,
+        y: y,
+        width: w,
+      )) {
+        return false;
       }
       if (!obj.ignoreObjects) {
         for (final other in animatedObjects) {
@@ -2261,7 +2237,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return true;
     }
 
-    if (isWalkablePos(obj.x, obj.y)) return;
+    if (isWalkablePos(obj.x, obj.y)) {
+      CollisionDetector.syncAutoPriority(obj, obj.y);
+      return;
+    }
 
     var shiftDir = 0;
     var shiftCount = 1;
@@ -2308,6 +2287,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       if (isWalkablePos(obj.x, obj.y)) {
         obj.prevX = obj.x;
         obj.prevY = obj.y;
+        CollisionDetector.syncAutoPriority(obj, obj.y);
         return;
       }
     }

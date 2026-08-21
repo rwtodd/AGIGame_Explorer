@@ -110,6 +110,70 @@ class CollisionDetector {
     activeBlock = null;
   }
 
+  /// Sierra `CanBHere`: whether [obj] may occupy baseline `(x, y)`.
+  ///
+  /// If priority is not fixed, the Y-band of [y] is used (never a leftover
+  /// `set.priority` value). Priority 15 skips ground control checks. Otherwise:
+  /// - Priority 0 always blocks.
+  /// - Priority 1 blocks unless `ignoreBlocks`.
+  /// - Entirely on water (pri 3) is illegal when `object.on.land`.
+  /// - Not entirely on water is illegal when `object.on.water`.
+  bool canBeHere({
+    required AnimatedObject obj,
+    required int x,
+    required int y,
+    required int width,
+  }) {
+    return objectCanBeHere(
+      priorityBuffer: priorityBuffer,
+      obj: obj,
+      x: x,
+      y: y,
+      width: width,
+    );
+  }
+
+  /// See [canBeHere]. Static so the engine motion path can share the same rules.
+  static bool objectCanBeHere({
+    required PriorityBuffer priorityBuffer,
+    required AnimatedObject obj,
+    required int x,
+    required int y,
+    required int width,
+  }) {
+    final pri = obj.fixedPriority
+        ? obj.priority
+        : AnimatedObject.calculatePriorityForY(y);
+    if (pri == 15) return true;
+
+    final effectiveWidth = math.max(1, width);
+    var entirelyWater = true;
+    for (var i = 0; i < effectiveWidth; i++) {
+      final px = x + i;
+      if (px < 0 || px >= screenWidth || y < 0 || y >= screenHeight) {
+        return false;
+      }
+      final pixelPri = priorityBuffer.priorityAt(px, y);
+      if (pixelPri == 0) return false;
+      if (pixelPri == 1 && !obj.ignoreBlocks) return false;
+      if (pixelPri != 3) entirelyWater = false;
+    }
+
+    if (entirelyWater) {
+      if (obj.onLand) return false;
+    } else if (obj.onWater) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Writes the Y-band into [obj.priority] when priority is not fixed.
+  static void syncAutoPriority(AnimatedObject obj, int y) {
+    if (!obj.fixedPriority) {
+      obj.priority = AnimatedObject.calculatePriorityForY(y);
+    }
+  }
+
   /// Checks if any pixel along the baseline `(x, y)` to `(x + width - 1, y)` is blocked
   /// by control lines or script block areas.
   ///
@@ -235,12 +299,14 @@ class CollisionDetector {
   }) {
     final effectiveWidth = math.max(1, width);
 
-    // Screen boundary check
+    // Screen boundary check. Sierra MOVEOBJS: y <= horizon is a top-edge hit.
     if (x < 0 || x + effectiveWidth > screenWidth) return true;
     if (y > maxActorY) return true;
-
-    final minAllowedY = obj.ignoreHorizon ? 0 : horizon;
-    if (y < minAllowedY) return true;
+    if (obj.ignoreHorizon) {
+      if (y < 0) return true;
+    } else if (y <= horizon) {
+      return true;
+    }
 
     // Script block boundary crossing check
     if (!obj.ignoreBlocks && activeBlock != null) {
@@ -249,18 +315,10 @@ class CollisionDetector {
       }
     }
 
-    // Baseline barrier collision check
-    // Per Sierra AGI & ScummVM specification: priority 15 (0x0F) represents sky/background,
-    // which bypasses ground control line barriers (priority 0, 1, water).
-    if (obj.priority != 15) {
-      if (isBaselineBlocked(
-        x: x,
-        y: y,
-        width: effectiveWidth,
-        ignoreBlocks: obj.ignoreBlocks,
-      )) {
-        return true;
-      }
+    // Control lines / water / land (Sierra `CanBHere`). Auto-priority objects
+    // use the band for [y], not a stale `set.priority` leftover.
+    if (!canBeHere(obj: obj, x: x, y: y, width: effectiveWidth)) {
+      return true;
     }
 
     // Object-to-object collision check
@@ -392,7 +450,8 @@ class CollisionDetector {
     final minX = 0;
     final maxX = screenWidth - effectiveWidth;
     final minScreenY = math.max(0, effectiveHeight - 1);
-    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
+    // Sierra MOVEOBJS: objects that hit the horizon are placed at horizon + 1.
+    final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon + 1, minScreenY);
     const maxY = maxActorY;
 
     final clampedX = x.clamp(minX, maxX);

@@ -333,14 +333,39 @@ void main() {
       expect(engine.memory.getVar(16), 97);
       expect(engine.memory.getVar(95), 2);
 
-      // Position in swimming channel (x=50)
-      engine.ego.x = 50;
-
-      // Swim North across the border into Room 8
+      // Swim North across the border into Room 8. View 97 is 13 pixels wide and
+      // object.on.water requires the whole baseline on priority 3, so we steer
+      // to keep the swim cel inside the shrinking water channel.
+      engine.ego.x = 45;
       engine.setEgoDirection(1); // North
-      for (var i = 0; i < 100; i++) {
+      for (var i = 0; i < 200; i++) {
         await engine.tick();
         if (engine.memory.getVar(0) == 8) break;
+        if (engine.ego.direction == 0) {
+          final pri = engine.currentPic!.priorityBuffer;
+          final w = engine.ego.getCelWidth();
+          final y = engine.ego.y;
+          final ny = y - 1;
+          var bestX = engine.ego.x;
+          var bestDist = 999;
+          for (var x = 0; x <= 160 - w; x++) {
+            var water = true;
+            for (var bx = x; bx < x + w; bx++) {
+              if (pri.priorityAt(bx, ny) != 3) {
+                water = false;
+                break;
+              }
+            }
+            if (!water) continue;
+            final dist = (x - engine.ego.x).abs();
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestX = x;
+            }
+          }
+          engine.ego.x = bestX;
+          engine.setEgoDirection(1);
+        }
       }
 
       expect(engine.memory.getVar(0), 8, reason: 'Ego should have crossed into Room 8');

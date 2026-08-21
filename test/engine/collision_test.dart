@@ -121,6 +121,54 @@ void main() {
           isFalse,
         );
       });
+
+      test('released (auto) priority does not keep a stale priority-15 flyover', () {
+        for (var x = 10; x <= 20; x++) {
+          priorityBuffer.setPriorityAt(x, 50, 0);
+        }
+        ego.priority = 15;
+        ego.fixedPriority = false;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 50, width: 4, height: 10),
+          isTrue,
+          reason: 'release.priority must observe control lines using the Y-band',
+        );
+      });
+
+      test('object.on.land is blocked when the whole baseline is water', () {
+        for (var x = 10; x <= 20; x++) {
+          priorityBuffer.setPriorityAt(x, 80, 3);
+        }
+        ego.onLand = true;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 80, width: 4, height: 10),
+          isTrue,
+        );
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 90, width: 4, height: 10),
+          isFalse,
+          reason: 'default land (pri 4) is legal for object.on.land',
+        );
+      });
+
+      test('object.on.water is blocked when the baseline is not entirely water', () {
+        for (var x = 10; x <= 13; x++) {
+          priorityBuffer.setPriorityAt(x, 80, 3);
+        }
+        ego.onWater = true;
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 80, width: 4, height: 10),
+          isTrue,
+          reason: 'pixels 12-13 water, 14-15 land → not entirely water',
+        );
+        for (var x = 10; x <= 20; x++) {
+          priorityBuffer.setPriorityAt(x, 80, 3);
+        }
+        expect(
+          detector.isPositionBlocked(obj: ego, x: 12, y: 80, width: 4, height: 10),
+          isFalse,
+        );
+      });
     });
 
     group('Script Block Area (block and unblock)', () {
@@ -184,7 +232,7 @@ void main() {
         );
 
         expect(clampedX, equals(0));
-        expect(clampedY, equals(36));
+        expect(clampedY, equals(37), reason: 'Sierra places objects at horizon + 1');
 
         // Right / bottom overflow
         ego.x = 200;

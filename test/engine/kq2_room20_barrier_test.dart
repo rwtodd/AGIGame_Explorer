@@ -35,6 +35,15 @@ void main() {
       expect(engine.memory.getVar(0), 20);
       expect(ego.ignoreBlocks, isFalse, reason: 'Ego ignoreBlocks must be reset to false in new room');
 
+      // Room 19 is on the beach and may have left Ego on the splash view (wide
+      // cel). Use the walking view so the baseline matches the shop wall test.
+      ego.view = 0;
+      ego.loop = 0;
+      ego.cel = 0;
+      ego.updateCachedView(engine.getView(0));
+      ego.onWater = false;
+      ego.onLand = false;
+
       // Place Ego near the antique shop wall in Picture 20 (x=68, y=120)
       ego.x = 65;
       ego.y = 120;

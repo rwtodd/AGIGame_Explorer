@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
@@ -177,6 +178,51 @@ void main() {
 
       // Ego should be blocked at x=80
       expect(engine.ego.x, 80);
+    });
+
+    test('NPC with leftover priority 15 after release.priority still hits control lines', () {
+      final priBuf = PriorityBuffer();
+      for (int x = 60; x < 70; x++) {
+        priBuf.setPriorityAt(x, 100, 0);
+      }
+
+      engine.currentPic = AgiPic(
+        visualPixels: Uint8List(160 * 168),
+        priorityBuffer: priBuf,
+        slices: PictureSlicer.slice(
+          visualPixels: Uint8List(160 * 168),
+          priorityBuffer: priBuf,
+        ),
+      );
+
+      final npc = engine.animatedObjects[1]
+        ..isAnimated = true
+        ..isDrawn = true
+        ..isUpdating = true
+        ..ignoreObjects = true
+        ..x = 50
+        ..y = 100
+        ..prevX = 50
+        ..prevY = 100
+        ..priority = 15
+        ..fixedPriority = false
+        ..direction = 3 // East
+        ..stepSize = 1
+        ..stepTime = 1
+        ..stepTimer = 1
+        ..motionType = 0;
+
+      for (var i = 0; i < 20; i++) {
+        engine.tick();
+      }
+
+      expect(
+        npc.x,
+        lessThan(60),
+        reason: 'auto-priority must not keep the pri-15 flyover from set.priority',
+      );
+      expect(npc.priority, AnimatedObject.calculatePriorityForY(npc.y));
+      expect(npc.priority, isNot(15));
     });
 
     test('sets flag 3 on trigger line (priority 2) without blocking motion', () {
@@ -413,8 +459,8 @@ void main() {
       engine.setEgoDirection(1); // North towards horizon 71
       engine.tick();
 
-      // Ego cannot cross y=71
-      expect(engine.ego.y, 71);
+      // Ego cannot rest on the horizon; Sierra places the baseline at horizon + 1.
+      expect(engine.ego.y, 72);
       // Top border (%v2 = 1) is triggered at horizon
       expect(engine.memory.getVar(2), 1);
     });
