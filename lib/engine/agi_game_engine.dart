@@ -626,13 +626,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return true;
     }
 
-    // Synchronize Ego motion direction from %v6 (var[EGODIR]) per Sierra MAIN.C:102
+    // Synchronize Ego motion direction from %v6 (var[EGODIR]) per Sierra MAIN.C:102.
+    // Do not force isCycling off when standing: scripts use start.cycling / end.of.loop
+    // on a stationary Ego (KQ2 monastery pray, drowning, etc.). Walk-cycle stop is
+    // handled in _applyEgoDirection when the player actually stops.
     if (_isUserControl && ego.motionType == 0) {
       ego.direction = memory.getVar(6);
       if (ego.direction != 0) {
         ego.isCycling = true;
-      } else {
-        ego.isCycling = false;
       }
     }
 
@@ -722,7 +723,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       if (!ego.fixedLoop) {
         _updateLoopForDirection(ego);
       }
-    } else {
+    } else if (ego.cycleMode != 2 && ego.cycleMode != 3) {
       ego.isCycling = false;
     }
   }
@@ -1079,6 +1080,31 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   List<AgiGameStateSnapshot> get roomCheckpoints =>
       List.unmodifiable(_roomCheckpoints);
 
+  /// Newest manually captured checkpoint (camera button / inspector), if any.
+  AgiGameStateSnapshot? get lastManualCheckpoint {
+    for (final snap in _checkpointHistory) {
+      if (!snap.isRoomTransition) return snap;
+    }
+    return null;
+  }
+
+  /// Newest automatic room-entry checkpoint, if any.
+  AgiGameStateSnapshot? get lastRoomCheckpoint =>
+      _roomCheckpoints.isEmpty ? null : _roomCheckpoints.first;
+
+  /// Checkpoint used by the sidebar retry button: last manual snapshot,
+  /// otherwise the last room-change snapshot.
+  AgiGameStateSnapshot? get lastRetryCheckpoint =>
+      lastManualCheckpoint ?? lastRoomCheckpoint;
+
+  /// Restores [lastRetryCheckpoint]. Returns `false` when there is nothing to restore.
+  bool restoreLastRetryCheckpoint({bool? preservePauseState}) {
+    final snap = lastRetryCheckpoint;
+    if (snap == null) return false;
+    restoreSnapshot(snap, preservePauseState: preservePauseState);
+    return true;
+  }
+
   /// Captures a composite 32-bit RGBA thumbnail buffer (default 80x84, aspect-correctable)
   /// of the current game screen, compositing background visual pixels with all active drawn actors.
   Uint8List captureScreenThumbnailRgba({
@@ -1098,6 +1124,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         ..sort((a, b) {
           final priComp = a.effectivePriority.compareTo(b.effectivePriority);
           if (priComp != 0) return priComp;
+          if (a.isUpdating != b.isUpdating) {
+            return a.isUpdating ? 1 : -1;
+          }
           return a.effectiveSortY.compareTo(b.effectiveSortY);
         });
 

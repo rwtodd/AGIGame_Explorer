@@ -3,8 +3,11 @@
 A modern Sierra On-Line Adventure Game Interpreter (AGI v2/v3) player and interactive reverse-engineering workbench built natively in Dart and Flutter.
 
 ## Documentation & Architecture
-- [**Features Roadmap**](file:///Users/rtodd/.gemini/antigravity/worktrees/flutter_agigame/implement_picture_vector_renderer/Features_Roadmap.md): Engine specification, workbench tooling, and phase breakdown.
-- [**Picture Vector Renderer & Impeller Canvas Strategy**](file:///Users/rtodd/.gemini/antigravity/worktrees/flutter_agigame/implement_picture_vector_renderer/doc/picture_rendering_strategy.md): Architectural specification of vector opcode interpretation, 8-bit priority buffer memory layout, Impeller 320x200 priority-sliced layering, and Z-sorting compositing.
+- [**Features Roadmap**](Features_Roadmap.md): Current status, what is actually implemented, and what to build next.
+- [**Picture rendering**](doc/picture_rendering_strategy.md): Vector opcodes, priority buffer, Impeller slice compositor.
+- [**Graphics & animation pipeline**](doc/graphics_and_animation_pipeline.md): View atlas, cel cycling, input buffering.
+- [**Text compositing**](doc/text_and_picture_compositing_architecture.md): Status line, dialogs, and picture layers.
+- [**Sound system**](doc/sound_system_design.md): PC speaker / Tandy / enhanced synth, MIDI and CSound export.
 
 ## Implemented Subsystems
 - **Container & Resource Loader**: Real-time parsing of V2 and V3 AGI volumes (`VOL.0..n`, `DIR` files, or `<prefix>DIR` / `<prefix>VOL.0`).

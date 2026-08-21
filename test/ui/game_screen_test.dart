@@ -352,6 +352,29 @@ void main() {
       expect(reenabledPlayfieldSize.width, initialPlayfieldSize.width);
     });
 
+    testWidgets('sidebar restore button replays the last manual checkpoint', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byIcon(Icons.backpack_outlined), findsNothing);
+      expect(find.byIcon(Icons.restore), findsOneWidget);
+
+      engine.ego.x = 22;
+      engine.recordCheckpoint(label: 'Retry point');
+      engine.ego.x = 77;
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.restore));
+      await tester.pump();
+
+      expect(engine.ego.x, 22);
+      expect(find.textContaining('Restored: Retry point'), findsOneWidget);
+    });
+
     testWidgets('custom controller key bindings (like = for swim) trigger controller and do not appear in command prompt', (tester) async {
       // Register = (ascii 61) -> Controller 22 (Swim)
       engine.controllerManager.setKey(0, 61, 22);

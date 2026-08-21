@@ -69,6 +69,21 @@ class AgiActorSprite {
     }
   }
 
+  /// Sierra blit order within a picture-priority band:
+  /// static (`stop.update`) sprites first, then sort-Y, then Ego last.
+  static int compareDrawOrder(AgiActorSprite a, AgiActorSprite b) {
+    final pri = a.priority.compareTo(b.priority);
+    if (pri != 0) return pri;
+    if (a.isUpdating != b.isUpdating) {
+      return a.isUpdating ? 1 : -1;
+    }
+    final y = a.baselineY.compareTo(b.baselineY);
+    if (y != 0) return y;
+    if (a.objectNumber == 0) return 1;
+    if (b.objectNumber == 0) return -1;
+    return a.objectNumber.compareTo(b.objectNumber);
+  }
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
@@ -193,18 +208,7 @@ class AgiPicturePainter extends CustomPainter {
             }
             if (actors.isNotEmpty) {
               final sortedActors = List<AgiActorSprite>.from(actors)
-                ..sort((a, b) {
-                  final cmp = a.priority.compareTo(b.priority);
-                  if (cmp != 0) return cmp;
-                  final cmpY = a.baselineY.compareTo(b.baselineY);
-                  if (cmpY != 0) return cmpY;
-                  if (a.isUpdating != b.isUpdating) {
-                    return a.isUpdating ? 1 : -1;
-                  }
-                  if (a.objectNumber == 0) return 1;
-                  if (b.objectNumber == 0) return -1;
-                  return a.objectNumber.compareTo(b.objectNumber);
-                });
+                ..sort(AgiActorSprite.compareDrawOrder);
               for (final actor in sortedActors) {
                 actor.draw(canvas, paint);
               }
@@ -513,18 +517,7 @@ class AgiPicturePainter extends CustomPainter {
       }
       if (actors.isNotEmpty) {
         final sortedActors = List<AgiActorSprite>.from(actors)
-          ..sort((a, b) {
-            final cmp = a.priority.compareTo(b.priority);
-            if (cmp != 0) return cmp;
-            final cmpY = a.baselineY.compareTo(b.baselineY);
-            if (cmpY != 0) return cmpY;
-            if (a.isUpdating != b.isUpdating) {
-              return a.isUpdating ? 1 : -1;
-            }
-            if (a.objectNumber == 0) return 1;
-            if (b.objectNumber == 0) return -1;
-            return a.objectNumber.compareTo(b.objectNumber);
-          });
+          ..sort(AgiActorSprite.compareDrawOrder);
         for (final actor in sortedActors) {
           actor.draw(canvas, paint);
         }
@@ -541,16 +534,7 @@ class AgiPicturePainter extends CustomPainter {
     for (int p = 0; p <= 15; p++) {
       final bucket = priorityBuckets[p];
       if (bucket.length > 1) {
-        bucket.sort((a, b) {
-          final cmp = a.baselineY.compareTo(b.baselineY);
-          if (cmp != 0) return cmp;
-          if (a.isUpdating != b.isUpdating) {
-            return a.isUpdating ? 1 : -1;
-          }
-          if (a.objectNumber == 0) return 1;
-          if (b.objectNumber == 0) return -1;
-          return a.objectNumber.compareTo(b.objectNumber);
-        });
+        bucket.sort(AgiActorSprite.compareDrawOrder);
       }
     }
 

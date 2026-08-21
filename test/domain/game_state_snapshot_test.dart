@@ -227,6 +227,40 @@ void main() {
       expect(engine.checkpointHistory.every((s) => s.isRoomTransition), isTrue);
     });
 
+    test('restoreLastRetryCheckpoint prefers the newest manual snapshot over room entries', () {
+      engine.changeRoom(2);
+      engine.tick();
+      engine.ego.x = 10;
+      engine.recordCheckpoint(label: 'Before the jump');
+      engine.ego.x = 40;
+      engine.changeRoom(3);
+      engine.tick();
+      engine.ego.x = 90;
+
+      expect(engine.lastRetryCheckpoint?.label, 'Before the jump');
+      expect(engine.restoreLastRetryCheckpoint(), isTrue);
+      expect(engine.currentRoom, 2);
+      expect(engine.ego.x, 10);
+    });
+
+    test('restoreLastRetryCheckpoint falls back to the newest room-entry snapshot', () {
+      expect(engine.restoreLastRetryCheckpoint(), isFalse);
+
+      engine.changeRoom(4);
+      engine.tick();
+      engine.changeRoom(5);
+      engine.tick();
+      final entranceX = engine.ego.x;
+      engine.ego.x = (entranceX + 50) & 0xFF;
+
+      expect(engine.lastManualCheckpoint, isNull);
+      expect(engine.lastRetryCheckpoint?.isRoomTransition, isTrue);
+      expect(engine.lastRetryCheckpoint?.roomNumber, 5);
+      expect(engine.restoreLastRetryCheckpoint(), isTrue);
+      expect(engine.currentRoom, 5);
+      expect(engine.ego.x, entranceX);
+    });
+
     test('resuming/restoring a room transition checkpoint does not create duplicate room checkpoint on subsequent ticks', () {
       engine.changeRoom(3);
       engine.tick();

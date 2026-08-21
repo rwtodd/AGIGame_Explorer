@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
@@ -205,6 +206,67 @@ void main() {
 ''';
 
   group('Sprite Z-Order & Sorting Tests', () {
+    test('effectiveSortY maps fixed priority objects to top of priority band', () {
+      final objFixed = AnimatedObject(number: 3)
+        ..priority = 11
+        ..fixedPriority = true
+        ..y = 126;
+
+      final objAuto = AnimatedObject(number: 0)
+        ..priority = 0
+        ..fixedPriority = false
+        ..y = 126;
+
+      expect(objFixed.effectivePriority, 11);
+      expect(objAuto.effectivePriority, 11);
+      // Fixed priority 11 maps to Y = (11 - 5) * 12 + 48 = 120
+      expect(objFixed.effectiveSortY, 120);
+      expect(objAuto.effectiveSortY, 126);
+      expect(objFixed.effectiveSortY < objAuto.effectiveSortY, isTrue);
+    });
+
+    test('KQ2 room 48: stop.update bridge scenery at Y=118 / pri 9 sorts behind Ego at Y=103', () {
+      final ego = AnimatedObject(number: 0)
+        ..x = 92
+        ..y = 103
+        ..isUpdating = true
+        ..isDrawn = true;
+
+      final scenery = AnimatedObject(number: 2)
+        ..x = 92
+        ..y = 118
+        ..view = 107
+        ..priority = 9
+        ..fixedPriority = true
+        ..isUpdating = false
+        ..isDrawn = true;
+
+      expect(ego.effectivePriority, 9);
+      expect(scenery.effectivePriority, 9);
+      expect(scenery.effectiveSortY, 96, reason: 'fixed pri 9 sorts as top of band 9');
+      expect(ego.effectiveSortY, 103);
+
+      final sprites = [
+        AgiActorSprite(
+          priority: scenery.effectivePriority,
+          baselineY: scenery.effectiveSortY,
+          objectNumber: scenery.number,
+          isUpdating: scenery.isUpdating,
+          position: Offset.zero,
+        ),
+        AgiActorSprite(
+          priority: ego.effectivePriority,
+          baselineY: ego.effectiveSortY,
+          objectNumber: ego.number,
+          isUpdating: ego.isUpdating,
+          position: Offset.zero,
+        ),
+      ]..sort(AgiActorSprite.compareDrawOrder);
+
+      expect(sprites.first.objectNumber, 2, reason: 'Bridge scenery must be drawn first (behind)');
+      expect(sprites.last.objectNumber, 0, reason: 'Ego on the bridge must be drawn last (in front)');
+    });
+
     test('Stopped objects sort behind updating objects at identical priority and Y', () {
       final chest = AgiActorSprite(
         priority: 11,
@@ -222,17 +284,7 @@ void main() {
         position: Offset.zero,
       );
 
-      final list = [ego, chest];
-      list.sort((a, b) {
-        final cmp = a.priority.compareTo(b.priority);
-        if (cmp != 0) return cmp;
-        final cmpY = a.baselineY.compareTo(b.baselineY);
-        if (cmpY != 0) return cmpY;
-        if (a.isUpdating != b.isUpdating) {
-          return a.isUpdating ? 1 : -1;
-        }
-        return a.objectNumber.compareTo(b.objectNumber);
-      });
+      final list = [ego, chest]..sort(AgiActorSprite.compareDrawOrder);
 
       expect(list.first.objectNumber, 3, reason: 'Stopped chest must sort first (drawn behind)');
       expect(list.last.objectNumber, 0, reason: 'Updating Ego must sort second (drawn in front)');
@@ -255,17 +307,7 @@ void main() {
         position: Offset.zero,
       );
 
-      final list = [ego, vohaulChair];
-      list.sort((a, b) {
-        final cmp = a.priority.compareTo(b.priority);
-        if (cmp != 0) return cmp;
-        final cmpY = a.baselineY.compareTo(b.baselineY);
-        if (cmpY != 0) return cmpY;
-        if (a.isUpdating != b.isUpdating) {
-          return a.isUpdating ? 1 : -1;
-        }
-        return a.objectNumber.compareTo(b.objectNumber);
-      });
+      final list = [ego, vohaulChair]..sort(AgiActorSprite.compareDrawOrder);
 
       expect(list.first.objectNumber, 2, reason: 'Vohaul chair (y=69) must be drawn first (in back)');
       expect(list.last.objectNumber, 0, reason: 'Ego (y=88) must be drawn after (in front)');
@@ -300,19 +342,7 @@ void main() {
         position: Offset.zero,
       );
 
-      final list = [egoSprite, chestSprite];
-      list.sort((a, b) {
-        final cmp = a.priority.compareTo(b.priority);
-        if (cmp != 0) return cmp;
-        final cmpY = a.baselineY.compareTo(b.baselineY);
-        if (cmpY != 0) return cmpY;
-        if (a.isUpdating != b.isUpdating) {
-          return a.isUpdating ? 1 : -1;
-        }
-        if (a.objectNumber == 0) return 1;
-        if (b.objectNumber == 0) return -1;
-        return a.objectNumber.compareTo(b.objectNumber);
-      });
+      final list = [egoSprite, chestSprite]..sort(AgiActorSprite.compareDrawOrder);
 
       expect(list.first.objectNumber, 3, reason: 'Chest must be drawn first');
       expect(list.last.objectNumber, 0, reason: 'Ego must be drawn second (in front)');

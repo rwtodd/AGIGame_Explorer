@@ -107,8 +107,26 @@ class AnimatedObject {
     return calculatePriorityForY(y);
   }
 
-  /// Returns the base Y coordinate used for sprite z-ordering within a priority band.
-  int get effectiveSortY => y;
+  /// Y used for sprite z-order, matching Sierra OBJLIST.C / ScummVM `sprite.cpp`.
+  ///
+  /// Automatic-priority objects sort by their actual baseline Y. Fixed-priority
+  /// objects sort as the **top** of that priority band (`(P - 5) * 12 + 48`),
+  /// not their on-screen Y. Otherwise a `stop.update` prop planted lower on the
+  /// screen (KQ2 room 48 bridge scenery) paints over Ego even when Ego is in
+  /// front of that band.
+  int get effectiveSortY {
+    if (fixedPriority && priority > 0) {
+      return calculateSortYForPriority(priority);
+    }
+    return y;
+  }
+
+  /// Maps a fixed priority band back to the blit-sort Y (top of that band).
+  static int calculateSortYForPriority(int priority) {
+    if (priority <= 4) return 0;
+    if (priority >= 15) return 168;
+    return (priority - 5) * 12 + 48;
+  }
 
   /// Calculates standard AGI priority band for a given Y coordinate.
   static int calculatePriorityForY(int by) {

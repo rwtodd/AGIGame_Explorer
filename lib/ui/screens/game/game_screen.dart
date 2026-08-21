@@ -761,13 +761,40 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
           const Spacer(),
 
-          // Inventory (Tab)
-          IconButton(
-            icon: const Icon(Icons.backpack_outlined, size: 18, color: AgiTheme.egaAmber),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () => _engine.openInventory(),
-            tooltip: 'Inventory (Tab)',
+          // Restore last manual checkpoint, or last room-entry if none exist.
+          ListenableBuilder(
+            listenable: _engine,
+            builder: (context, _) {
+              final snap = _engine.lastRetryCheckpoint;
+              return IconButton(
+                icon: Icon(
+                  Icons.restore,
+                  size: 18,
+                  color: snap == null ? AgiTheme.egaMuted : AgiTheme.egaAmber,
+                ),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                onPressed: snap == null
+                    ? null
+                    : () {
+                        final label = snap.label;
+                        _engine.restoreLastRetryCheckpoint();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Restored: $label',
+                              style: const TextStyle(fontFamily: 'Courier', fontSize: 12),
+                            ),
+                            duration: const Duration(seconds: 2),
+                            backgroundColor: AgiTheme.egaCardSurface,
+                          ),
+                        );
+                      },
+                tooltip: snap == null
+                    ? 'Restore last checkpoint (none yet)'
+                    : 'Restore: ${snap.label}',
+              );
+            },
           ),
 
           // Quick-Capture Checkpoint Snapshot (Instant save-state)

@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
-import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 
 void main() {
   group('Ego Animation Cycling Tests', () {
@@ -34,17 +33,11 @@ void main() {
       engine.ego.isCycling = false;
       engine.ego.motionType = 1; // wander
 
-      final interpreter = AgiLogicInterpreter(
-        memory: engine.memory,
-        animatedObjects: engine.animatedObjects,
-        delegate: engine,
-      );
-
       // Bytecode for player.control (opcode 132 = 0x84) followed by return (opcode 0)
       final code = Uint8List.fromList([0x84, 0x00]);
       final script = AgiLogicScript(bytecodes: code, messages: [], logicNumber: 0);
-      interpreter.loadRootScript(script, scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(script, scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.isUserControl, isTrue);
       expect(engine.ego.motionType, equals(0));
@@ -55,17 +48,11 @@ void main() {
       engine.setEgoDirection(0);
       expect(engine.ego.isCycling, isFalse);
 
-      final interpreter = AgiLogicInterpreter(
-        memory: engine.memory,
-        animatedObjects: engine.animatedObjects,
-        delegate: engine,
-      );
-
       // Script: start.cycling(ego) [opcode 71, 0x00] -> return [opcode 0]
       final code = Uint8List.fromList([71, 0, 0]);
       final script = AgiLogicScript(bytecodes: code, messages: [], logicNumber: 0);
-      interpreter.loadRootScript(script, scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(script, scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.ego.isCycling, isTrue);
       expect(engine.ego.direction, equals(0));
@@ -74,22 +61,48 @@ void main() {
       engine.tick();
       // Even though direction is 0, isCycling is true so cel advances
       expect(engine.ego.cel, equals(initialCel + 1));
+      engine.tick();
+      engine.tick();
+      expect(engine.ego.isCycling, isTrue,
+          reason: 'Post-scan must not clear scripted cycling while Ego is standing');
+      expect(engine.ego.cel, greaterThan(initialCel + 1));
+    });
+
+    test('end.of.loop on stationary Ego keeps cycling across ticks (KQ2 pray)', () {
+      engine.setEgoDirection(0);
+      engine.ego.cel = 0;
+      engine.ego.cycleMode = 0;
+
+      // end.of.loop(ego, f31) then return
+      final code = Uint8List.fromList([73, 0, 31, 0]);
+      engine.interpreter.loadRootScript(
+        AgiLogicScript(bytecodes: code, messages: [], logicNumber: 0),
+        scriptNumber: 0,
+      );
+      engine.interpreter.executeCycle();
+
+      expect(engine.ego.cycleMode, 2);
+      expect(engine.ego.isCycling, isTrue);
+
+      // Default getCelCount is 4 (cels 0..3). Two ticks must still be mid-loop.
+      engine.tick();
+      engine.tick();
+
+      expect(engine.ego.isCycling, isTrue,
+          reason: 'end.of.loop must not be cancelled because Ego is standing');
+      expect(engine.ego.cel, greaterThan(0));
+      expect(engine.memory.getFlag(31), isFalse,
+          reason: 'Loop flag stays unset until the last cel');
     });
 
     test('program.control disables player movement and player.control restores it', () {
       expect(engine.isUserControl, isTrue);
 
-      final interpreter = AgiLogicInterpreter(
-        memory: engine.memory,
-        animatedObjects: engine.animatedObjects,
-        delegate: engine,
-      );
-
       // Script: program.control() [opcode 131 = 0x83] -> return [opcode 0]
       final progCode = Uint8List.fromList([131, 0]);
       final progScript = AgiLogicScript(bytecodes: progCode, messages: [], logicNumber: 0);
-      interpreter.loadRootScript(progScript, scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(progScript, scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.isUserControl, isFalse);
 
@@ -101,8 +114,8 @@ void main() {
       // Script: player.control() [opcode 132 = 0x84] -> return [opcode 0]
       final playCode = Uint8List.fromList([132, 0]);
       final playScript = AgiLogicScript(bytecodes: playCode, messages: [], logicNumber: 0);
-      interpreter.loadRootScript(playScript, scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(playScript, scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.isUserControl, isTrue);
 
@@ -114,17 +127,11 @@ void main() {
     test('stop.motion(ego) disables player movement and start.motion(ego) restores it', () {
       expect(engine.isUserControl, isTrue);
 
-      final interpreter = AgiLogicInterpreter(
-        memory: engine.memory,
-        animatedObjects: engine.animatedObjects,
-        delegate: engine,
-      );
-
       // Script: stop.motion(ego) [opcode 77, 0] -> return [opcode 0]
       final stopCode = Uint8List.fromList([77, 0, 0]);
       final stopScript = AgiLogicScript(bytecodes: stopCode, messages: [], logicNumber: 0);
-      interpreter.loadRootScript(stopScript, scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(stopScript, scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.isUserControl, isFalse, reason: 'stop.motion(ego) must set isUserControl to false');
       expect(engine.memory.getVar(6), equals(0));
@@ -136,8 +143,8 @@ void main() {
       // Script: start.motion(ego) [opcode 78, 0] -> return [opcode 0]
       final startCode = Uint8List.fromList([78, 0, 0]);
       final startScript = AgiLogicScript(bytecodes: startCode, messages: [], logicNumber: 0);
-      interpreter.loadRootScript(startScript, scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(startScript, scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.isUserControl, isTrue, reason: 'start.motion(ego) must restore isUserControl to true');
 
@@ -147,19 +154,13 @@ void main() {
     });
 
     test('KQ2 swim sequence: start.motion followed by move.obj.v to current pos retains player control', () {
-      final interpreter = AgiLogicInterpreter(
-        memory: engine.memory,
-        animatedObjects: engine.animatedObjects,
-        delegate: engine,
-      );
-
       engine.ego.x = 22;
       engine.ego.y = 79;
 
       // 1. Ego enters water -> stop.motion(%o0)
       final stopCode = Uint8List.fromList([77, 0, 0]);
-      interpreter.loadRootScript(AgiLogicScript(bytecodes: stopCode, messages: [], logicNumber: 0), scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(AgiLogicScript(bytecodes: stopCode, messages: [], logicNumber: 0), scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       expect(engine.isUserControl, isFalse);
 
@@ -176,8 +177,8 @@ void main() {
         82, 0, 67, 68, 82, 169,
         0,
       ]);
-      interpreter.loadRootScript(AgiLogicScript(bytecodes: swimCode, messages: [], logicNumber: 0), scriptNumber: 0);
-      interpreter.executeCycle();
+      engine.interpreter.loadRootScript(AgiLogicScript(bytecodes: swimCode, messages: [], logicNumber: 0), scriptNumber: 0);
+      engine.interpreter.executeCycle();
 
       // move.obj.v to current position should immediately set target flag and enable user control
       expect(engine.isUserControl, isTrue, reason: 'Ego must have user control after swimming');
