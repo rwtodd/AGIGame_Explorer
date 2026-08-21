@@ -688,6 +688,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     _updateShake();
 
+    memory.applyPins();
+
     notifyListeners();
   }
 

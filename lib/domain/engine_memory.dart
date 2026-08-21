@@ -29,6 +29,15 @@ class AgiMemory {
   /// Custom aliases for flag symbols (e.g. from community .flg files).
   final Map<int, String> customFlagNames = {};
 
+  /// Debug pins: restored after every engine tick. LOGIC may change the
+  /// live value during a scan; [applyPins] writes these back afterwards.
+  final Map<int, bool> pinnedFlags = {};
+  final Map<int, int> pinnedVars = {};
+
+  /// Extra flag/var indices to keep visible in the inspector (including zeros).
+  final Set<int> watchedFlags = {};
+  final Set<int> watchedVars = {};
+
   /// Instruction pointers where scan execution begins per logic script number
   /// (default 0, altered by set.scan.start and reset.scan.start).
   final Map<int, int> scanStarts = {};
@@ -60,6 +69,10 @@ class AgiMemory {
   }
 
   /// Resets memory state to initial interpreter defaults.
+  ///
+  /// Debug pins and watches persist: they are a debugger overlay, not game
+  /// state, so [restartGame] / [initializeGame] keep them. Live values are
+  /// not rewritten here; [applyPins] restores them at the end of each tick.
   void reset() {
     variables.fillRange(0, 256, 0);
     flags.fillRange(0, 256, false);
@@ -70,6 +83,51 @@ class AgiMemory {
 
     // By default in AGI, flag 5 is set on entering a new room
     flags[5] = true;
+  }
+
+  void clearPins() {
+    pinnedFlags.clear();
+    pinnedVars.clear();
+    watchedFlags.clear();
+    watchedVars.clear();
+  }
+
+  bool isFlagPinned(int index) => pinnedFlags.containsKey(index & 0xFF);
+  bool isVarPinned(int index) => pinnedVars.containsKey(index & 0xFF);
+
+  void pinFlag(int index, bool value) {
+    final idx = index & 0xFF;
+    pinnedFlags[idx] = value;
+    watchedFlags.add(idx);
+    flags[idx] = value;
+  }
+
+  void unpinFlag(int index) {
+    pinnedFlags.remove(index & 0xFF);
+  }
+
+  void pinVar(int index, int value) {
+    final idx = index & 0xFF;
+    pinnedVars[idx] = value & 0xFF;
+    watchedVars.add(idx);
+    variables[idx] = value & 0xFF;
+  }
+
+  void unpinVar(int index) {
+    pinnedVars.remove(index & 0xFF);
+  }
+
+  void watchFlag(int index) => watchedFlags.add(index & 0xFF);
+  void watchVar(int index) => watchedVars.add(index & 0xFF);
+
+  /// Writes pinned values back. Called at the end of each engine tick.
+  void applyPins() {
+    for (final entry in pinnedFlags.entries) {
+      flags[entry.key] = entry.value;
+    }
+    for (final entry in pinnedVars.entries) {
+      variables[entry.key] = entry.value;
+    }
   }
 
   /// Reads variable [index] (0 - 255).
@@ -102,7 +160,8 @@ class AgiMemory {
   /// Reads flag [index] (0 - 255).
   bool getFlag(int index) {
     final idx = index & 0xFF;
-    if (flagGetterHook != null) {
+    // Pinned flags skip the Flag 1 obscurity hook so a pin actually sticks.
+    if (!pinnedFlags.containsKey(idx) && flagGetterHook != null) {
       final hookVal = flagGetterHook!(idx);
       if (hookVal != null) {
         return hookVal;

@@ -14,6 +14,50 @@ void main() {
       expect(mem.getController(0), isFalse);
     });
 
+    test('pins restore flags and variables via applyPins', () {
+      final mem = AgiMemory();
+      mem.pinFlag(36, true);
+      mem.pinVar(3, 50);
+      expect(mem.getFlag(36), isTrue);
+      expect(mem.getVar(3), 50);
+
+      mem.resetFlag(36);
+      mem.setVar(3, 0);
+      expect(mem.getFlag(36), isFalse);
+      expect(mem.getVar(3), 0);
+
+      mem.applyPins();
+      expect(mem.getFlag(36), isTrue);
+      expect(mem.getVar(3), 50);
+
+      mem.unpinFlag(36);
+      mem.resetFlag(36);
+      mem.applyPins();
+      expect(mem.getFlag(36), isFalse);
+    });
+
+    test('debug pins survive memory.reset and skip the Flag 1 getter hook', () {
+      final mem = AgiMemory();
+      mem.flagGetterHook = (i) => i == 1 ? true : null;
+      expect(mem.getFlag(1), isTrue);
+
+      mem.pinFlag(1, false);
+      mem.pinVar(3, 50);
+      mem.watchFlag(99);
+      expect(mem.getFlag(1), isFalse, reason: 'pinned flags skip the obscurity hook');
+
+      mem.reset();
+      expect(mem.isFlagPinned(1), isTrue);
+      expect(mem.isVarPinned(3), isTrue);
+      expect(mem.watchedFlags.contains(99), isTrue);
+      expect(mem.getFlag(1), isFalse, reason: 'reset zeros flags; pin is not live until applyPins');
+      expect(mem.getVar(3), 0);
+
+      mem.applyPins();
+      expect(mem.getFlag(1), isFalse);
+      expect(mem.getVar(3), 50);
+    });
+
     test('handles 8-bit variable mutation and saturation at boundaries per AGI spec', () {
       final mem = AgiMemory();
 

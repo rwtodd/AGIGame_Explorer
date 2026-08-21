@@ -36,11 +36,14 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   late final TabController _tabController;
   final TextEditingController _checkpointLabelController = TextEditingController();
   final TextEditingController _searchFilterController = TextEditingController();
+  final TextEditingController _watchSpecController = TextEditingController();
 
   int _checkpointFilterIndex = 0;
   int? _diffBeforeIndex;
   int? _diffAfterIndex;
   String? _computedDiffMarkdown;
+  /// In-progress variable edits (typed but not yet SET/PIN'd).
+  final Map<int, int> _pendingVarEdits = {};
 
   @override
   void initState() {
@@ -62,6 +65,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     _tabController.dispose();
     _checkpointLabelController.dispose();
     _searchFilterController.dispose();
+    _watchSpecController.dispose();
     super.dispose();
   }
 
@@ -858,27 +862,29 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     final mem = widget.engine.memory;
     final query = _searchFilterController.text.trim().toLowerCase();
 
-    // Active Flags
-    final activeFlags = <int>[];
-    for (int i = 0; i < mem.flags.length; i++) {
-      if (mem.getFlag(i)) {
-        final name = agiFlagNames[i] ?? '';
-        if (query.isEmpty || '$i'.contains(query) || name.toLowerCase().contains(query)) {
-          activeFlags.add(i);
-        }
-      }
+    bool matchesFlag(int i) {
+      if (query.isEmpty) return true;
+      final name = (agiFlagNames[i] ?? '').toLowerCase();
+      return '$i'.contains(query) || name.contains(query) || 'f$i'.contains(query);
     }
 
-    // Non-zero Variables
-    final nonZeroVars = <int, int>{};
-    for (int i = 0; i < mem.variables.length; i++) {
-      final val = mem.variables[i];
-      if (val != 0) {
-        final name = agiVariableNames[i] ?? '';
-        if (query.isEmpty || '$i'.contains(query) || name.toLowerCase().contains(query) || '$val'.contains(query)) {
-          nonZeroVars[i] = val;
-        }
-      }
+    bool matchesVar(int i, int val) {
+      if (query.isEmpty) return true;
+      final name = (agiVariableNames[i] ?? '').toLowerCase();
+      return '$i'.contains(query) || name.contains(query) || '$val'.contains(query) || 'v$i'.contains(query);
+    }
+
+    final flagIds = <int>[];
+    for (int i = 0; i < 256; i++) {
+      final show = mem.getFlag(i) || mem.isFlagPinned(i) || mem.watchedFlags.contains(i);
+      if (show && matchesFlag(i)) flagIds.add(i);
+    }
+
+    final varIds = <int>[];
+    for (int i = 0; i < 256; i++) {
+      final val = mem.getVar(i);
+      final show = val != 0 || mem.isVarPinned(i) || mem.watchedVars.contains(i);
+      if (show && matchesVar(i, val)) varIds.add(i);
     }
 
     return Column(
@@ -889,180 +895,49 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           style: const TextStyle(fontSize: 12),
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search, size: 16, color: AgiTheme.egaMuted),
-            hintText: 'Filter variables or flags (e.g. "ego", "room", "score", "f3", "v6")...',
+            hintText: 'Filter (e.g. "ego", "score", "f3", "v6")...',
             isDense: true,
             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           ),
           onChanged: (_) => setState(() {}),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
+        _buildWatchBar(),
+        const SizedBox(height: 8),
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Active Flags Column
               Expanded(
-                flex: 4,
+                flex: 5,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'ACTIVE FLAGS',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaGreen),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF238636),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text('${activeFlags.length}', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
+                    _buildSectionHeader('ACTIVE FLAGS', flagIds.length, AgiTheme.egaGreen, const Color(0xFF238636)),
                     const SizedBox(height: 6),
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AgiTheme.egaCardSurface,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AgiTheme.egaBorder),
-                        ),
-                        child: activeFlags.isEmpty
-                            ? const Center(
-                                child: Text('No active flags matching filter', style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
-                              )
-                            : ListView.separated(
-                                padding: const EdgeInsets.all(6),
-                                itemCount: activeFlags.length,
-                                separatorBuilder: (_, _) => const Divider(color: AgiTheme.egaBorder, height: 4),
-                                itemBuilder: (ctx, idx) {
-                                  final f = activeFlags[idx];
-                                  final name = agiFlagNames[f] ?? 'flag_$f';
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          '%f$f',
-                                          style: const TextStyle(
-                                            fontFamily: 'Courier',
-                                            fontWeight: FontWeight.bold,
-                                            color: AgiTheme.egaCyan,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            name,
-                                            style: const TextStyle(fontSize: 10, color: AgiTheme.egaWhite),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF238636),
-                                            borderRadius: BorderRadius.circular(3),
-                                          ),
-                                          child: const Text('ON', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold)),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
+                      child: _buildListPanel(
+                        emptyLabel: 'No flags matching filter',
+                        itemCount: flagIds.length,
+                        itemBuilder: (ctx, idx) => _buildFlagRow(flagIds[idx]),
                       ),
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(width: 12),
-
-              // Non-Zero Variables Column
               Expanded(
                 flex: 6,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'NON-ZERO VARIABLES',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF9E6A03),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text('${nonZeroVars.length}', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
+                    _buildSectionHeader('NON-ZERO VARIABLES', varIds.length, AgiTheme.egaAmber, const Color(0xFF9E6A03)),
                     const SizedBox(height: 6),
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AgiTheme.egaCardSurface,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AgiTheme.egaBorder),
-                        ),
-                        child: nonZeroVars.isEmpty
-                            ? const Center(
-                                child: Text('No non-zero variables matching filter', style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
-                              )
-                            : ListView.separated(
-                                padding: const EdgeInsets.all(6),
-                                itemCount: nonZeroVars.length,
-                                separatorBuilder: (_, _) => const Divider(color: AgiTheme.egaBorder, height: 4),
-                                itemBuilder: (ctx, idx) {
-                                  final vNum = nonZeroVars.keys.elementAt(idx);
-                                  final val = nonZeroVars[vNum]!;
-                                  final name = agiVariableNames[vNum] ?? 'var_$vNum';
-
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          '%v$vNum',
-                                          style: const TextStyle(
-                                            fontFamily: 'Courier',
-                                            fontWeight: FontWeight.bold,
-                                            color: AgiTheme.egaAmber,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            name,
-                                            style: const TextStyle(fontSize: 10, color: AgiTheme.egaWhite),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        Text(
-                                          '$val',
-                                          style: const TextStyle(
-                                            fontFamily: 'Courier',
-                                            fontWeight: FontWeight.bold,
-                                            color: AgiTheme.egaCyan,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
+                      child: _buildListPanel(
+                        emptyLabel: 'No variables matching filter',
+                        itemCount: varIds.length,
+                        itemBuilder: (ctx, idx) => _buildVarRow(varIds[idx]),
                       ),
                     ),
                   ],
@@ -1072,6 +947,350 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, int count, Color titleColor, Color badgeColor) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: titleColor),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(10)),
+          child: Text('$count', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildListPanel({
+    required String emptyLabel,
+    required int itemCount,
+    required Widget Function(BuildContext, int) itemBuilder,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AgiTheme.egaCardSurface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AgiTheme.egaBorder),
+      ),
+      child: itemCount == 0
+          ? Center(child: Text(emptyLabel, style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted)))
+          : ListView.separated(
+              padding: const EdgeInsets.all(6),
+              itemCount: itemCount,
+              separatorBuilder: (_, _) => const Divider(color: AgiTheme.egaBorder, height: 4),
+              itemBuilder: itemBuilder,
+            ),
+    );
+  }
+
+  Widget _buildWatchBar() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const Key('debug-watch-spec'),
+            controller: _watchSpecController,
+            style: const TextStyle(fontSize: 12, fontFamily: 'Courier'),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'Add/set f36, f36=1, v3=10 …',
+              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            ),
+            onSubmitted: (_) => _applyWatchSpec(pin: false),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Tooltip(
+          message: 'Set once (LOGIC may change it later)',
+          child: TextButton(
+            key: const Key('debug-watch-set'),
+            onPressed: () => _applyWatchSpec(pin: false),
+            child: const Text('SET', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+        ),
+        Tooltip(
+          message: 'Pin: restored after every tick',
+          child: TextButton(
+            key: const Key('debug-watch-pin'),
+            onPressed: () => _applyWatchSpec(pin: true),
+            child: const Text('PIN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _applyWatchSpec({required bool pin}) {
+    final spec = _parseWatchSpec(_watchSpecController.text);
+    if (spec == null) {
+      _showToast('Use f36, f36=1, v3, or v3=10');
+      return;
+    }
+    final mem = widget.engine.memory;
+    if (spec.isFlag) {
+      // No explicit value → keep/watch the current bit (lets you add a zero flag).
+      final value = spec.value == null ? mem.getFlag(spec.index) : spec.value != 0;
+      mem.watchFlag(spec.index);
+      if (pin) {
+        mem.pinFlag(spec.index, value);
+      } else {
+        if (value) {
+          mem.setFlag(spec.index);
+        } else {
+          mem.resetFlag(spec.index);
+        }
+        if (mem.isFlagPinned(spec.index)) {
+          mem.pinFlag(spec.index, value);
+        }
+      }
+    } else {
+      final value = spec.value ?? mem.getVar(spec.index);
+      mem.watchVar(spec.index);
+      if (pin) {
+        mem.pinVar(spec.index, value);
+      } else {
+        mem.setVar(spec.index, value);
+        if (mem.isVarPinned(spec.index)) {
+          mem.pinVar(spec.index, value);
+        }
+      }
+    }
+    _watchSpecController.clear();
+    widget.engine.notifyListeners();
+    setState(() {});
+  }
+
+  void _commitVar(int vNum, int value, {required bool pin}) {
+    final mem = widget.engine.memory;
+    mem.watchVar(vNum);
+    mem.setVar(vNum, value);
+    if (pin) {
+      mem.pinVar(vNum, value);
+    }
+    _pendingVarEdits.remove(vNum);
+    widget.engine.notifyListeners();
+    setState(() {});
+  }
+
+  ({bool isFlag, int index, int? value})? _parseWatchSpec(String raw) {
+    var s = raw.trim().toLowerCase();
+    if (s.isEmpty) return null;
+    if (s.startsWith('%')) s = s.substring(1);
+    final parts = s.split('=');
+    final token = parts[0].trim();
+    int? value;
+    if (parts.length > 1) {
+      value = int.tryParse(parts[1].trim());
+      if (value == null) return null;
+    }
+    if (token.startsWith('f')) {
+      final n = int.tryParse(token.substring(1));
+      if (n == null || n < 0 || n > 255) return null;
+      return (isFlag: true, index: n, value: value);
+    }
+    if (token.startsWith('v')) {
+      final n = int.tryParse(token.substring(1));
+      if (n == null || n < 0 || n > 255) return null;
+      return (isFlag: false, index: n, value: value);
+    }
+    return null;
+  }
+
+  Widget _buildFlagRow(int f) {
+    final mem = widget.engine.memory;
+    final on = mem.getFlag(f);
+    final pinned = mem.isFlagPinned(f);
+    final name = agiFlagNames[f] ?? 'flag_$f';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 2),
+      child: Row(
+        children: [
+          Text(
+            '%f$f',
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaCyan,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(fontSize: 10, color: AgiTheme.egaWhite),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: on ? const Color(0xFF238636) : AgiTheme.egaBorder,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: Text(
+              on ? 'ON' : 'OFF',
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+                color: on ? AgiTheme.egaWhite : AgiTheme.egaMuted,
+              ),
+            ),
+          ),
+          if (pinned) ...[
+            const SizedBox(width: 4),
+            const Icon(Icons.push_pin, size: 12, color: AgiTheme.egaAmber),
+          ],
+          const SizedBox(width: 4),
+          _tinyAction(
+            label: on ? 'CLR' : 'SET',
+            tooltip: on ? 'Clear flag (LOGIC may set it again)' : 'Set flag ON (LOGIC may clear it)',
+            onPressed: () {
+              mem.watchFlag(f);
+              final next = !on;
+              if (next) {
+                mem.setFlag(f);
+              } else {
+                mem.resetFlag(f);
+              }
+              if (pinned) {
+                mem.pinFlag(f, next);
+              }
+              widget.engine.notifyListeners();
+              setState(() {});
+            },
+          ),
+          _tinyAction(
+            label: pinned ? 'UNPIN' : 'PIN',
+            tooltip: pinned ? 'Stop restoring after each tick' : 'Restore this value after every tick',
+            color: pinned ? AgiTheme.egaAmber : null,
+            onPressed: () {
+              if (pinned) {
+                mem.unpinFlag(f);
+              } else {
+                mem.pinFlag(f, on);
+              }
+              widget.engine.notifyListeners();
+              setState(() {});
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVarRow(int vNum) {
+    final mem = widget.engine.memory;
+    final val = mem.getVar(vNum);
+    final pinned = mem.isVarPinned(vNum);
+    final name = agiVariableNames[vNum] ?? 'var_$vNum';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 2),
+      child: Row(
+        children: [
+          Text(
+            '%v$vNum',
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaAmber,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(fontSize: 10, color: AgiTheme.egaWhite),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          SizedBox(
+            width: 44,
+            child: TextFormField(
+              key: ValueKey('var-$vNum-$val'),
+              initialValue: '${_pendingVarEdits[vNum] ?? val}',
+              style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: AgiTheme.egaCyan, fontWeight: FontWeight.bold),
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.right,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (text) {
+                final parsed = int.tryParse(text.trim());
+                if (parsed != null) {
+                  _pendingVarEdits[vNum] = parsed;
+                }
+              },
+              onFieldSubmitted: (text) {
+                final parsed = int.tryParse(text.trim());
+                if (parsed == null) return;
+                _commitVar(vNum, parsed, pin: pinned);
+              },
+            ),
+          ),
+          if (pinned) ...[
+            const SizedBox(width: 4),
+            const Icon(Icons.push_pin, size: 12, color: AgiTheme.egaAmber),
+          ],
+          const SizedBox(width: 4),
+          _tinyAction(
+            label: 'SET',
+            tooltip: 'Set once (LOGIC may change it later)',
+            onPressed: () {
+              final newVal = _pendingVarEdits[vNum] ?? mem.getVar(vNum);
+              _commitVar(vNum, newVal, pin: pinned);
+            },
+          ),
+          _tinyAction(
+            label: pinned ? 'UNPIN' : 'PIN',
+            tooltip: pinned ? 'Stop restoring after each tick' : 'Restore this value after every tick',
+            color: pinned ? AgiTheme.egaAmber : null,
+            onPressed: () {
+              if (pinned) {
+                mem.unpinVar(vNum);
+                widget.engine.notifyListeners();
+                setState(() {});
+              } else {
+                final newVal = _pendingVarEdits[vNum] ?? val;
+                _commitVar(vNum, newVal, pin: true);
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tinyAction({
+    required String label,
+    required String tooltip,
+    required VoidCallback onPressed,
+    Color? color,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(36, 24),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color ?? AgiTheme.egaCyan),
+        ),
+      ),
     );
   }
 

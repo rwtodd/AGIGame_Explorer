@@ -115,6 +115,13 @@ void main() {
       expect(find.text('%v3'), findsOneWidget);
       expect(find.text('current_score'), findsOneWidget);
 
+      await tester.enterText(find.byKey(const Key('debug-watch-spec')), 'f99=0');
+      await tester.tap(find.byKey(const Key('debug-watch-pin')));
+      await tester.pumpAndSettle();
+      expect(find.text('%f99'), findsOneWidget);
+      expect(engine.memory.isFlagPinned(99), isTrue);
+      expect(engine.memory.getFlag(99), isFalse);
+
       // Switch to Animated Objects Tab
       await tester.tap(find.text('Animated Objects'));
       await tester.pumpAndSettle();
@@ -131,6 +138,69 @@ void main() {
 
       expect(find.text('ENGINE & ROOM STATUS'), findsOneWidget);
       expect(find.text('Current Room: Room 3'), findsOneWidget);
+    });
+
+    testWidgets('Variables & Flags tab can SET or PIN undisplayed and zero values', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => DebugInspectorDialog.show(context, engine),
+                child: const Text('Open Debugger'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Variables & Flags'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('%f99'), findsNothing);
+      expect(find.text('%v200'), findsNothing);
+
+      // SET an unseen flag to 0: it appears, but LOGIC/ticks may change it.
+      await tester.enterText(find.byKey(const Key('debug-watch-spec')), 'f99=0');
+      await tester.tap(find.byKey(const Key('debug-watch-set')));
+      await tester.pumpAndSettle();
+      expect(find.text('%f99'), findsOneWidget);
+      expect(engine.memory.isFlagPinned(99), isFalse);
+      expect(engine.memory.getFlag(99), isFalse);
+      expect(engine.memory.watchedFlags.contains(99), isTrue);
+
+      // PIN an unseen variable to 0: it stays visible so it can be unpinned.
+      await tester.enterText(find.byKey(const Key('debug-watch-spec')), 'v200=0');
+      await tester.tap(find.byKey(const Key('debug-watch-pin')));
+      await tester.pumpAndSettle();
+      expect(find.text('%v200'), findsOneWidget);
+      expect(engine.memory.isVarPinned(200), isTrue);
+      expect(engine.memory.getVar(200), 0);
+
+      engine.memory.setVar(200, 77);
+      await tester.tap(find.text('Step Frame'));
+      await tester.pumpAndSettle();
+      expect(engine.memory.getVar(200), 0);
+      expect(find.text('%v200'), findsOneWidget);
+
+      // PIN f2 ON so post-scan cannot clear the "have input" transient.
+      await tester.enterText(find.byKey(const Key('debug-watch-spec')), 'f2=1');
+      await tester.tap(find.byKey(const Key('debug-watch-pin')));
+      await tester.pumpAndSettle();
+      expect(engine.memory.isFlagPinned(2), isTrue);
+      await tester.tap(find.text('Step Frame'));
+      await tester.pumpAndSettle();
+      expect(engine.memory.getFlag(2), isTrue);
+      expect(find.text('%f2'), findsOneWidget);
     });
 
     testWidgets('GameScreen sidebar quick-capture button creates state snapshot without pausing game', (tester) async {
