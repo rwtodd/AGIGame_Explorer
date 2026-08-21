@@ -43,23 +43,24 @@ class GamePlayfieldWidget extends StatefulWidget {
 class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   final Map<String, ui.Image> _spriteTextureCache = {};
   final Set<String> _pendingDecodes = {};
+  final ValueNotifier<bool> _cursorBlink = ValueNotifier<bool>(true);
   Timer? _blinkTimer;
-  bool _cursorBlink = true;
+  late Listenable _repaint;
+  AgiPic? _trackedPic;
+  AgiPictureRenderMode? _trackedMode;
 
   @override
   void initState() {
     super.initState();
+    _repaint = Listenable.merge([widget.engine, _cursorBlink]);
+    widget.engine.addListener(_onEngineNotify);
     widget.engine.atlasManager.onAtlasUpdated = () {
       if (mounted) setState(() {});
     };
     widget.engine.atlasManager.prepareAtlasAsync();
-    _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
+    _onEngineNotify();
     _blinkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) {
-        setState(() {
-          _cursorBlink = !_cursorBlink;
-        });
-      }
+      _cursorBlink.value = !_cursorBlink.value;
     });
   }
 
@@ -67,7 +68,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   void didUpdateWidget(covariant GamePlayfieldWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.engine != widget.engine) {
+      oldWidget.engine.removeListener(_onEngineNotify);
       oldWidget.engine.atlasManager.onAtlasUpdated = null;
+      widget.engine.addListener(_onEngineNotify);
+      _repaint = Listenable.merge([widget.engine, _cursorBlink]);
       widget.engine.atlasManager.onAtlasUpdated = () {
         if (mounted) setState(() {});
       };
@@ -75,15 +79,24 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     }
     if (oldWidget.renderMode != widget.renderMode ||
         oldWidget.engine.currentPic != widget.engine.currentPic) {
-      _ensureRenderModeTextureLoaded(widget.engine.currentPic, widget.renderMode);
+      _onEngineNotify();
     }
+  }
+
+  void _onEngineNotify() {
+    final pic = widget.engine.currentPic;
+    final mode = widget.renderMode;
+    if (pic == _trackedPic && mode == _trackedMode) return;
+    _trackedPic = pic;
+    _trackedMode = mode;
+    _ensureRenderModeTextureLoaded(pic, mode);
   }
 
   void _ensureRenderModeTextureLoaded(AgiPic? pic, AgiPictureRenderMode mode) {
     if (pic == null) return;
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
-        if (pic.activeSlices.any((s) => s.cachedUiImage == null)) {
+        if (pic.slices.values.any((s) => s.hasVisiblePixels && s.cachedUiImage == null)) {
           final f = pic.preloadGpuTextures();
           if (f is Future) {
             f.then((_) {
@@ -123,6 +136,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   @override
   void dispose() {
+    widget.engine.removeListener(_onEngineNotify);
     widget.engine.atlasManager.onAtlasUpdated = null;
     _blinkTimer?.cancel();
     for (final img in _spriteTextureCache.values) {
@@ -130,15 +144,11 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     }
     _spriteTextureCache.clear();
     super.dispose();
+    _cursorBlink.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentPic = widget.engine.currentPic;
-    if (currentPic != null) {
-      _ensureRenderModeTextureLoaded(currentPic, widget.renderMode);
-    }
-
     final targetAspect = widget.correctAspectRatio ? (4.0 / 3.0) : (320.0 / 200.0);
 
     return LayoutBuilder(
@@ -178,12 +188,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         }
 
         return Center(
-          child: Transform.translate(
-            offset: Offset(widget.engine.shakeOffsetX, widget.engine.shakeOffsetY),
-            child: SizedBox(
-              width: playfieldWidth,
-              height: playfieldHeight,
-              child: GestureDetector(
+          child: SizedBox(
+            width: playfieldWidth,
+            height: playfieldHeight,
+            child: GestureDetector(
               onTapUp: (details) {
                 if (playfieldWidth > 0 && playfieldHeight > 0) {
                   // 0. If full text screen is active (e.g. Help or About screen), tap dismisses it
@@ -278,74 +286,56 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (widget.engine.isTextScreen || currentPic != null)
-                      RepaintBoundary(
-                        child: CustomPaint(
-                          painter: AgiPicturePainter(
-                            picture: currentPic,
-                            actors: _buildActorSprites(),
-                            displayedTexts: widget.engine.displayedTexts,
-                            textScreenBuffer: widget.engine.textScreenBuffer,
-                            isTextScreen: widget.engine.isTextScreen,
-                            textFgColor: widget.engine.textFgColor,
-                            textBgColor: widget.engine.textBgColor,
-                            playfieldRow: widget.engine.playfieldRow,
-                            showCursor: _cursorBlink && (widget.engine.activeInputPrompt?.row != null),
-                            cursorRow: widget.engine.activeInputPrompt?.row,
-                            cursorCol: widget.engine.activeInputPrompt?.col ?? 0,
-                            cursorPromptText: (widget.engine.activeInputPrompt != null && widget.engine.activeInputPrompt!.row != null)
-                                ? '${widget.engine.activeInputPrompt!.prompt}${widget.engine.activeInputPrompt!.currentText}'
-                                : null,
-                            renderMode: widget.renderMode,
-                            flatVisualImage: currentPic?.cachedFlatVisualImage,
-                            priorityMapImage: currentPic?.cachedPriorityMapImage,
-                            controlMapImage: currentPic?.cachedControlMapImage,
-                            isolatedPrioritySlice: widget.isolatedPrioritySlice,
-                            showPixelGrid: widget.showPixelGrid,
-                            menuManager: widget.engine.menuManager,
-                          ),
+                    RepaintBoundary(
+                      child: CustomPaint(
+                        painter: _GamePlayfieldPainter(
+                          engine: widget.engine,
+                          renderMode: widget.renderMode,
+                          showPixelGrid: widget.showPixelGrid,
+                          isolatedPrioritySlice: widget.isolatedPrioritySlice,
+                          cursorBlink: _cursorBlink,
+                          buildActors: _buildActorSprites,
+                          repaint: _repaint,
                         ),
-                      )
-                    else
-                      const Center(
-                        child: Text(
-                          'NO PICTURE LOADED',
-                          style: TextStyle(
-                            color: Color(0xFF55FFFF),
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
+                        isComplex: true,
+                        willChange: true,
+                        child: const SizedBox.expand(),
                       ),
+                    ),
 
                     // Optional CRT retro shader overlay
                     if (widget.showCrtShader)
                       const CrtShaderOverlay(),
 
-                    // Integrated Authentic On-Screen Command Prompt
-                    if (widget.engine.isInputEnabled)
-                      Positioned(
-                        top: (widget.engine.inputRow.clamp(0, 24) / 25.0) * playfieldHeight,
-                        left: (1.0 / 40.0) * playfieldWidth,
-                        right: (1.0 / 40.0) * playfieldWidth,
-                        child: _buildIntegratedPrompt(
-                          prompt: widget.engine.memory.getString(0).isNotEmpty
-                              ? widget.engine.memory.getString(0)
-                              : '>',
-                          text: widget.currentInputText,
-                          showCursor: _cursorBlink,
-                          fontSize: math.max(11.0, playfieldWidth / 48.0),
-                          playfieldWidth: playfieldWidth,
-                        ),
-                      ),
+                    // Command prompt is cheap chrome; keep it off the picture painter.
+                    ListenableBuilder(
+                      listenable: _repaint,
+                      builder: (context, _) {
+                        if (!widget.engine.isInputEnabled) {
+                          return const SizedBox.shrink();
+                        }
+                        return Positioned(
+                          top: (widget.engine.inputRow.clamp(0, 24) / 25.0) * playfieldHeight,
+                          left: (1.0 / 40.0) * playfieldWidth,
+                          right: (1.0 / 40.0) * playfieldWidth,
+                          child: _buildIntegratedPrompt(
+                            prompt: widget.engine.memory.getString(0).isNotEmpty
+                                ? widget.engine.memory.getString(0)
+                                : '>',
+                            text: widget.currentInputText,
+                            showCursor: _cursorBlink.value,
+                            fontSize: math.max(11.0, playfieldWidth / 48.0),
+                            playfieldWidth: playfieldWidth,
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
             ),
           ),
-        ),
-      );
+        );
       },
     );
   }
@@ -498,5 +488,67 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         }
       },
     );
+  }
+}
+
+/// Paints the live engine playfield. Subscribed to [repaint] (engine + cursor
+/// blink) so AGI ticks call [paint] without rebuilding the surrounding widgets.
+class _GamePlayfieldPainter extends CustomPainter {
+  final AgiGameEngine engine;
+  final AgiPictureRenderMode renderMode;
+  final bool showPixelGrid;
+  final int? isolatedPrioritySlice;
+  final ValueNotifier<bool> cursorBlink;
+  final List<AgiActorSprite> Function() buildActors;
+
+  _GamePlayfieldPainter({
+    required this.engine,
+    required this.renderMode,
+    required this.showPixelGrid,
+    required this.isolatedPrioritySlice,
+    required this.cursorBlink,
+    required this.buildActors,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pic = engine.currentPic;
+    final prompt = engine.activeInputPrompt;
+
+    canvas.save();
+    canvas.translate(engine.shakeOffsetX, engine.shakeOffsetY);
+    AgiPicturePainter(
+      picture: pic,
+      actors: buildActors(),
+      displayedTexts: engine.displayedTexts,
+      textScreenBuffer: engine.textScreenBuffer,
+      isTextScreen: engine.isTextScreen,
+      textFgColor: engine.textFgColor,
+      textBgColor: engine.textBgColor,
+      playfieldRow: engine.playfieldRow,
+      showCursor: cursorBlink.value && prompt?.row != null,
+      cursorRow: prompt?.row,
+      cursorCol: prompt?.col ?? 0,
+      cursorPromptText: (prompt != null && prompt.row != null)
+          ? '${prompt.prompt}${prompt.currentText}'
+          : null,
+      renderMode: renderMode,
+      flatVisualImage: pic?.cachedFlatVisualImage,
+      priorityMapImage: pic?.cachedPriorityMapImage,
+      controlMapImage: pic?.cachedControlMapImage,
+      isolatedPrioritySlice: isolatedPrioritySlice,
+      showPixelGrid: showPixelGrid,
+      menuManager: engine.menuManager,
+    ).paint(canvas, size);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _GamePlayfieldPainter oldDelegate) {
+    return oldDelegate.engine != engine ||
+        oldDelegate.renderMode != renderMode ||
+        oldDelegate.showPixelGrid != showPixelGrid ||
+        oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice;
   }
 }

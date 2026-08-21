@@ -455,75 +455,75 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               Expanded(
                 child: Container(
                   color: Colors.black,
-                  child: ListenableBuilder(
-                    listenable: _engine,
-                    builder: (context, _) {
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Main Game Playfield Compositor with RepaintBoundary
-                          Positioned.fill(
-                            child: RepaintBoundary(
-                              child: GamePlayfieldWidget(
-                                engine: _engine,
-                                renderMode: _renderMode,
-                                showCrtShader: _showCrtShader,
-                                showPixelGrid: _showPixelGrid,
-                                correctAspectRatio: _correctAspectRatio,
-                                strictIntegerScaling: _strictIntegerScaling,
-                                currentInputText: _currentInputText,
-                              ),
-                            ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Playfield paints from the engine listenable; it is not
+                      // rebuilt on every AGI tick (see GamePlayfieldWidget).
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: GamePlayfieldWidget(
+                            engine: _engine,
+                            renderMode: _renderMode,
+                            showCrtShader: _showCrtShader,
+                            showPixelGrid: _showPixelGrid,
+                            correctAspectRatio: _correctAspectRatio,
+                            strictIntegerScaling: _strictIntegerScaling,
+                            currentInputText: _currentInputText,
                           ),
-
-                          // Modal Dialog Box Overlay
-                          if (_engine.activeDialog != null)
-                            Positioned.fill(
-                              child: DialogBoxWidget(
-                                dialogState: _engine.activeDialog!,
-                                onDismiss: _engine.dismissDialog,
-                                correctAspectRatio: _correctAspectRatio,
-                                strictIntegerScaling: _strictIntegerScaling,
-                              ),
-                            ),
-
-                          // Modal Input Prompt Popup Overlay
-                          if (_engine.activeInputPrompt != null)
-                            Positioned.fill(
-                              child: InputPromptDialog(
-                                promptState: _engine.activeInputPrompt!,
-                                onChanged: _engine.updateInputPrompt,
-                                onSubmit: _engine.submitInputPrompt,
-                                onCancel: _engine.cancelInputPrompt,
-                              ),
-                            ),
-
-                          // Inventory Dialog Overlay
-                          if (_engine.isInventoryOpen && _engine.inspectingObjectNumber == null)
-                            Positioned.fill(
-                              child: InventoryDialog(
-                                engine: _engine,
-                                onClose: () => _engine.closeInventory(),
-                                onSelect: (selectedObj) => _engine.closeInventory(selectedObj),
-                                correctAspectRatio: _correctAspectRatio,
-                                strictIntegerScaling: _strictIntegerScaling,
-                              ),
-                            ),
-
-                          // Object Inspection Dialog Overlay
-                          if (_engine.inspectingObjectNumber != null)
-                            Positioned.fill(
-                              child: ObjectInspectionDialog(
-                                engine: _engine,
-                                objectNumber: _engine.inspectingObjectNumber!,
-                                onClose: _engine.closeObjectInspection,
-                                correctAspectRatio: _correctAspectRatio,
-                                strictIntegerScaling: _strictIntegerScaling,
-                              ),
-                            ),
-                        ],
-                      );
-                    },
+                        ),
+                      ),
+                      ListenableBuilder(
+                        listenable: _engine,
+                        builder: (context, _) {
+                          return Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (_engine.activeDialog != null)
+                                Positioned.fill(
+                                  child: DialogBoxWidget(
+                                    dialogState: _engine.activeDialog!,
+                                    onDismiss: _engine.dismissDialog,
+                                    correctAspectRatio: _correctAspectRatio,
+                                    strictIntegerScaling: _strictIntegerScaling,
+                                  ),
+                                ),
+                              if (_engine.activeInputPrompt != null)
+                                Positioned.fill(
+                                  child: InputPromptDialog(
+                                    promptState: _engine.activeInputPrompt!,
+                                    onChanged: _engine.updateInputPrompt,
+                                    onSubmit: _engine.submitInputPrompt,
+                                    onCancel: _engine.cancelInputPrompt,
+                                  ),
+                                ),
+                              if (_engine.isInventoryOpen &&
+                                  _engine.inspectingObjectNumber == null)
+                                Positioned.fill(
+                                  child: InventoryDialog(
+                                    engine: _engine,
+                                    onClose: () => _engine.closeInventory(),
+                                    onSelect: (selectedObj) =>
+                                        _engine.closeInventory(selectedObj),
+                                    correctAspectRatio: _correctAspectRatio,
+                                    strictIntegerScaling: _strictIntegerScaling,
+                                  ),
+                                ),
+                              if (_engine.inspectingObjectNumber != null)
+                                Positioned.fill(
+                                  child: ObjectInspectionDialog(
+                                    engine: _engine,
+                                    objectNumber: _engine.inspectingObjectNumber!,
+                                    onClose: _engine.closeObjectInspection,
+                                    correctAspectRatio: _correctAspectRatio,
+                                    strictIntegerScaling: _strictIntegerScaling,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
