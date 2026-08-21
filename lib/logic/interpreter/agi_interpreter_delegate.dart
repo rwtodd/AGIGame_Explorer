@@ -174,6 +174,9 @@ abstract class AgiInterpreterDelegate {
 
   /// Evaluates whether the current parsed user input matches [wordGroupIds] for `said(...)`.
   bool checkSaid(List<int> wordGroupIds) => false;
+
+  /// Current room horizon Y. Used by Sierra `SetCel` border clipping.
+  int get horizon => 36;
 }
 
 /// Default no-op delegate implementation (useful for tests and headless execution).

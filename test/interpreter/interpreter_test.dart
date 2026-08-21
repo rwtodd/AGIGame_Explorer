@@ -387,5 +387,65 @@ void main() {
         0, // timeout
       ]);
     });
+
+    test('distance() is 255 unless both objects are drawn', () {
+      final ego = vm.getObj(0);
+      final droid = vm.getObj(16);
+      ego.x = 40;
+      ego.y = 80;
+      ego.isDrawn = true;
+      droid.x = 0;
+      droid.y = 71;
+      droid.isDrawn = false;
+
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([69, 0, 16, 5, 0]), // distance(o0, o16, %v5)
+        messages: const [],
+      ));
+      vm.executeCycle();
+      expect(memory.getVar(5), 255, reason: 'undrawn objects must not look nearby');
+
+      droid.isDrawn = true;
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([69, 0, 16, 5, 0]),
+        messages: const [],
+      ));
+      vm.executeCycle();
+      expect(memory.getVar(5), isNot(255));
+    });
+
+    test('obj.in.box requires the whole baseline inside the box', () {
+      final ego = vm.getObj(0);
+      ego.x = 10;
+      ego.y = 50;
+      // Default cel width is 4, so right edge is 13. Box 10..12 contains left but not right.
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF,
+          0x10, 0x00, 10, 40, 12, 60, // obj.in.box(o0, 10, 40, 12, 60)
+          0xFF,
+          0x02, 0x00, // then-length
+          0x0C, 0x01, // set(f1)
+          0x00,
+        ]),
+        messages: const [],
+      ));
+      vm.executeCycle();
+      expect(memory.getFlag(1), isFalse);
+
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF,
+          0x0B, 0x00, 10, 40, 12, 60, // posn(o0) uses the left corner
+          0xFF,
+          0x02, 0x00,
+          0x0C, 0x02, // set(f2)
+          0x00,
+        ]),
+        messages: const [],
+      ));
+      vm.executeCycle();
+      expect(memory.getFlag(2), isTrue);
+    });
   });
 }

@@ -85,6 +85,7 @@ class AgiObjectSnapshot {
   final int targetX;
   final int targetY;
   final int stepDistance;
+  final int oldStepSize;
   final int? targetFlag;
   final bool ignoreHorizon;
   final bool ignoreBlocks;
@@ -120,6 +121,7 @@ class AgiObjectSnapshot {
     required this.targetX,
     required this.targetY,
     required this.stepDistance,
+    this.oldStepSize = 1,
     this.targetFlag,
     required this.ignoreHorizon,
     required this.ignoreBlocks,
@@ -157,6 +159,7 @@ class AgiObjectSnapshot {
       targetX: obj.targetX,
       targetY: obj.targetY,
       stepDistance: obj.stepDistance,
+      oldStepSize: obj.oldStepSize,
       targetFlag: obj.targetFlag,
       ignoreHorizon: obj.ignoreHorizon,
       ignoreBlocks: obj.ignoreBlocks,
@@ -193,6 +196,7 @@ class AgiObjectSnapshot {
     obj.targetX = targetX;
     obj.targetY = targetY;
     obj.stepDistance = stepDistance;
+    obj.oldStepSize = oldStepSize;
     obj.targetFlag = targetFlag;
     obj.ignoreHorizon = ignoreHorizon;
     obj.ignoreBlocks = ignoreBlocks;
@@ -229,6 +233,7 @@ class AgiObjectSnapshot {
         'targetX': targetX,
         'targetY': targetY,
         'stepDistance': stepDistance,
+        if (oldStepSize != 1) 'oldStepSize': oldStepSize,
         if (targetFlag != null) 'targetFlag': targetFlag,
         'ignoreHorizon': ignoreHorizon,
         'ignoreBlocks': ignoreBlocks,
@@ -266,6 +271,7 @@ class AgiObjectSnapshot {
       targetX: json['targetX'] as int? ?? 0,
       targetY: json['targetY'] as int? ?? 0,
       stepDistance: json['stepDistance'] as int? ?? 1,
+      oldStepSize: json['oldStepSize'] as int? ?? 1,
       targetFlag: json['targetFlag'] as int?,
       ignoreHorizon: json['ignoreHorizon'] as bool? ?? false,
       ignoreBlocks: json['ignoreBlocks'] as bool? ?? false,

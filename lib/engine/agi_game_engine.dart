@@ -168,6 +168,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int? _activeSoundEndFlag;
   AgiSoundMode _soundMode = AgiSoundMode.pcJr;
   SynthesizerConfig _synthesizerConfig = const SynthesizerConfig();
+  @override
   int horizon = CollisionDetector.defaultHorizon;
   AgiBlockArea? activeBlock;
   final List<AgiAddToPicEntry> _addToPicCalls = [];
@@ -1469,10 +1470,20 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       if (celCount > 0 && obj.cel >= celCount) {
         obj.cel = 0;
       }
+      // Sierra Animate() calls SetLoop → SetCel, which may clamp + REPOS.
+      obj.clipCelToScreen(horizon: horizon);
     }
   }
 
   void _updateObjectPosition(AnimatedObject obj, PriorityBuffer? priBuf) {
+    // Sierra MOVEOBJS.C: REPOS means this cycle's step is skipped (SetCel /
+    // reposition already moved the sprite). Still FindPosn the new cell.
+    if (obj.reposThisCycle) {
+      obj.reposThisCycle = false;
+      posShuffle(obj);
+      return;
+    }
+
     var dx = 0;
     var dy = 0;
 
@@ -1485,10 +1496,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
       case 2: // follow_ego
         final egoObj = animatedObjects[0];
-        final diffX = egoObj.x - obj.x;
-        final diffY = egoObj.y - obj.y;
-        final step = obj.stepDistance > 0 ? obj.stepDistance : obj.stepSize;
-        if (diffX.abs() <= step && diffY.abs() <= step) {
+        // Sierra FOLLOW.C: centers of baselines, MoveDir with endDist.
+        final egoMidX = egoObj.x + egoObj.getCelWidth() ~/ 2;
+        final objMidX = obj.x + obj.getCelWidth() ~/ 2;
+        final endDist = obj.stepDistance > 0 ? obj.stepDistance : obj.stepSize;
+        final dx = egoMidX - objMidX;
+        final dy = egoObj.y - obj.y;
+        if (dx.abs() < endDist && dy.abs() < endDist) {
           obj.direction = 0;
           obj.motionType = 0;
           if (obj.targetFlag != null) {
@@ -1501,8 +1515,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           }
           return;
         } else {
-          final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
-          final dirY = diffY > 0 ? 1 : (diffY < 0 ? -1 : 0);
+          final dirX = dx.abs() >= endDist ? (dx > 0 ? 1 : -1) : 0;
+          final dirY = dy.abs() >= endDist ? (dy > 0 ? 1 : -1) : 0;
           obj.direction = AgiMotion.directionFromDelta(dirX, dirY);
         }
         break;
@@ -1511,16 +1525,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         final diffX = obj.targetX - obj.x;
         final diffY = obj.targetY - obj.y;
         if (diffX == 0 && diffY == 0) {
-          obj.direction = 0;
-          obj.motionType = 0;
-          if (obj.targetFlag != null) {
-            memory.setFlag(obj.targetFlag!);
-            obj.targetFlag = null;
-          }
-          if (obj.number == 0) {
-            memory.setVar(6, 0);
-            _isUserControl = true;
-          }
+          _completeMoveObj(obj);
           return;
         } else {
           final dirX = diffX > 0 ? 1 : (diffX < 0 ? -1 : 0);
@@ -1588,19 +1593,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     if (border != 0) {
-      // In Sierra AGI (MOVEOBJS.C line 122):
-      // If the object was on a 'moveobj', set the move as finished (EndMoveObj)
-      if (obj.motionType == 3 || obj.motionType == 2) {
-        obj.direction = 0;
-        obj.motionType = 0;
-        if (obj.targetFlag != null) {
-          memory.setFlag(obj.targetFlag!);
-          obj.targetFlag = null;
-        }
-        if (obj.number == 0) {
-          memory.setVar(6, 0);
-          _isUserControl = true;
-        }
+      // Sierra MOVEOBJS.C: only `move.obj` (MOVETO) completes on a screen
+      // edge. `follow.ego` must keep chasing — otherwise an NPC parked
+      // off the right edge (SQ1 spider droid at x=164) "catches" Ego
+      // from across the room the moment it tries to step back on-screen.
+      if (obj.motionType == 3) {
+        _completeMoveObj(obj);
       }
     }
 
@@ -1677,17 +1675,21 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     if (obj.motionType == 3) {
       if (obj.x == obj.targetX && obj.y == obj.targetY) {
-        obj.direction = 0;
-        obj.motionType = 0;
-        if (obj.targetFlag != null) {
-          memory.setFlag(obj.targetFlag!);
-          obj.targetFlag = null;
-        }
-        if (obj.number == 0) {
-          memory.setVar(6, 0);
-          _isUserControl = true;
-        }
+        _completeMoveObj(obj);
       }
+    }
+  }
+
+  /// Sierra `EndMoveObj`: restore the pre-`move.obj` step size and signal done.
+  void _completeMoveObj(AnimatedObject obj) {
+    obj.endMoveObj();
+    if (obj.targetFlag != null) {
+      memory.setFlag(obj.targetFlag!);
+      obj.targetFlag = null;
+    }
+    if (obj.number == 0) {
+      memory.setVar(6, 0);
+      _isUserControl = true;
     }
   }
 
@@ -1731,6 +1733,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         }
         break;
     }
+    // Sierra ADVANCEL.C calls SetCel, which clamps a cel that hangs off-screen.
+    obj.clipCelToScreen(horizon: horizon);
   }
 
   void _updateClock() {
@@ -2246,7 +2250,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     var shiftCount = 1;
     var shiftSize = 1;
 
-    for (int iter = 0; iter < 500; iter++) {
+    // Sierra FINDPOSN.C spirals with no iteration cap until GoodPos.
+    // 500 steps only reaches a radius of ~11px, which parks a 20px-wide
+    // sprite (SQ1 view 46) off the right edge when spawned near x=153.
+    for (int iter = 0; iter < 160 * 168; iter++) {
       switch (shiftDir) {
         case 0: // left
           obj.x--;

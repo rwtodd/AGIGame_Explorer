@@ -73,6 +73,34 @@ void main() {
       expect(ego.motionType, 0);
     });
 
+    test('Ego move.obj with a larger step restores the original stepSize on border', () {
+      final ego = engine.ego;
+      ego.isAnimated = true;
+      ego.isDrawn = true;
+      ego.isUpdating = true;
+      ego.x = 150;
+      ego.y = 100;
+      ego.stepSize = 1;
+      ego.oldStepSize = 1;
+      ego.stepTime = 1;
+      ego.stepTimer = 1;
+      ego.motionType = 3;
+      ego.targetX = 159;
+      ego.targetY = 100;
+      ego.stepSize = 4;
+      ego.targetFlag = 40;
+      engine.memory.resetFlag(40);
+
+      for (int i = 0; i < 20; i++) {
+        engine.tick();
+        if (engine.memory.getFlag(40)) break;
+      }
+
+      expect(engine.memory.getFlag(40), isTrue);
+      expect(ego.motionType, 0);
+      expect(ego.stepSize, 1, reason: 'border EndMoveObj must restore oldStep');
+    });
+
     test('Live SQ2 Room 2 broom sweep sets flag 34 and erases broom upon hitting edge of screen', () async {
       final sq2Dir = Directory('reference_games/space-quest-2');
       if (!sq2Dir.existsSync()) return;

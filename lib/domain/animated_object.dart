@@ -40,6 +40,8 @@ class AnimatedObject {
   int targetX = 0;
   int targetY = 0;
   int stepDistance = 1;
+  /// Original [stepSize] to restore when a `move.obj` finishes (Sierra `oldStep`).
+  int oldStepSize = 1;
   int? targetFlag;
 
   bool ignoreHorizon = false;
@@ -49,6 +51,10 @@ class AnimatedObject {
   /// Object priority/surface constraints set by `object.on.water` and `object.on.land`.
   bool onWater = false;
   bool onLand = false;
+
+  /// Sierra `REPOS` (`ANIOBJ.control` bit 0x0400): skip this cycle's step after
+  /// `SetCel` / `reposition` moved the sprite. Cleared in [MoveObjs].
+  bool reposThisCycle = false;
 
   /// Cached [AgiView] reference for high-performance physics and cel lookups.
   AgiView? cachedView;
@@ -171,12 +177,14 @@ class AnimatedObject {
     targetX = 0;
     targetY = 0;
     stepDistance = 1;
+    oldStepSize = 1;
     targetFlag = null;
     ignoreHorizon = false;
     ignoreBlocks = false;
     ignoreObjects = false;
     onWater = false;
     onLand = false;
+    reposThisCycle = false;
     cachedView = null;
     cachedViewNumber = -1;
   }
@@ -203,9 +211,53 @@ class AnimatedObject {
     targetX = 0;
     targetY = 0;
     stepDistance = 1;
+    oldStepSize = 1;
     targetFlag = null;
     ignoreHorizon = false;
     ignoreBlocks = false;
     ignoreObjects = false;
+    reposThisCycle = false;
+  }
+
+  /// Sierra `EndMoveObj`: restore the step size saved by `move.obj`.
+  void endMoveObj() {
+    if (motionType == 3) {
+      stepSize = oldStepSize;
+    }
+    motionType = 0;
+    direction = 0;
+  }
+
+  /// Sierra VIEW.C `SetCel` border clamp after a cel, loop, or view change.
+  ///
+  /// If the new cel hangs off the right edge, `x` is set to `160 - width`.
+  /// If it hangs off the top (`y - height < -1`), `y` is set to `height - 1`,
+  /// then bumped to [horizon]+1 unless [ignoreHorizon]. Either clamp sets
+  /// [reposThisCycle] so MOVEOBJS.C skips this cycle's step.
+  ///
+  /// Does nothing when no view is bound (Sierra errors; we cannot measure).
+  void clipCelToScreen({int horizon = 36}) {
+    if (cachedView == null) return;
+
+    final width = getCelWidth();
+    final height = getCelHeight();
+    var repos = false;
+
+    if (x + width > 160) {
+      x = 160 - width;
+      repos = true;
+    }
+
+    if (y - height < -1) {
+      y = height - 1;
+      repos = true;
+      if (y <= horizon && !ignoreHorizon) {
+        y = horizon + 1;
+      }
+    }
+
+    if (repos) {
+      reposThisCycle = true;
+    }
   }
 }

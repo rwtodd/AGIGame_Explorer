@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
+import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
@@ -374,11 +375,55 @@ void main() {
         expect(npc.motionType, equals(0));
         expect(engine.memory.getFlag(50), isTrue);
       });
+
+      test('move.obj restores the original stepSize when the move finishes', () {
+        final ego = engine.ego;
+        ego.isAnimated = true;
+        ego.isDrawn = true;
+        ego.isUpdating = true;
+        ego.ignoreObjects = true;
+        ego.x = 10;
+        ego.y = 80;
+        ego.stepSize = 1;
+        ego.stepTime = 1;
+        ego.stepTimer = 1;
+
+        // move.obj(%o0, 18, 80, 4, %f15) then return
+        engine.interpreter.loadRootScript(
+          AgiLogicScript(
+            bytecodes: Uint8List.fromList([81, 0, 18, 80, 4, 15, 0]),
+            messages: const [],
+          ),
+          scriptNumber: 0,
+        );
+        engine.interpreter.executeCycle();
+
+        expect(ego.motionType, 3);
+        expect(ego.stepSize, 4);
+        expect(ego.oldStepSize, 1);
+        expect(engine.isUserControl, isFalse);
+
+        engine.interpreter.loadRootScript(
+          AgiLogicScript(bytecodes: Uint8List.fromList([0]), messages: const []),
+          scriptNumber: 0,
+        );
+
+        engine.tick();
+        expect(ego.x, 14);
+        expect(ego.stepSize, 4);
+
+        engine.tick();
+        expect(ego.x, 18);
+        expect(ego.motionType, 0);
+        expect(ego.stepSize, 1, reason: 'Sierra EndMoveObj restores oldStep');
+        expect(engine.isUserControl, isTrue);
+      });
     });
 
     group('followEgo Motion Mode', () {
       test('NPC moves towards Ego and stops with flag when reached', () {
         final ego = engine.ego;
+        bindView(ego, testView4Loops);
         ego.isAnimated = true;
         ego.isDrawn = true;
         ego.x = 50;
@@ -398,6 +443,7 @@ void main() {
         npc.stepSize = 2;
         npc.targetFlag = 60;
 
+        // Width 8: centers start 6 pixels apart; Sierra arrives when |dx| < endDist.
         engine.tick();
         expect(npc.x, equals(46));
         expect(npc.direction, equals(3));
@@ -405,11 +451,80 @@ void main() {
 
         engine.tick();
         expect(npc.x, equals(48));
+        expect(engine.memory.getFlag(60), isFalse);
+
+        engine.tick();
+        expect(npc.x, equals(50));
+        expect(engine.memory.getFlag(60), isFalse);
 
         engine.tick();
         expect(npc.direction, equals(0));
         expect(npc.motionType, equals(0));
         expect(engine.memory.getFlag(60), isTrue);
+      });
+
+      test('follow.ego uses baseline centers so a wide droid to the east is not an instant catch', () {
+        final ego = engine.ego;
+        bindView(ego, createTestView(viewNumber: 0, numLoops: 4, celsPerLoop: 1, width: 6, height: 12));
+        ego.isAnimated = true;
+        ego.isDrawn = true;
+        ego.x = 50;
+        ego.y = 100;
+        ego.ignoreObjects = true;
+
+        final droid = engine.animatedObjects[16];
+        bindView(droid, createTestView(viewNumber: 46, numLoops: 1, celsPerLoop: 1, width: 16, height: 12));
+        droid.isAnimated = true;
+        droid.isDrawn = true;
+        droid.x = 58;
+        droid.y = 100;
+        droid.stepTime = 1;
+        droid.stepTimer = 1;
+        droid.motionType = 2;
+        droid.stepDistance = 10;
+        droid.stepSize = 1;
+        droid.targetFlag = 235;
+        engine.memory.resetFlag(235);
+
+        // Left edges are 8 apart (would look "caught" with endDist 10),
+        // but centers are 13 apart (Sierra: not caught).
+        engine.tick();
+        expect(engine.memory.getFlag(235), isFalse);
+        expect(droid.motionType, 2);
+      });
+
+      test('follow.ego does not complete just because the NPC is past the right screen edge', () {
+        // SQ1 spider droid: spawned near the east edge, FindPosn left it at
+        // x=164 (fully off-screen). Sierra MOVEOBJS.C only EndMoveObj for
+        // move.obj on a border — follow.ego must keep chasing.
+        final ego = engine.ego;
+        bindView(ego, createTestView(viewNumber: 0, numLoops: 4, celsPerLoop: 1, width: 7, height: 32));
+        ego.isAnimated = true;
+        ego.isDrawn = true;
+        ego.x = 81;
+        ego.y = 144;
+        ego.ignoreObjects = true;
+
+        final droid = engine.animatedObjects[16];
+        bindView(droid, createTestView(viewNumber: 46, numLoops: 1, celsPerLoop: 1, width: 20, height: 24));
+        droid.isAnimated = true;
+        droid.isDrawn = true;
+        droid.ignoreObjects = true;
+        droid.x = 164;
+        droid.y = 139;
+        droid.stepTime = 1;
+        droid.stepTimer = 1;
+        droid.motionType = 2;
+        droid.stepDistance = 10;
+        droid.stepSize = 1;
+        droid.targetFlag = 235;
+        engine.memory.resetFlag(235);
+
+        engine.tick();
+        expect(engine.memory.getFlag(235), isFalse);
+        expect(droid.motionType, 2);
+        expect(droid.x + droid.getCelWidth(), lessThanOrEqualTo(160));
+        expect(droid.x, greaterThanOrEqualTo(0));
       });
     });
 

@@ -457,9 +457,10 @@ class AgiLogicInterpreter {
         return memory.getString(s1).trim().toLowerCase() ==
             memory.getString(s2).trim().toLowerCase();
 
-      case 0x10: // obj.in.box(%o, x1, y1, x2, y2)
-      case 0x11: // center.posn(%o, x1, y1, x2, y2)
-      case 0x12: // right.posn(%o, x1, y1, x2, y2)
+      case 0x10: // obj.in.box(%o, x1, y1, x2, y2) — entire baseline inside the box
+      case 0x11: // center.posn(%o, x1, y1, x2, y2) — center of baseline
+      case 0x12: // right.posn(%o, x1, y1, x2, y2) — right edge of baseline
+        final posnOp = code[frame.ip];
         final o = code[frame.ip + 1];
         final x1 = code[frame.ip + 2];
         final y1 = code[frame.ip + 3];
@@ -467,7 +468,17 @@ class AgiLogicInterpreter {
         final y2 = code[frame.ip + 5];
         frame.ip += 6;
         final obj = getObj(o);
-        return obj.x >= x1 && obj.x <= x2 && obj.y >= y1 && obj.y <= y2;
+        final width = math.max(1, obj.getCelWidth());
+        final left = obj.x;
+        final right = obj.x + width - 1;
+        final cx = obj.x + width ~/ 2;
+        final testLeft = switch (posnOp) {
+          0x11 => cx,
+          0x12 => right,
+          _ => left,
+        };
+        final testRight = posnOp == 0x10 ? right : testLeft;
+        return testLeft >= x1 && testRight <= x2 && obj.y >= y1 && obj.y <= y2;
 
       case 0xFC: // OR (...)
         frame.ip++; // skip opening 0xFC
@@ -787,6 +798,7 @@ class AgiLogicInterpreter {
           objV41.cel = 0;
         }
         objV41.updateCachedView(delegate.getView(newV41));
+        objV41.clipCelToScreen(horizon: delegate.horizon);
         if (objV41.number == 0) {
           memory.setVar(16, newV41);
         }
@@ -802,6 +814,7 @@ class AgiLogicInterpreter {
           objV42.cel = 0;
         }
         objV42.updateCachedView(delegate.getView(newV42));
+        objV42.clipCelToScreen(horizon: delegate.horizon);
         if (objV42.number == 0) {
           memory.setVar(16, newV42);
         }
@@ -815,6 +828,7 @@ class AgiLogicInterpreter {
         if (celCount43 > 0 && obj43.cel >= celCount43) {
           obj43.cel = 0;
         }
+        obj43.clipCelToScreen(horizon: delegate.horizon);
         frame.ip += 3;
         break;
 
@@ -825,6 +839,7 @@ class AgiLogicInterpreter {
         if (celCount44 > 0 && obj44.cel >= celCount44) {
           obj44.cel = 0;
         }
+        obj44.clipCelToScreen(horizon: delegate.horizon);
         frame.ip += 3;
         break;
 
@@ -839,12 +854,16 @@ class AgiLogicInterpreter {
         break;
 
       case 47: // set.cel(o, c)
-        getObj(code[frame.ip + 1]).cel = code[frame.ip + 2];
+        final obj47 = getObj(code[frame.ip + 1]);
+        obj47.cel = code[frame.ip + 2];
+        obj47.clipCelToScreen(horizon: delegate.horizon);
         frame.ip += 3;
         break;
 
       case 48: // set.cel.v(o, %v)
-        getObj(code[frame.ip + 1]).cel = memory.getVar(code[frame.ip + 2]);
+        final obj48 = getObj(code[frame.ip + 1]);
+        obj48.cel = memory.getVar(code[frame.ip + 2]);
+        obj48.clipCelToScreen(horizon: delegate.horizon);
         frame.ip += 3;
         break;
 
@@ -969,8 +988,17 @@ class AgiLogicInterpreter {
       case 69: // distance(o1, o2, %v)
         final o1 = getObj(code[frame.ip + 1]);
         final o2 = getObj(code[frame.ip + 2]);
-        final dist = (o1.x - o2.x).abs() + (o1.y - o2.y).abs();
-        memory.setVar(code[frame.ip + 3], dist.clamp(0, 255));
+        final destVar = code[frame.ip + 3];
+        // Sierra COLLIDE.C: undrawn objects report 255; otherwise
+        // manhattan distance between baseline *centers*, capped at 254.
+        if (!o1.isDrawn || !o2.isDrawn) {
+          memory.setVar(destVar, 255);
+        } else {
+          final x1 = o1.x + o1.getCelWidth() ~/ 2;
+          final x2 = o2.x + o2.getCelWidth() ~/ 2;
+          final dist = (x1 - x2).abs() + (o1.y - o2.y).abs();
+          memory.setVar(destVar, dist > 254 ? 254 : dist);
+        }
         frame.ip += 4;
         break;
 
@@ -1065,6 +1093,7 @@ class AgiLogicInterpreter {
         o.targetX = code[frame.ip + 2];
         o.targetY = code[frame.ip + 3];
         final step81 = code[frame.ip + 4];
+        o.oldStepSize = o.stepSize;
         o.stepDistance = step81;
         if (step81 != 0) {
           o.stepSize = step81;
@@ -1074,8 +1103,7 @@ class AgiLogicInterpreter {
         memory.resetFlag(targetFlag81);
         if (objNum81 == 0) {
           if (o.x == o.targetX && o.y == o.targetY) {
-            o.motionType = 0;
-            o.direction = 0;
+            o.endMoveObj();
             memory.setVar(6, 0);
             memory.setFlag(targetFlag81);
             o.targetFlag = null;
@@ -1083,6 +1111,10 @@ class AgiLogicInterpreter {
           } else {
             delegate.onUserControl(false);
           }
+        } else if (o.x == o.targetX && o.y == o.targetY) {
+          o.endMoveObj();
+          memory.setFlag(targetFlag81);
+          o.targetFlag = null;
         }
         frame.ip += 6;
         break;
@@ -1095,6 +1127,7 @@ class AgiLogicInterpreter {
         o.targetX = memory.getVar(code[frame.ip + 2]);
         o.targetY = memory.getVar(code[frame.ip + 3]);
         final step82 = memory.getVar(code[frame.ip + 4]);
+        o.oldStepSize = o.stepSize;
         o.stepDistance = step82;
         if (step82 != 0) {
           o.stepSize = step82;
@@ -1104,8 +1137,7 @@ class AgiLogicInterpreter {
         memory.resetFlag(targetFlag82);
         if (objNum82 == 0) {
           if (o.x == o.targetX && o.y == o.targetY) {
-            o.motionType = 0;
-            o.direction = 0;
+            o.endMoveObj();
             memory.setVar(6, 0);
             memory.setFlag(targetFlag82);
             o.targetFlag = null;
@@ -1113,6 +1145,10 @@ class AgiLogicInterpreter {
           } else {
             delegate.onUserControl(false);
           }
+        } else if (o.x == o.targetX && o.y == o.targetY) {
+          o.endMoveObj();
+          memory.setFlag(targetFlag82);
+          o.targetFlag = null;
         }
         frame.ip += 6;
         break;
