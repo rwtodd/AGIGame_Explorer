@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 /// Represents a single character cell in the AGI 40x25 text screen buffer.
 class AgiTextCell {
   String char;
@@ -27,6 +30,7 @@ class AgiTextScreenBuffer {
   static const int rows = 25;
 
   final List<List<AgiTextCell>> _grid;
+  final Uint8List _rowNonBlankCounts = Uint8List(rows);
   int currentFg = 15;
   int currentBg = 0;
   int _version = 0;
@@ -51,16 +55,19 @@ class AgiTextScreenBuffer {
 
   void recalculateStats() {
     _version++;
-    int count = 0;
+    int totalCount = 0;
     for (int r = 0; r < rows; r++) {
+      int rowCount = 0;
       for (int c = 0; c < columns; c++) {
         final cell = _grid[r][c];
         if (!cell.isBlank || cell.bg != 0 || cell.isWritten) {
-          count++;
+          rowCount++;
         }
       }
+      _rowNonBlankCounts[r] = rowCount;
+      totalCount += rowCount;
     }
-    _nonBlankCellCount = count;
+    _nonBlankCellCount = totalCount;
   }
 
   /// Clears the entire 40x25 text screen with spaces and given or current colors.
@@ -75,6 +82,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].isWritten = (effectiveBg != 0);
       }
     }
+    _rowNonBlankCounts.fillRange(0, rows, (effectiveBg != 0) ? columns : 0);
     _nonBlankCellCount = (effectiveBg != 0) ? (rows * columns) : 0;
     _version++;
   }
@@ -165,6 +173,33 @@ class AgiTextScreenBuffer {
 
   /// Returns true if there are any non-space characters or non-zero background colors in the buffer.
   bool get hasContent => _nonBlankCellCount > 0;
+
+  /// Returns true if there are any non-space or non-zero background cells in rows [minRow]..[maxRow] inclusive.
+  bool hasContentInRows(int minRow, int maxRow) {
+    if (_nonBlankCellCount == 0) return false;
+    final r0 = minRow.clamp(0, rows - 1);
+    final r1 = maxRow.clamp(0, rows - 1);
+    final start = math.min(r0, r1);
+    final end = math.max(r0, r1);
+    for (int r = start; r <= end; r++) {
+      if (_rowNonBlankCounts[r] > 0) return true;
+    }
+    return false;
+  }
+
+  /// Returns true if there are any non-space or non-zero background cells outside rows [minRow]..[maxRow] inclusive.
+  bool hasContentExcludingRows(int minRow, int maxRow) {
+    if (_nonBlankCellCount == 0) return false;
+    final r0 = minRow.clamp(0, rows - 1);
+    final r1 = maxRow.clamp(0, rows - 1);
+    final start = math.min(r0, r1);
+    final end = math.max(r0, r1);
+    for (int r = 0; r < rows; r++) {
+      if (r >= start && r <= end) continue;
+      if (_rowNonBlankCounts[r] > 0) return true;
+    }
+    return false;
+  }
 
   /// Clears video-only (`bg == 0`) glyphs in the inclusive cell rectangle.
   ///

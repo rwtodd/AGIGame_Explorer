@@ -204,7 +204,7 @@ class AgiPicturePainter extends CustomPainter {
             if (effectiveFlat != null) {
               canvas.drawImage(effectiveFlat, Offset.zero, paint);
             }
-            if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+            if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
               canvas.save();
               canvas.translate(0.0, -playfieldRow * 8.0);
               _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
@@ -245,8 +245,10 @@ class AgiPicturePainter extends CustomPainter {
       // and float non-playfield text glyphs on top of the complete 320x200 canvas.
       if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
         if (pic != null) {
-          _paintTextBackgroundFills(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
-          _paintTextGlyphs(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
+          if (textScreenBuffer!.hasContentExcludingRows(playfieldRow, playfieldRow + 20)) {
+            _paintTextBackgroundFills(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
+            _paintTextGlyphs(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
+          }
         } else {
           _paintTextBackgroundFills(canvas);
           _paintTextGlyphs(canvas);
@@ -444,7 +446,7 @@ class AgiPicturePainter extends CustomPainter {
   /// Index is `row * columns + col`; 0 means "no text in this cell".
   Uint8List? _buildPlayfieldCellPriorityMap(AgiPic pic) {
     final buf = textScreenBuffer;
-    if (buf == null || !buf.hasContent) return null;
+    if (buf == null || !buf.hasContentInRows(playfieldRow, playfieldRow + 20)) return null;
     final map = Uint8List(AgiTextScreenBuffer.rows * AgiTextScreenBuffer.columns);
     final minRow = playfieldRow;
     final maxRow = playfieldRow + 20;
@@ -587,7 +589,7 @@ class AgiPicturePainter extends CustomPainter {
 
     if (!hasSlices && fallbackFlat != null) {
       canvas.drawImage(fallbackFlat, Offset.zero, paint);
-      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+      if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
         _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
@@ -617,7 +619,8 @@ class AgiPicturePainter extends CustomPainter {
       }
     }
 
-    final cellPriMap = _buildPlayfieldCellPriorityMap(pic);
+    final hasPlayfieldContent = textScreenBuffer?.hasContentInRows(playfieldRow, playfieldRow + 20) ?? false;
+    final cellPriMap = hasPlayfieldContent ? _buildPlayfieldCellPriorityMap(pic) : null;
 
     // Interleave priority slices (0..15) with actor sprites in authentic Painter's Algorithm order.
     // In AGI, priority 4 is furthest background (horizon) and 15 is closest foreground overlay.
@@ -629,7 +632,7 @@ class AgiPicturePainter extends CustomPainter {
 
       // Draw background text fills and text glyphs matching this priority band (p = 4..15)
       // after this priority's picture slice is drawn, and before this priority's actors are composited.
-      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
+      if (hasPlayfieldContent) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
         _paintTextBackgroundFills(

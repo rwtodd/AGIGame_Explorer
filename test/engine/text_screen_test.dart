@@ -57,6 +57,37 @@ void main() {
       expect(buffer.getCell(10, 10).char, equals(' '));
       expect(buffer.getCell(10, 11).char, equals('6'));
     });
+
+    test('tracks row occupancy for hasContentInRows and hasContentExcludingRows', () {
+      final buffer = AgiTextScreenBuffer();
+      expect(buffer.hasContent, isFalse);
+      expect(buffer.hasContentInRows(1, 21), isFalse);
+      expect(buffer.hasContentExcludingRows(1, 21), isFalse);
+
+      // Write status line on Row 0
+      buffer.writeString(0, 0, 'Score: 0 of 200', fg: 0, bg: 15);
+      expect(buffer.hasContent, isTrue);
+      expect(buffer.hasContentInRows(1, 21), isFalse, reason: 'Row 0 is not in rows 1..21');
+      expect(buffer.hasContentExcludingRows(1, 21), isTrue, reason: 'Row 0 is outside rows 1..21');
+
+      // Write playfield text on Row 6 (e.g. SQ1 keypad dots)
+      buffer.writeString(6, 16, '........', fg: 15, bg: 0);
+      expect(buffer.hasContentInRows(1, 21), isTrue, reason: 'Row 6 has dots');
+      expect(buffer.hasContentInRows(1, 5), isFalse);
+      expect(buffer.hasContentInRows(6, 6), isTrue);
+      expect(buffer.hasContentInRows(7, 21), isFalse);
+
+      // Clear playfield rows 1..21
+      buffer.clearLines(1, 21, 0);
+      expect(buffer.hasContentInRows(1, 21), isFalse);
+      expect(buffer.hasContentExcludingRows(1, 21), isTrue, reason: 'Row 0 status line remains');
+
+      // Clear entire buffer
+      buffer.clear();
+      expect(buffer.hasContent, isFalse);
+      expect(buffer.hasContentInRows(0, 24), isFalse);
+      expect(buffer.hasContentExcludingRows(1, 21), isFalse);
+    });
   });
 
   group('AgiGameEngine Text Screen Mode & Synchronous Input Prompts', () {
