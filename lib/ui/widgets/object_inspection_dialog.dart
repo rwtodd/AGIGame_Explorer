@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
+import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/object_view_resolver.dart';
@@ -15,6 +16,7 @@ import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 /// - Subtle modern drop shadow behind the dialog card.
 /// - Renders item sprite preview with authentic 2:1 EGA pixel aspect and transparency.
 /// - Displays embedded VIEW text description or item name using authentic dialog font scaling.
+/// - Formats Sierra AGI message placeholders (%v variables, %s strings, %o object names, escapes).
 /// - Dismissible via Enter, Space, Escape, or tapping/clicking anywhere on screen.
 /// - Fully transparent backdrop preserving complete visibility of the game screen underneath.
 class ObjectInspectionDialog extends StatelessWidget {
@@ -23,6 +25,7 @@ class ObjectInspectionDialog extends StatelessWidget {
   final AgiObject? object;
   final AgiView? view;
   final String? description;
+  final AgiMemory? memory;
   final AgiResourceLoader? loader;
   final VoidCallback? onClose;
   final bool correctAspectRatio;
@@ -35,11 +38,139 @@ class ObjectInspectionDialog extends StatelessWidget {
     this.object,
     this.view,
     this.description,
+    this.memory,
     this.loader,
     this.onClose,
     this.correctAspectRatio = true,
     this.strictIntegerScaling = false,
   });
+
+  /// Formats Sierra AGI message formatting placeholders (%v, %w, %s, %m, %g, %o) and escapes (\)
+  /// using standalone [AgiMemory] and optional [AgiResourceLoader].
+  static String formatWithMemory(
+    String text,
+    AgiMemory memory, {
+    AgiResourceLoader? loader,
+    List<String> inputWords = const [],
+  }) {
+    if (!text.contains('%') && !text.contains('\\')) return text;
+
+    final sb = StringBuffer();
+    int i = 0;
+    while (i < text.length) {
+      final ch = text[i];
+      if (ch == '\\') {
+        i++;
+        if (i < text.length) {
+          sb.write(text[i]);
+          i++;
+        }
+      } else if (ch == '%' && i + 1 < text.length) {
+        i++;
+        final type = text[i];
+        i++;
+        if (type == 'v' ||
+            type == 'w' ||
+            type == 's' ||
+            type == 'm' ||
+            type == 'g' ||
+            type == 'o' ||
+            type == '0') {
+          final numBuf = StringBuffer();
+          while (i < text.length &&
+              text.codeUnitAt(i) >= 48 &&
+              text.codeUnitAt(i) <= 57) {
+            numBuf.write(text[i]);
+            i++;
+          }
+          final num = int.tryParse(numBuf.toString()) ?? 0;
+          int? pad;
+          if (type == 'v' && i < text.length && text[i] == '|') {
+            i++;
+            final padBuf = StringBuffer();
+            while (i < text.length &&
+                text.codeUnitAt(i) >= 48 &&
+                text.codeUnitAt(i) <= 57) {
+              padBuf.write(text[i]);
+              i++;
+            }
+            pad = int.tryParse(padBuf.toString());
+          }
+
+          switch (type) {
+            case 'v':
+              final val = memory.getVar(num);
+              var str = val.toString();
+              if (pad != null && pad > str.length) {
+                str = str.padLeft(pad, '0');
+              }
+              sb.write(str);
+              break;
+
+            case 'w':
+              if (num >= 1 && num <= inputWords.length) {
+                sb.write(inputWords[num - 1]);
+              }
+              break;
+
+            case 's':
+              sb.write(formatWithMemory(
+                memory.getString(num),
+                memory,
+                loader: loader,
+                inputWords: inputWords,
+              ));
+              break;
+
+            case 'g':
+              final logic0 = loader?.loadLogic(0);
+              final msg = logic0?.getMessage(num) ?? '';
+              sb.write(formatWithMemory(
+                msg,
+                memory,
+                loader: loader,
+                inputWords: inputWords,
+              ));
+              break;
+
+            case 'o':
+            case '0':
+              final objIdx = memory.getVar(num);
+              if (loader != null &&
+                  objIdx >= 0 &&
+                  objIdx < loader.initialObjects.length) {
+                sb.write(loader.initialObjects[objIdx].name);
+              }
+              break;
+
+            default:
+              sb.write('%');
+              sb.write(type);
+              sb.write(numBuf.toString());
+              break;
+          }
+        } else {
+          sb.write('%');
+          sb.write(type);
+        }
+      } else {
+        sb.write(ch);
+        i++;
+      }
+    }
+    return sb.toString();
+  }
+
+  String _formatText(String text) {
+    if (engine != null) {
+      return engine!.formatMessage(text);
+    }
+    final effectiveMemory = memory;
+    if (effectiveMemory != null) {
+      return formatWithMemory(text, effectiveMemory, loader: loader);
+    }
+    return text;
+  }
 
   AgiObject? _resolveObject() {
     if (object != null) return object;
@@ -86,11 +217,12 @@ class ObjectInspectionDialog extends StatelessWidget {
 
     final rawName = resolvedObj?.name ??
         (resolvedView?.description != null ? 'OBJECT VIEW' : 'View #$objectNumber');
-    final displayName = rawName.trim();
-    final effectiveDescription = description ??
+    final displayName = _formatText(rawName.trim());
+    final rawDescription = description ??
         ((resolvedView?.description != null && resolvedView!.description!.trim().isNotEmpty)
             ? resolvedView.description!.trim()
             : null);
+    final effectiveDescription = rawDescription != null ? _formatText(rawDescription) : null;
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{

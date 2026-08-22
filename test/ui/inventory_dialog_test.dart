@@ -275,6 +275,65 @@ void main() {
       expect(find.text('Mysterious Idol'), findsOneWidget);
       expect(find.byIcon(Icons.inventory_2_outlined), findsOneWidget);
     });
+
+    testWidgets('interpolates %v variables in object description (Space Quest 1 Buckazoids)', (tester) async {
+      final memory = AgiMemory();
+      memory.setVar(124, 30); // 30 Buckazoids
+
+      final engine = AgiGameEngine(
+        memory: memory,
+        objects: const [
+          AgiObject(name: '?', startingRoom: 0),
+          AgiObject(name: 'Buckazoids', startingRoom: 255),
+        ],
+      );
+
+      final view = AgiView(
+        viewNumber: 1,
+        loops: const [],
+        description: 'You have %v124 of them.',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ObjectInspectionDialog(
+              engine: engine,
+              objectNumber: 1,
+              view: view,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('You have 30 of them.'), findsOneWidget);
+      expect(find.text('You have %v124 of them.'), findsNothing);
+    });
+
+    testWidgets('interpolates %v variables in description with standalone AgiMemory', (tester) async {
+      final memory = AgiMemory();
+      memory.setVar(124, 42);
+
+      final view = AgiView(
+        viewNumber: 3,
+        loops: const [],
+        description: 'Buckazoid balance: %v124|3 coins.',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ObjectInspectionDialog(
+              objectNumber: 3,
+              memory: memory,
+              view: view,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Buckazoid balance: 042 coins.'), findsOneWidget);
+    });
   });
 
   group('AgiLogicInterpreter & AgiGameEngine Opcodes Integration', () {

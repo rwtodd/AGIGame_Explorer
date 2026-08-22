@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 
 /// Modal Inventory Screen widget (`status()` / Opcode 124).
 ///
@@ -471,6 +472,21 @@ class _InventoryDialogState extends State<InventoryDialog> {
     );
   }
 
+  String _formatItemName(String name) {
+    if (widget.engine != null) {
+      return widget.engine!.formatMessage(name);
+    }
+    final mem = widget.memory;
+    if (mem != null) {
+      return ObjectInspectionDialog.formatWithMemory(
+        name,
+        mem,
+        loader: widget.engine?.resourceLoader,
+      );
+    }
+    return name;
+  }
+
   Widget _buildItemCell({
     required CarriedItem item,
     required int index,
@@ -518,7 +534,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
                 ),
               Expanded(
                 child: Text(
-                  item.name.trim(),
+                  _formatItemName(item.name.trim()),
                   style: TextStyle(
                     color: Colors.black,
                     fontSize: fontSize,
