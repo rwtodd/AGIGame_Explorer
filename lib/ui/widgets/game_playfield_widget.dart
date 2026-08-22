@@ -406,10 +406,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         final renderX = (obj.x * 2).toDouble();
         final renderY = (obj.y - celHeight + 1).toDouble();
 
-        final targetAtlas = atlasMgr.getAtlasForCel(obj.view, obj.loop, safeCel) ?? atlasMgr.primaryAtlas;
         final cel = loop?.getCel(safeCel);
+        final hit = atlasMgr.lookupCel(obj.view, obj.loop, safeCel);
 
-        if (targetAtlas != null && targetAtlas.containsCel(obj.view, obj.loop, safeCel) && targetAtlas.hasImage) {
+        if (hit != null && hit.atlas.hasImage) {
           actors.add(
             AgiActorSprite(
               priority: obj.effectivePriority,
@@ -420,7 +420,8 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               viewNumber: obj.view,
               loopNumber: obj.loop,
               celNumber: safeCel,
-              atlas: targetAtlas,
+              atlas: hit.atlas,
+              celEntry: hit.entry,
             ),
           );
         } else {
@@ -444,9 +445,6 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               loopNumber: obj.loop,
               celNumber: safeCel,
               image: cachedImage,
-              atlas: (targetAtlas != null && targetAtlas.hasImage && targetAtlas.containsCel(obj.view, obj.loop, safeCel))
-                  ? targetAtlas
-                  : null,
             ),
           );
           if (cachedImage == null && cel != null && viewRes != null) {

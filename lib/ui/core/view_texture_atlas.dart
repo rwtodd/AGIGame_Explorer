@@ -48,8 +48,6 @@ class AtlasCelEntry {
   /// The 32-bit packed integer key for this cel entry.
   int get intKey => computeKey(viewNumber, loopNumber, celNumber);
 
-  String get key => '${viewNumber}_${loopNumber}_$celNumber';
-
   @override
   String toString() =>
       'AtlasCelEntry(view: $viewNumber, loop: $loopNumber, cel: $celNumber, rect: $sourceRect, mirrored: $isMirrored)';
@@ -134,9 +132,8 @@ class ViewTextureAtlas {
   }
 
   /// Check if a cel exists in this atlas.
-  bool containsCel(int viewNumber, int loopNumber, int celNumber) {
-    return entries.containsKey(AtlasCelEntry.computeKey(viewNumber, loopNumber, celNumber));
-  }
+  bool containsCel(int viewNumber, int loopNumber, int celNumber) =>
+      getEntry(viewNumber, loopNumber, celNumber) != null;
 
   /// List of all cel entries in this atlas.
   Iterable<AtlasCelEntry> get allEntries => entries.values;
@@ -145,6 +142,7 @@ class ViewTextureAtlas {
   ///
   /// Automatically accounts for mirrored cels by flipping horizontally.
   /// If [forceFlipHorizontal] is provided, it overrides the cel's mirror setting.
+  /// Callers that already have an [AtlasCelEntry] should use [drawEntry] instead.
   void drawCel(
     Canvas canvas, {
     required int viewNumber,
@@ -157,16 +155,41 @@ class ViewTextureAtlas {
     bool? forceFlipHorizontal,
     Paint? paint,
   }) {
-    if (_image == null) {
-      throw const AgiException(
-        'Cannot render cel: Texture atlas ui.Image is not loaded. Call ensureImage() before rendering.',
-      );
-    }
-
     final entry = getEntry(viewNumber, loopNumber, celNumber);
     if (entry == null) {
       throw AgiException(
         'Cel view $viewNumber loop $loopNumber cel $celNumber is not present in this atlas.',
+      );
+    }
+    drawEntry(
+      canvas,
+      entry,
+      position: position,
+      scale: scale,
+      scaleX: scaleX,
+      scaleY: scaleY,
+      forceFlipHorizontal: forceFlipHorizontal,
+      paint: paint,
+    );
+  }
+
+  /// Paints a previously resolved [entry].
+  ///
+  /// Prefer this over [drawCel] when the caller already looked the cel up,
+  /// so the atlas map is not hashed a second time on the hot draw path.
+  void drawEntry(
+    Canvas canvas,
+    AtlasCelEntry entry, {
+    required Offset position,
+    double scale = 1.0,
+    double scaleX = 1.0,
+    double scaleY = 1.0,
+    bool? forceFlipHorizontal,
+    Paint? paint,
+  }) {
+    if (_image == null) {
+      throw const AgiException(
+        'Cannot render cel: Texture atlas ui.Image is not loaded. Call ensureImage() before rendering.',
       );
     }
 
@@ -555,16 +578,31 @@ class ViewAtlasManager {
     _pendingBuild = null;
   }
 
-  /// Look up which atlas (primary or side-atlas) contains the specified cel.
-  ViewTextureAtlas? getAtlasForCel(int viewNumber, int loopNumber, int celNumber) {
-    if (_primaryAtlas != null && _primaryAtlas!.containsCel(viewNumber, loopNumber, celNumber)) {
-      return _primaryAtlas;
+  /// Resolves both the atlas and the packed cel entry in one map lookup.
+  ///
+  /// Prefer this over [getAtlasForCel] followed by [ViewTextureAtlas.getEntry]
+  /// or [ViewTextureAtlas.containsCel]: those re-hash the same packed key.
+  ({ViewTextureAtlas atlas, AtlasCelEntry entry})? lookupCel(
+    int viewNumber,
+    int loopNumber,
+    int celNumber,
+  ) {
+    final primary = _primaryAtlas;
+    if (primary != null) {
+      final entry = primary.getEntry(viewNumber, loopNumber, celNumber);
+      if (entry != null) return (atlas: primary, entry: entry);
     }
     final side = _sideAtlases[viewNumber];
-    if (side != null && side.containsCel(viewNumber, loopNumber, celNumber)) {
-      return side;
+    if (side != null) {
+      final entry = side.getEntry(viewNumber, loopNumber, celNumber);
+      if (entry != null) return (atlas: side, entry: entry);
     }
     return null;
+  }
+
+  /// Look up which atlas (primary or side-atlas) contains the specified cel.
+  ViewTextureAtlas? getAtlasForCel(int viewNumber, int loopNumber, int celNumber) {
+    return lookupCel(viewNumber, loopNumber, celNumber)?.atlas;
   }
 
   /// Checks if the manager contains a registered view and has compiled its texture atlas.
@@ -574,7 +612,7 @@ class ViewAtlasManager {
 
   /// Checks if any loaded atlas contains the specified cel.
   bool containsCel(int viewNumber, int loopNumber, int celNumber) {
-    return getAtlasForCel(viewNumber, loopNumber, celNumber) != null;
+    return lookupCel(viewNumber, loopNumber, celNumber) != null;
   }
 
   /// Builds or refreshes the primary atlas for all registered views asynchronously.

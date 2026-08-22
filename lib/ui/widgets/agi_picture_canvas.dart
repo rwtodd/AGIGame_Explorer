@@ -40,6 +40,13 @@ class AgiActorSprite {
   final int celNumber;
   final ViewTextureAtlas? atlas;
 
+  /// Pre-resolved atlas cel from [ViewAtlasManager.lookupCel].
+  ///
+  /// When set, [draw] paints this entry directly instead of hashing the atlas
+  /// map again. Derived from [atlas]/[viewNumber]/[loopNumber]/[celNumber], so
+  /// it is omitted from [==] / [hashCode].
+  final AtlasCelEntry? celEntry;
+
   const AgiActorSprite({
     required this.priority,
     required this.baselineY,
@@ -51,22 +58,27 @@ class AgiActorSprite {
     this.loopNumber = 0,
     this.celNumber = 0,
     this.atlas,
+    this.celEntry,
   });
 
   /// Draws this sprite cel using the texture atlas or direct ui.Image.
   void draw(Canvas canvas, Paint paint) {
-    if (atlas != null && atlas!.containsCel(viewNumber, loopNumber, celNumber) && atlas!.hasImage) {
-      atlas!.drawCel(
-        canvas,
-        viewNumber: viewNumber,
-        loopNumber: loopNumber,
-        celNumber: celNumber,
-        position: position,
-        scaleX: 2.0,
-        scaleY: 1.0,
-        paint: paint,
-      );
-    } else if (image != null) {
+    final atlas = this.atlas;
+    if (atlas != null && atlas.hasImage) {
+      final entry = celEntry ?? atlas.getEntry(viewNumber, loopNumber, celNumber);
+      if (entry != null) {
+        atlas.drawEntry(
+          canvas,
+          entry,
+          position: position,
+          scaleX: 2.0,
+          scaleY: 1.0,
+          paint: paint,
+        );
+        return;
+      }
+    }
+    if (image != null) {
       canvas.drawImage(image!, position, paint);
     }
   }

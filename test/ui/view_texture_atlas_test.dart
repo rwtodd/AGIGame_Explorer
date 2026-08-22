@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/loader/parsers/view_parser.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
+import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import '../parsers/view_parser_test.dart';
 
 void main() {
@@ -32,6 +33,9 @@ void main() {
       expect(atlas.height, isPositive);
       expect(atlas.containsCel(10, 0, 0), isTrue);
       expect(atlas.containsCel(10, 1, 0), isTrue);
+      expect(atlas.containsCel(10, 0, 0), equals(atlas.getEntry(10, 0, 0) != null));
+      expect(atlas.containsCel(10, 9, 0), isFalse);
+      expect(atlas.getEntry(10, 9, 0), isNull);
 
       final entry0 = atlas.getEntry(10, 0, 0)!;
       final entry1 = atlas.getEntry(10, 1, 0)!;
@@ -149,6 +153,65 @@ void main() {
       expect(keys.length, equals(4));
     });
 
+    test('drawEntry paints a resolved cel without a second map lookup', () async {
+      final view = ViewParser.parse(
+        createSimpleViewData(loopCount: 1, celCount: 1, width: 4, height: 4),
+        viewNumber: 5,
+      );
+      final builder = ViewAtlasBuilder();
+      builder.addView(view);
+      final atlas = await builder.buildAsync();
+      expect(atlas.image, isNotNull);
+
+      final entry = atlas.getEntry(5, 0, 0);
+      expect(entry, isNotNull);
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      atlas.drawEntry(canvas, entry!, position: const Offset(10, 10));
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(32, 32);
+      expect(image.width, equals(32));
+      expect(image.height, equals(32));
+    });
+
+    test('AgiActorSprite.draw uses a pre-resolved celEntry and ignores it in equality', () async {
+      final view = ViewParser.parse(
+        createSimpleViewData(loopCount: 1, celCount: 1, width: 4, height: 4),
+        viewNumber: 5,
+      );
+      final builder = ViewAtlasBuilder();
+      builder.addView(view);
+      final atlas = await builder.buildAsync();
+      final entry = atlas.getEntry(5, 0, 0)!;
+
+      final withEntry = AgiActorSprite(
+        priority: 9,
+        baselineY: 100,
+        position: const Offset(8, 8),
+        viewNumber: 5,
+        atlas: atlas,
+        celEntry: entry,
+      );
+      final withoutEntry = AgiActorSprite(
+        priority: 9,
+        baselineY: 100,
+        position: const Offset(8, 8),
+        viewNumber: 5,
+        atlas: atlas,
+      );
+      expect(withEntry, equals(withoutEntry));
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      withEntry.draw(canvas, Paint());
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(32, 32);
+      expect(image.width, equals(32));
+    });
+
     test('throws AgiException when rendering without image or missing cel', () {
       final atlas = ViewTextureAtlas(
         width: 16,
@@ -198,6 +261,13 @@ void main() {
       expect(manager.containsCel(2, 0, 0), isTrue);
       expect(manager.containsCel(99, 0, 0), isFalse);
 
+      final hit = manager.lookupCel(1, 0, 0);
+      expect(hit, isNotNull);
+      expect(hit!.atlas, same(manager.primaryAtlas));
+      expect(hit.entry, same(manager.primaryAtlas!.getEntry(1, 0, 0)));
+      expect(manager.getAtlasForCel(1, 0, 0), same(hit.atlas));
+      expect(manager.lookupCel(99, 0, 0), isNull);
+
       manager.dispose();
       expect(manager.registeredViews.isEmpty, isTrue);
       expect(manager.primaryAtlas, isNull);
@@ -222,6 +292,11 @@ void main() {
 
       final foundAtlas = manager.getAtlasForCel(3, 0, 0);
       expect(foundAtlas, equals(sideAtlas));
+
+      final sideHit = manager.lookupCel(3, 0, 0);
+      expect(sideHit, isNotNull);
+      expect(sideHit!.atlas, same(sideAtlas));
+      expect(sideHit.entry, same(sideAtlas.getEntry(3, 0, 0)));
 
       manager.dispose();
     });
