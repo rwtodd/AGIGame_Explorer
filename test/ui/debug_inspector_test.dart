@@ -366,5 +366,102 @@ void main() {
       expect(find.byType(DebugInspectorDialog), findsOneWidget);
       expect(find.text('AGI DEBUG WORKBENCH'), findsOneWidget);
     });
+
+    testWidgets('Header Teleport button opens teleport dialog and warps to target room', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      engine.changeRoom(2);
+      expect(engine.currentRoom, 2);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => DebugInspectorDialog.show(context, engine),
+                  child: const Text('Open Debugger'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open Dialog
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+
+      // Click Teleport button in Header
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Teleport'));
+      await tester.pumpAndSettle();
+
+      // Check Teleport dialog opened
+      expect(find.text('TELEPORT TO ROOM'), findsOneWidget);
+      expect(find.text('Room # (0–255)'), findsOneWidget);
+
+      // Enter room 65 and tap Teleport (Inspect)
+      await tester.enterText(find.widgetWithText(TextField, 'Room # (0–255)'), '65');
+      await tester.tap(find.text('Teleport (Inspect)'));
+      await tester.pumpAndSettle();
+
+      // Verify engine room changed to 65
+      expect(engine.currentRoom, 65);
+      expect(find.text('Room Number:'), findsOneWidget);
+      expect(find.text('65 (prev: 2)'), findsOneWidget);
+    });
+
+    testWidgets('Tab 4 Teleport section warps to room via quick chips and custom input', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      engine.changeRoom(1);
+      engine.loadLogic(14);
+      engine.loadLogic(75);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => DebugInspectorDialog.show(context, engine),
+                  child: const Text('Open Debugger'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open Dialog
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+
+      // Switch to Tab 4
+      await tester.tap(find.text('Logic & Stack'));
+      await tester.pumpAndSettle();
+
+      // Verify Teleport section
+      expect(find.text('TELEPORT / ROOM SELECTOR'), findsOneWidget);
+      expect(find.text('Current: Room 1'), findsOneWidget);
+
+      // Enter room 75 and click Teleport (Inspect)
+      await tester.enterText(find.widgetWithText(TextField, 'Room # (0–255)'), '75');
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Teleport (Inspect)'));
+      await tester.pumpAndSettle();
+
+      expect(engine.currentRoom, 75);
+      expect(find.text('Current: Room 75'), findsOneWidget);
+    });
   });
 }

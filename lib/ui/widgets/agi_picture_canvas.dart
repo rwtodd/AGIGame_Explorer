@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
@@ -203,7 +204,8 @@ class AgiPicturePainter extends CustomPainter {
             if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
               canvas.save();
               canvas.translate(0.0, -playfieldRow * 8.0);
-              _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20);
+              _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+              _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
               canvas.restore();
             }
             if (actors.isNotEmpty) {
@@ -236,15 +238,16 @@ class AgiPicturePainter extends CustomPainter {
         canvas.restore();
       }
 
-      // Draw text background fills for non-playfield rows (e.g. Row 0 white status bar)
-      // and float all text glyphs across all 25 rows on top of the complete 320x200 canvas.
+      // Draw text background fills for non-playfield rows (e.g. Row 0 white status bar, Row 24 notices)
+      // and float non-playfield text glyphs on top of the complete 320x200 canvas.
       if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
         if (pic != null) {
           _paintTextBackgroundFills(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
+          _paintTextGlyphs(canvas, excludePlayfield: true, playfieldRow: playfieldRow);
         } else {
           _paintTextBackgroundFills(canvas);
+          _paintTextGlyphs(canvas);
         }
-        _paintTextGlyphs(canvas);
       }
 
       if (showCursor) {
@@ -425,12 +428,23 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
+  int _getCellPriority(int r, int c, AgiPic? pic) {
+    final pb = pic?.priorityBuffer;
+    if (pb == null) return 4;
+    final px = (c * 4).clamp(0, PriorityBuffer.width - 1);
+    final py = ((r - playfieldRow) * 8).clamp(0, PriorityBuffer.height - 1);
+    final pri = pb.priorityAt(px, py);
+    return pri.clamp(4, 15);
+  }
+
   void _paintTextBackgroundFills(
     Canvas canvas, {
     int minRow = 0,
     int maxRow = AgiTextScreenBuffer.rows - 1,
     bool excludePlayfield = false,
     int playfieldRow = 1,
+    int? targetPriority,
+    AgiPic? pic,
   }) {
     if (textScreenBuffer == null) return;
 
@@ -446,12 +460,20 @@ class AgiPicturePainter extends CustomPainter {
           continue;
         }
 
+        if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
+          c++;
+          continue;
+        }
+
         final startCol = c;
         final bg = cell.bg;
 
         while (c < AgiTextScreenBuffer.columns) {
           final nextCell = textScreenBuffer!.getCell(r, c);
           if (nextCell.bg != bg) {
+            break;
+          }
+          if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
             break;
           }
           c++;
@@ -468,14 +490,30 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
-  void _paintTextGlyphs(Canvas canvas) {
+  void _paintTextGlyphs(
+    Canvas canvas, {
+    int minRow = 0,
+    int maxRow = AgiTextScreenBuffer.rows - 1,
+    bool excludePlayfield = false,
+    int playfieldRow = 1,
+    int? targetPriority,
+    AgiPic? pic,
+  }) {
     if (textScreenBuffer == null) return;
 
-    for (int r = 0; r < AgiTextScreenBuffer.rows; r++) {
+    for (int r = minRow; r <= maxRow && r < AgiTextScreenBuffer.rows; r++) {
+      if (excludePlayfield && r >= playfieldRow && r < playfieldRow + 21) {
+        continue;
+      }
       int c = 0;
       while (c < AgiTextScreenBuffer.columns) {
         final cell = textScreenBuffer!.getCell(r, c);
         if (cell.isBlank) {
+          c++;
+          continue;
+        }
+
+        if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
           c++;
           continue;
         }
@@ -487,6 +525,9 @@ class AgiPicturePainter extends CustomPainter {
         while (c < AgiTextScreenBuffer.columns) {
           final nextCell = textScreenBuffer!.getCell(r, c);
           if (nextCell.fg != fg || nextCell.isBlank) {
+            break;
+          }
+          if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
             break;
           }
           sb.write(nextCell.char);
@@ -512,7 +553,8 @@ class AgiPicturePainter extends CustomPainter {
       if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20);
+        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+        _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
         canvas.restore();
       }
       if (actors.isNotEmpty) {
@@ -546,12 +588,25 @@ class AgiPicturePainter extends CustomPainter {
         canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
       }
 
-      // Draw background text fills (e.g. solid white newspaper backdrop from clear.text.rect)
-      // on the base playfield layer (priority 4) before actors are composited.
-      if (p == 4 && textScreenBuffer != null && textScreenBuffer!.hasContent) {
+      // Draw background text fills and text glyphs matching this priority band (p = 4..15)
+      // after this priority's picture slice is drawn, and before this priority's actors are composited.
+      if (textScreenBuffer != null && textScreenBuffer!.hasContent) {
         canvas.save();
         canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20);
+        _paintTextBackgroundFills(
+          canvas,
+          minRow: playfieldRow,
+          maxRow: playfieldRow + 20,
+          targetPriority: p,
+          pic: pic,
+        );
+        _paintTextGlyphs(
+          canvas,
+          minRow: playfieldRow,
+          maxRow: playfieldRow + 20,
+          targetPriority: p,
+          pic: pic,
+        );
         canvas.restore();
       }
 

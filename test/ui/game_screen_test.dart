@@ -406,5 +406,30 @@ void main() {
 
       expect(find.text('hi'), findsOneWidget);
     });
+
+    testWidgets('typing tp <room> or teleport <room> teleports Ego directly to room', (tester) async {
+      engine.changeRoom(2);
+      expect(engine.currentRoom, 2);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      // Type 'tp 65' and press Enter
+      for (final char in 'tp 65'.split('')) {
+        await tester.sendKeyEvent(
+          LogicalKeyboardKey.space,
+          character: char,
+        );
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(engine.currentRoom, 65);
+      expect(find.textContaining('Teleported to Room 65'), findsOneWidget);
+    });
   });
 }

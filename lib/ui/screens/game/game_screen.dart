@@ -117,6 +117,36 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _commandHistory.remove(cmd);
       _commandHistory.add(cmd);
       _historyIndex = _commandHistory.length;
+
+      // Check for debug teleport command (e.g. `tp 65`, `teleport 75`, `room 14`, `goto 50`)
+      final lower = cmd.toLowerCase();
+      if (lower.startsWith('tp ') ||
+          lower.startsWith('teleport ') ||
+          lower.startsWith('room ') ||
+          lower.startsWith('goto ')) {
+        final parts = cmd.split(RegExp(r'\s+'));
+        if (parts.length >= 2) {
+          final targetRoom = int.tryParse(parts[1]);
+          if (targetRoom != null && targetRoom >= 0 && targetRoom <= 255) {
+            _engine.changeRoom(targetRoom);
+            _engine.tick();
+            _engine.recordCheckpoint(label: 'Teleport to Room $targetRoom');
+            setState(() {
+              _currentInputText = '';
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🚀 Teleported to Room $targetRoom',
+                    style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
+                backgroundColor: const Color(0xFF0284C7),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
       _engine.submitCommand(cmd);
       setState(() {
         _currentInputText = '';

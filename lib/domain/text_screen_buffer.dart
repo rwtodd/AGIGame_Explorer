@@ -47,7 +47,7 @@ class AgiTextScreenBuffer {
     return _grid[row][col];
   }
 
-  void _recalculateStats() {
+  void recalculateStats() {
     _version++;
     int count = 0;
     for (int r = 0; r < rows; r++) {
@@ -90,7 +90,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].bg = color.clamp(0, 15);
       }
     }
-    _recalculateStats();
+    recalculateStats();
   }
 
   /// Clears character rectangle between [top, left] and [bottom, right] inclusive.
@@ -112,7 +112,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].bg = color.clamp(0, 15);
       }
     }
-    _recalculateStats();
+    recalculateStats();
   }
 
   /// Writes [text] starting at ([row], [col]) using active or specified colors.
@@ -154,7 +154,7 @@ class AgiTextScreenBuffer {
       _grid[curRow][curCol].bg = effectiveBg;
       curCol++;
     }
-    _recalculateStats();
+    recalculateStats();
   }
 
   /// Returns true if there are any non-space characters or non-zero background colors in the buffer.

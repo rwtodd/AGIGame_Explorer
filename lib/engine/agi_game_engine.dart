@@ -1667,16 +1667,102 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       }
     }
 
+    _eraseTextScreenUnderObject(obj);
     obj.prevX = obj.x;
     obj.prevY = obj.y;
     obj.x = clampedX;
     obj.y = clampedY;
+    _eraseTextScreenUnderObject(obj);
     CollisionDetector.syncAutoPriority(obj, obj.y);
 
     if (obj.motionType == 3) {
       if (obj.x == obj.targetX && obj.y == obj.targetY) {
         _completeMoveObj(obj);
       }
+    }
+  }
+
+  /// In authentic Sierra AGI (blists_erase), when an active updating animated object
+  /// moves or draws, it restores the background picture (gfx_picbuff), which erases
+  /// any temporary playfield `display()` text that the object sweeps across.
+  void _eraseTextScreenUnderObject(AnimatedObject obj) {
+    if (!obj.isDrawn) return;
+    final view = obj.cachedView ?? getView(obj.view);
+    if (view == null) return;
+    final loop = view.getLoop(obj.loop);
+    if (loop == null || loop.cels.isEmpty) return;
+    final cel = loop.getCel(obj.cel);
+    if (cel == null) return;
+
+    final left = obj.x;
+    final right = obj.x + cel.width - 1;
+    final bottom = obj.y;
+    final top = obj.y - cel.height + 1;
+
+    // Convert pixel coordinates (160x168) to text grid (40 columns x 21 playfield rows)
+    final startCol = (left / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
+    final endCol = (right / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
+    final startRow = ((top / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
+    final endRow = ((bottom / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
+
+    bool modified = false;
+    for (int r = startRow; r <= endRow; r++) {
+      for (int c = startCol; c <= endCol; c++) {
+        final cell = textScreenBuffer.getCell(r, c);
+        // Only erase non-blank cells where bg == 0 (transparent playfield text)
+        if (!cell.isBlank && cell.bg == 0) {
+          cell.char = ' ';
+          cell.fg = 15;
+          cell.bg = 0;
+          modified = true;
+        }
+      }
+    }
+    if (modified) {
+      textScreenBuffer.recalculateStats();
+    }
+  }
+
+  /// In authentic Sierra AGI (blists_erase), when an object is dispatched along a motion
+  /// path (move.obj), the entire bounding sweep will be erased/restored with background picture pixels.
+  void _eraseTextScreenUnderObjectPath(AnimatedObject obj, int targetX, int targetY) {
+    if (!obj.isDrawn) return;
+    final view = obj.cachedView ?? getView(obj.view);
+    if (view == null) return;
+    final loop = view.getLoop(obj.loop);
+    if (loop == null || loop.cels.isEmpty) return;
+    final cel = loop.getCel(obj.cel);
+    if (cel == null) return;
+
+    final minX = math.min(obj.x, targetX);
+    final maxX = math.max(obj.x, targetX);
+    final minY = math.min(obj.y, targetY);
+    final maxY = math.max(obj.y, targetY);
+
+    final left = minX;
+    final right = maxX + cel.width - 1;
+    final bottom = maxY;
+    final top = minY - cel.height + 1;
+
+    final startCol = (left / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
+    final endCol = (right / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
+    final startRow = ((top / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
+    final endRow = ((bottom / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
+
+    bool modified = false;
+    for (int r = startRow; r <= endRow; r++) {
+      for (int c = startCol; c <= endCol; c++) {
+        final cell = textScreenBuffer.getCell(r, c);
+        if (!cell.isBlank && cell.bg == 0) {
+          cell.char = ' ';
+          cell.fg = 15;
+          cell.bg = 0;
+          modified = true;
+        }
+      }
+    }
+    if (modified) {
+      textScreenBuffer.recalculateStats();
     }
   }
 
@@ -2311,6 +2397,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       obj.prevY = obj.y;
     }
     posShuffle(obj);
+    _eraseTextScreenUnderObject(obj);
     if (obj.number == 0) {
       _updateEgoFlags(currentPic?.priorityBuffer);
     }
@@ -2318,6 +2405,29 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       atlasManager.registerView(view);
       return atlasManager.prepareAtlasAsync();
     }
+  }
+
+  @override
+  void onStartUpdate(AnimatedObject obj) {
+    _eraseTextScreenUnderObject(obj);
+  }
+
+  @override
+  void onErase(AnimatedObject obj) {
+    _eraseTextScreenUnderObject(obj);
+  }
+
+  @override
+  void onReposition(AnimatedObject obj, int newX, int newY) {
+    _eraseTextScreenUnderObjectPath(obj, newX, newY);
+    obj.x = newX;
+    obj.y = newY;
+    _eraseTextScreenUnderObject(obj);
+  }
+
+  @override
+  void onMoveObj(AnimatedObject obj, int targetX, int targetY) {
+    _eraseTextScreenUnderObjectPath(obj, targetX, targetY);
   }
 
   @override
@@ -2506,10 +2616,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       currentPic?.dispose();
       currentPic = resourceLoader!.loadPic(picNumber);
       currentPic?.picNumber = picNumber;
-      _displayedTexts.clear();
-      textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
-      _statusLineNeedsRedraw = true;
-      updateStatusLine(force: true);
+      textScreenBuffer.clearLines(_playfieldRow, _playfieldRow + 20, 0);
+      _displayedTexts.removeWhere((t) => t.row >= _playfieldRow && t.row <= _playfieldRow + 20);
       for (final obj in animatedObjects) {
         if (obj.isDrawn) {
           posShuffle(obj);
@@ -2522,10 +2630,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   @override
   FutureOr<void> onShowPic() {
-    _displayedTexts.clear();
-    textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
-    _statusLineNeedsRedraw = true;
-    updateStatusLine(force: true);
     for (final obj in animatedObjects) {
       if (obj.isDrawn) {
         posShuffle(obj);

@@ -9,6 +9,19 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 abstract class AgiInterpreterDelegate {
   /// Called when an animated object is drawn on screen (for boundary and horizon clamping).
   FutureOr<void> onDraw(AnimatedObject obj) {}
+
+  /// Called when an animated object transitions to updating (`start.update`).
+  void onStartUpdate(AnimatedObject obj) {}
+
+  /// Called when an animated object is erased from the screen (`erase`).
+  void onErase(AnimatedObject obj) {}
+
+  /// Called when an animated object is repositioned (`reposition`, `reposition.to`).
+  void onReposition(AnimatedObject obj, int newX, int newY) {}
+
+  /// Called when an animated object is assigned a move path (`move.obj`, `move.obj.v`).
+  void onMoveObj(AnimatedObject obj, int targetX, int targetY) {}
+
   /// Called when the script requests a room change via `new.room` or `new.room.v`.
   FutureOr<void> onNewRoom(int roomNumber) {}
 

@@ -735,7 +735,9 @@ class AgiLogicInterpreter {
         break;
 
       case 36: // erase(o)
-        getObj(code[frame.ip + 1]).isDrawn = false;
+        final obj36 = getObj(code[frame.ip + 1]);
+        obj36.isDrawn = false;
+        delegate.onErase(obj36);
         frame.ip += 2;
         break;
 
@@ -778,8 +780,11 @@ class AgiLogicInterpreter {
         if (dx >= 128) dx -= 256;
         var dy = memory.getVar(code[frame.ip + 3]);
         if (dy >= 128) dy -= 256;
-        o.x = (o.x + dx).clamp(0, 159);
-        o.y = (o.y + dy).clamp(0, 167);
+        final targetX = (o.x + dx).clamp(0, 159);
+        final targetY = (o.y + dy).clamp(0, 167);
+        delegate.onReposition(o, targetX, targetY);
+        o.x = targetX;
+        o.y = targetY;
         o.prevX = o.x;
         o.prevY = o.y;
         frame.ip += 4;
@@ -931,7 +936,9 @@ class AgiLogicInterpreter {
         break;
 
       case 59: // start.update(o)
-        getObj(code[frame.ip + 1]).isUpdating = true;
+        final obj59 = getObj(code[frame.ip + 1]);
+        obj59.isUpdating = true;
+        delegate.onStartUpdate(obj59);
         frame.ip += 2;
         break;
 
@@ -1101,6 +1108,7 @@ class AgiLogicInterpreter {
         final targetFlag81 = code[frame.ip + 5];
         o.targetFlag = targetFlag81;
         memory.resetFlag(targetFlag81);
+        delegate.onMoveObj(o, o.targetX, o.targetY);
         if (objNum81 == 0) {
           if (o.x == o.targetX && o.y == o.targetY) {
             o.endMoveObj();
@@ -1135,6 +1143,7 @@ class AgiLogicInterpreter {
         final targetFlag82 = code[frame.ip + 5];
         o.targetFlag = targetFlag82;
         memory.resetFlag(targetFlag82);
+        delegate.onMoveObj(o, o.targetX, o.targetY);
         if (objNum82 == 0) {
           if (o.x == o.targetX && o.y == o.targetY) {
             o.endMoveObj();
@@ -1597,15 +1606,25 @@ class AgiLogicInterpreter {
 
       case 147: // reposition.to(o, x, y)
         final o = getObj(code[frame.ip + 1]);
-        o.x = code[frame.ip + 2];
-        o.y = code[frame.ip + 3];
+        final targetX147 = code[frame.ip + 2];
+        final targetY147 = code[frame.ip + 3];
+        delegate.onReposition(o, targetX147, targetY147);
+        o.x = targetX147;
+        o.y = targetY147;
+        o.prevX = o.x;
+        o.prevY = o.y;
         frame.ip += 4;
         break;
 
       case 148: // reposition.to.v(o, %vx, %vy)
         final o = getObj(code[frame.ip + 1]);
-        o.x = memory.getVar(code[frame.ip + 2]);
-        o.y = memory.getVar(code[frame.ip + 3]);
+        final targetX148 = memory.getVar(code[frame.ip + 2]);
+        final targetY148 = memory.getVar(code[frame.ip + 3]);
+        delegate.onReposition(o, targetX148, targetY148);
+        o.x = targetX148;
+        o.y = targetY148;
+        o.prevX = o.x;
+        o.prevY = o.y;
         frame.ip += 4;
         break;
 

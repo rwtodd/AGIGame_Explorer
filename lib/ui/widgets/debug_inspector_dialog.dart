@@ -37,6 +37,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   final TextEditingController _checkpointLabelController = TextEditingController();
   final TextEditingController _searchFilterController = TextEditingController();
   final TextEditingController _watchSpecController = TextEditingController();
+  final TextEditingController _teleportRoomController = TextEditingController();
 
   int _checkpointFilterIndex = 0;
   int? _diffBeforeIndex;
@@ -66,6 +67,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     _checkpointLabelController.dispose();
     _searchFilterController.dispose();
     _watchSpecController.dispose();
+    _teleportRoomController.dispose();
     super.dispose();
   }
 
@@ -127,6 +129,181 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         duration: const Duration(seconds: 2),
         backgroundColor: AgiTheme.egaCardSurface,
       ),
+    );
+  }
+
+  void _handleTeleport({int? roomNumber, bool closeInspector = false}) {
+    final targetRoom = roomNumber ?? int.tryParse(_teleportRoomController.text.trim());
+    if (targetRoom == null || targetRoom < 0 || targetRoom > 255) {
+      _showToast('⚠️ Please enter a valid room number (0–255)');
+      return;
+    }
+
+    _teleportRoomController.text = targetRoom.toString();
+    widget.engine.changeRoom(targetRoom);
+    // Execute a cycle to load and initialize room pictures, objects, and scripts
+    widget.engine.tick();
+    widget.engine.recordCheckpoint(label: 'Teleport to Room $targetRoom');
+
+    _showToast('🚀 Teleported to Room $targetRoom');
+
+    if (closeInspector) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _showTeleportDialog() {
+    final allPresentLogics = widget.engine.resourceLoader?.presentLogicNumbers.toList() ?? [];
+    allPresentLogics.sort();
+    final customRoomCtrl = TextEditingController(text: _teleportRoomController.text);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: const BorderSide(color: AgiTheme.egaCyan, width: 1.5),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.flight_takeoff, color: AgiTheme.egaCyan, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'TELEPORT TO ROOM',
+                style: TextStyle(
+                  color: AgiTheme.egaWhite,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Enter a room number to warp Ego immediately. Choose to inspect live state in the debugger or return directly to gameplay.',
+                  style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: customRoomCtrl,
+                        keyboardType: TextInputType.number,
+                        autofocus: true,
+                        style: const TextStyle(fontFamily: 'Courier', fontSize: 13, color: AgiTheme.egaWhite),
+                        decoration: InputDecoration(
+                          hintText: 'Room # (0–255)',
+                          hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 12),
+                          filled: true,
+                          fillColor: const Color(0xFF0F172A),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: const BorderSide(color: AgiTheme.egaBorder),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: const BorderSide(color: AgiTheme.egaCyan),
+                          ),
+                        ),
+                        onSubmitted: (val) {
+                          final r = int.tryParse(val.trim());
+                          if (r != null) {
+                            Navigator.of(ctx).pop();
+                            _handleTeleport(roomNumber: r);
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                if (allPresentLogics.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Available Rooms / Logics:',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+                  ),
+                  const SizedBox(height: 6),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 140),
+                    child: SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: allPresentLogics.where((l) => l != 0).map((r) {
+                          final isCurrent = r == widget.engine.currentRoom;
+                          return ActionChip(
+                            label: Text(
+                              'Room $r${isCurrent ? " (Current)" : ""}',
+                              style: TextStyle(
+                                fontFamily: 'Courier',
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan,
+                              ),
+                            ),
+                            backgroundColor: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.12),
+                            side: BorderSide(
+                              color: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.6),
+                              width: 1,
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              _handleTeleport(roomNumber: r);
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel', style: TextStyle(color: AgiTheme.egaMuted)),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final r = int.tryParse(customRoomCtrl.text.trim());
+                if (r != null) {
+                  Navigator.of(ctx).pop();
+                  _handleTeleport(roomNumber: r);
+                }
+              },
+              icon: const Icon(Icons.flash_on, size: 14, color: Colors.black),
+              label: const Text('Teleport (Inspect)', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(backgroundColor: AgiTheme.egaCyan),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final r = int.tryParse(customRoomCtrl.text.trim());
+                if (r != null) {
+                  Navigator.of(ctx).pop();
+                  _handleTeleport(roomNumber: r, closeInspector: true);
+                }
+              },
+              icon: const Icon(Icons.play_arrow, size: 14, color: Colors.black),
+              label: const Text('Teleport & Play', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(backgroundColor: AgiTheme.egaGreen),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -278,6 +455,27 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: Color(0xFF22C55E), width: 1.2),
             backgroundColor: const Color(0xFF22C55E).withValues(alpha: 0.15),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const SizedBox(width: 6),
+
+        // Teleport Button in Header
+        OutlinedButton.icon(
+          onPressed: _showTeleportDialog,
+          icon: const Icon(Icons.flight_takeoff, size: 15, color: AgiTheme.egaAmber),
+          label: const Text(
+            'Teleport',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaAmber,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: AgiTheme.egaAmber, width: 1.2),
+            backgroundColor: AgiTheme.egaAmber.withValues(alpha: 0.15),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             visualDensity: VisualDensity.compact,
           ),
@@ -1546,31 +1744,172 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
       ...widget.engine.loadedLogicNumbers,
       widget.engine.currentRoom,
     }.toList()..sort();
-    final allPresentLogics = widget.engine.resourceLoader?.presentLogicNumbers ?? loadedLogics;
+    final allPresentLogics = (widget.engine.resourceLoader?.presentLogicNumbers ?? loadedLogics).toList()..sort();
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. CURRENTLY LOADED LOGIC SCRIPTS (Interactive Workbench Links)
+          // 1. TELEPORT / ROOM SELECTOR
+          _buildTeleportSection(allPresentLogics),
+          const SizedBox(height: 12),
+
+          // 2. CURRENTLY LOADED LOGIC SCRIPTS (Interactive Workbench Links)
           _buildLoadedLogicsSection(loadedLogics, allPresentLogics),
           const SizedBox(height: 12),
 
-          // 2. ENGINE & ROOM STATUS
+          // 3. ENGINE & ROOM STATUS
           _buildEngineAndRoomStatusSection(),
           const SizedBox(height: 12),
 
-          // 3. LOGIC CALL STACK
+          // 4. LOGIC CALL STACK
           _buildLogicCallStackSection(stack),
           const SizedBox(height: 12),
 
-          // 4. INVENTORY & MEMORY ALLOCATION
+          // 5. INVENTORY & MEMORY ALLOCATION
           _buildInfoSection('INVENTORY & MEMORY ALLOCATION', [
             'Scan Start IP: ${widget.engine.memory.scanStartIp}',
             'Item Rooms Count: ${widget.engine.memory.itemRooms.length}',
             'String Variables Count: ${widget.engine.memory.strings.length}',
             'Max Animated Objects: ${widget.engine.animatedObjects.length}',
           ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTeleportSection(List<int> allPresentLogics) {
+    final currentRoom = widget.engine.currentRoom;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AgiTheme.egaCardSurface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AgiTheme.egaCyan.withValues(alpha: 0.6), width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.flight_takeoff, size: 16, color: AgiTheme.egaCyan),
+              const SizedBox(width: 6),
+              const Text(
+                'TELEPORT / ROOM SELECTOR',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaCyan),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AgiTheme.egaCyan.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(3),
+                  border: Border.all(color: AgiTheme.egaCyan, width: 0.8),
+                ),
+                child: Text(
+                  'Current: Room $currentRoom',
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AgiTheme.egaCyan),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Instantly warp Ego to any room. You can remain in the debugger to inspect variables & memory, or resume gameplay immediately.',
+            style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              SizedBox(
+                width: 140,
+                height: 34,
+                child: TextField(
+                  controller: _teleportRoomController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: AgiTheme.egaWhite),
+                  decoration: InputDecoration(
+                    hintText: 'Room # (0–255)',
+                    hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+                    filled: true,
+                    fillColor: const Color(0xFF0F172A),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: const BorderSide(color: AgiTheme.egaBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: const BorderSide(color: AgiTheme.egaCyan),
+                    ),
+                  ),
+                  onSubmitted: (val) {
+                    _handleTeleport();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => _handleTeleport(),
+                icon: const Icon(Icons.flash_on, size: 14, color: AgiTheme.egaCyan),
+                label: const Text('Teleport (Inspect)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaCyan)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AgiTheme.egaCyan, width: 1.2),
+                  backgroundColor: AgiTheme.egaCyan.withValues(alpha: 0.15),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(width: 6),
+              OutlinedButton.icon(
+                onPressed: () => _handleTeleport(closeInspector: true),
+                icon: const Icon(Icons.play_arrow, size: 14, color: AgiTheme.egaGreen),
+                label: const Text('Teleport & Play', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaGreen)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AgiTheme.egaGreen, width: 1.2),
+                  backgroundColor: AgiTheme.egaGreen.withValues(alpha: 0.15),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+          ),
+          if (allPresentLogics.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Quick Room Jump:',
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: allPresentLogics.where((l) => l != 0).map((roomNum) {
+                final isCurrent = roomNum == currentRoom;
+                return ActionChip(
+                  avatar: Icon(Icons.travel_explore, size: 12, color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan),
+                  label: Text(
+                    'Room $roomNum${isCurrent ? " (Current)" : ""}',
+                    style: TextStyle(
+                      fontFamily: 'Courier',
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                      color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan,
+                    ),
+                  ),
+                  backgroundColor: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.12),
+                  side: BorderSide(
+                    color: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.6),
+                    width: 1,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  onPressed: () => _handleTeleport(roomNumber: roomNum),
+                  tooltip: 'Teleport immediately to Room $roomNum',
+                );
+              }).toList(),
+            ),
+          ],
         ],
       ),
     );
