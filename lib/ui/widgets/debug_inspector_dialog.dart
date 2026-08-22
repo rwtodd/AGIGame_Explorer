@@ -157,7 +157,6 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   void _showTeleportDialog() {
     final allPresentLogics = widget.engine.resourceLoader?.presentLogicNumbers.toList() ?? [];
     allPresentLogics.sort();
-    final customRoomCtrl = TextEditingController(text: _teleportRoomController.text);
 
     showDialog(
       context: context,
@@ -198,7 +197,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                   children: [
                     Expanded(
                       child: TextField(
-                        controller: customRoomCtrl,
+                        controller: _teleportRoomController,
                         keyboardType: TextInputType.number,
                         autofocus: true,
                         style: const TextStyle(fontFamily: 'Courier', fontSize: 13, color: AgiTheme.egaWhite),
@@ -279,7 +278,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
             ),
             ElevatedButton.icon(
               onPressed: () {
-                final r = int.tryParse(customRoomCtrl.text.trim());
+                final r = int.tryParse(_teleportRoomController.text.trim());
                 if (r != null) {
                   Navigator.of(ctx).pop();
                   _handleTeleport(roomNumber: r);
@@ -291,7 +290,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
             ),
             ElevatedButton.icon(
               onPressed: () {
-                final r = int.tryParse(customRoomCtrl.text.trim());
+                final r = int.tryParse(_teleportRoomController.text.trim());
                 if (r != null) {
                   Navigator.of(ctx).pop();
                   _handleTeleport(roomNumber: r, closeInspector: true);

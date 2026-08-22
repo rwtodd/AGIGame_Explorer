@@ -85,13 +85,14 @@ void main() {
       engine.memory.setVar(145, 255);
       engine.memory.setFlag(31);
 
-      // Run ONE engine tick where start.update(%o2..%o4) and reposition.to execute
+      // One tick: start.update then reposition.to(o2, 113, 46). Sierra copies
+      // picbuff over the union of old (x=0) and new (x=113) cel rects, which
+      // blanks all eight dots before the banner slides over them.
       await engine.tick();
 
-      // Verify that all dots are erased immediately on the first tick!
       row6 = List.generate(40, (c) => engine.textScreenBuffer.getCell(6, c).char).join('');
       expect(row6.contains('.'), isFalse,
-          reason: 'Keypad dots must be erased immediately when start.update/reposition executes');
+          reason: 'Keypad dots must vanish on the reposition dirty-rect, not as the banner walks');
     });
   });
 }

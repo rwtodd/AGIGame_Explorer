@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
@@ -439,6 +440,32 @@ class AgiPicturePainter extends CustomPainter {
     return pri.clamp(4, 15);
   }
 
+  /// One 21×40 lookup of picture priority for cells that will actually paint.
+  /// Index is `row * columns + col`; 0 means "no text in this cell".
+  Uint8List? _buildPlayfieldCellPriorityMap(AgiPic pic) {
+    final buf = textScreenBuffer;
+    if (buf == null || !buf.hasContent) return null;
+    final map = Uint8List(AgiTextScreenBuffer.rows * AgiTextScreenBuffer.columns);
+    final minRow = playfieldRow;
+    final maxRow = playfieldRow + 20;
+    for (var r = minRow; r <= maxRow && r < AgiTextScreenBuffer.rows; r++) {
+      for (var c = 0; c < AgiTextScreenBuffer.columns; c++) {
+        final cell = buf.getCell(r, c);
+        if (cell.isBlank && cell.bg == 0 && !cell.isWritten) continue;
+        map[r * AgiTextScreenBuffer.columns + c] = _getCellPriority(r, c, pic);
+      }
+    }
+    return map;
+  }
+
+  int _cellPriorityAt(int r, int c, int? targetPriority, AgiPic? pic, Uint8List? map) {
+    if (targetPriority == null) return 4;
+    if (map != null) {
+      return map[r * AgiTextScreenBuffer.columns + c];
+    }
+    return _getCellPriority(r, c, pic);
+  }
+
   void _paintTextBackgroundFills(
     Canvas canvas, {
     int minRow = 0,
@@ -447,6 +474,7 @@ class AgiPicturePainter extends CustomPainter {
     int playfieldRow = 1,
     int? targetPriority,
     AgiPic? pic,
+    Uint8List? cellPriorityMap,
   }) {
     if (textScreenBuffer == null) return;
 
@@ -463,7 +491,8 @@ class AgiPicturePainter extends CustomPainter {
           continue;
         }
 
-        if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
+        if (targetPriority != null &&
+            _cellPriorityAt(r, c, targetPriority, pic, cellPriorityMap) != targetPriority) {
           c++;
           continue;
         }
@@ -477,7 +506,8 @@ class AgiPicturePainter extends CustomPainter {
           if (!nextShouldPaintBg || nextCell.bg != bg) {
             break;
           }
-          if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
+          if (targetPriority != null &&
+              _cellPriorityAt(r, c, targetPriority, pic, cellPriorityMap) != targetPriority) {
             break;
           }
           c++;
@@ -502,6 +532,7 @@ class AgiPicturePainter extends CustomPainter {
     int playfieldRow = 1,
     int? targetPriority,
     AgiPic? pic,
+    Uint8List? cellPriorityMap,
   }) {
     if (textScreenBuffer == null) return;
 
@@ -517,7 +548,8 @@ class AgiPicturePainter extends CustomPainter {
           continue;
         }
 
-        if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
+        if (targetPriority != null &&
+            _cellPriorityAt(r, c, targetPriority, pic, cellPriorityMap) != targetPriority) {
           c++;
           continue;
         }
@@ -531,7 +563,8 @@ class AgiPicturePainter extends CustomPainter {
           if (nextCell.fg != fg || nextCell.isBlank) {
             break;
           }
-          if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
+          if (targetPriority != null &&
+              _cellPriorityAt(r, c, targetPriority, pic, cellPriorityMap) != targetPriority) {
             break;
           }
           sb.write(nextCell.char);
@@ -584,6 +617,8 @@ class AgiPicturePainter extends CustomPainter {
       }
     }
 
+    final cellPriMap = _buildPlayfieldCellPriorityMap(pic);
+
     // Interleave priority slices (0..15) with actor sprites in authentic Painter's Algorithm order.
     // In AGI, priority 4 is furthest background (horizon) and 15 is closest foreground overlay.
     for (int p = 0; p <= 15; p++) {
@@ -603,6 +638,7 @@ class AgiPicturePainter extends CustomPainter {
           maxRow: playfieldRow + 20,
           targetPriority: p,
           pic: pic,
+          cellPriorityMap: cellPriMap,
         );
         _paintTextGlyphs(
           canvas,
@@ -610,6 +646,7 @@ class AgiPicturePainter extends CustomPainter {
           maxRow: playfieldRow + 20,
           targetPriority: p,
           pic: pic,
+          cellPriorityMap: cellPriMap,
         );
         canvas.restore();
       }
@@ -750,6 +787,7 @@ class AgiPicturePainter extends CustomPainter {
         oldDelegate.playfieldRow != playfieldRow ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||
         oldDelegate.showPixelGrid != showPixelGrid ||
+        oldDelegate.renderBlackTextBackgrounds != renderBlackTextBackgrounds ||
         oldDelegate.menuManager?.isOpen != menuManager?.isOpen ||
         oldDelegate.menuManager?.activeMenuIndex != menuManager?.activeMenuIndex ||
         oldDelegate.menuManager?.activeMenu?.selectedItemIndex != menuManager?.activeMenu?.selectedItemIndex) {

@@ -407,7 +407,7 @@ void main() {
       expect(find.text('hi'), findsOneWidget);
     });
 
-    testWidgets('typing tp <room> or teleport <room> teleports Ego directly to room', (tester) async {
+    testWidgets('typing !tp <room> teleports Ego directly to room', (tester) async {
       engine.changeRoom(2);
       expect(engine.currentRoom, 2);
 
@@ -418,8 +418,7 @@ void main() {
       );
       await tester.pump();
 
-      // Type 'tp 65' and press Enter
-      for (final char in 'tp 65'.split('')) {
+      for (final char in '!tp 65'.split('')) {
         await tester.sendKeyEvent(
           LogicalKeyboardKey.space,
           character: char,

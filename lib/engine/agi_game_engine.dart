@@ -20,6 +20,7 @@ import 'package:flutter_agigame/engine/motion/agi_motion.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import 'package:flutter_agigame/logic/agi_message_formatter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
@@ -879,91 +880,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     return List<int>.from(result.wordGroupIds);
   }
 
-  /// Formats Sierra AGI message formatting placeholders (%v, %w, %s, %m, %g, %o) and escapes (\).
+  /// Formats Sierra AGI message placeholders (`%v`, `%w`, `%s`, `%m`, `%g`, `%o`) and escapes.
   String formatMessage(String text) {
-    if (!text.contains('%') && !text.contains('\\')) return text;
-
-    final sb = StringBuffer();
-    int i = 0;
-    while (i < text.length) {
-      final ch = text[i];
-      if (ch == '\\') {
-        i++;
-        if (i < text.length) {
-          sb.write(text[i]);
-          i++;
-        }
-      } else if (ch == '%' && i + 1 < text.length) {
-        i++;
-        final type = text[i];
-        i++;
-        if (type == 'v' || type == 'w' || type == 's' || type == 'm' || type == 'g' || type == 'o' || type == '0') {
-          final numBuf = StringBuffer();
-          while (i < text.length && text.codeUnitAt(i) >= 48 && text.codeUnitAt(i) <= 57) {
-            numBuf.write(text[i]);
-            i++;
-          }
-          final num = int.tryParse(numBuf.toString()) ?? 0;
-          int? pad;
-          if (type == 'v' && i < text.length && text[i] == '|') {
-            i++;
-            final padBuf = StringBuffer();
-            while (i < text.length && text.codeUnitAt(i) >= 48 && text.codeUnitAt(i) <= 57) {
-              padBuf.write(text[i]);
-              i++;
-            }
-            pad = int.tryParse(padBuf.toString());
-          }
-
-          switch (type) {
-            case 'v':
-              final val = memory.getVar(num);
-              var str = val.toString();
-              if (pad != null && pad > str.length) {
-                str = str.padLeft(pad, '0');
-              }
-              sb.write(str);
-              break;
-
-            case 'w':
-              if (num >= 1 && num <= _inputWords.length) {
-                sb.write(_inputWords[num - 1]);
-              }
-              break;
-
-            case 's':
-              sb.write(formatMessage(memory.getString(num)));
-              break;
-
-            case 'm':
-              final msg = interpreter.currentFrame?.script.getMessage(num) ?? '';
-              sb.write(formatMessage(msg));
-              break;
-
-            case 'g':
-              final logic0 = resourceLoader?.loadLogic(0);
-              final msg = logic0?.getMessage(num) ?? '';
-              sb.write(formatMessage(msg));
-              break;
-
-            case 'o':
-            case '0':
-              final objIdx = memory.getVar(num);
-              if (resourceLoader != null && objIdx >= 0 && objIdx < resourceLoader!.initialObjects.length) {
-                sb.write(resourceLoader!.initialObjects[objIdx].name);
-              }
-              break;
-          }
-        } else {
-          sb.write('%');
-          sb.write(type);
-        }
-      } else {
-        sb.write(ch);
-        i++;
-      }
-    }
-    return sb.toString();
+    return AgiMessageFormatter.format(
+      text,
+      memory: memory,
+      loader: resourceLoader,
+      inputWords: _inputWords,
+      currentScript: interpreter.currentFrame?.script,
+    );
   }
 
   /// Dismisses active modal dialog box and resumes game loop ticks.
@@ -1667,12 +1592,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       }
     }
 
-    _eraseTextScreenUnderObject(obj);
     obj.prevX = obj.x;
     obj.prevY = obj.y;
     obj.x = clampedX;
     obj.y = clampedY;
-    _eraseTextScreenUnderObject(obj);
     CollisionDetector.syncAutoPriority(obj, obj.y);
 
     if (obj.motionType == 3) {
@@ -1682,88 +1605,41 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
   }
 
-  /// In authentic Sierra AGI (blists_erase), when an active updating animated object
-  /// moves or draws, it restores the background picture (gfx_picbuff), which erases
-  /// any temporary playfield `display()` text that the object sweeps across.
-  void _eraseTextScreenUnderObject(AnimatedObject obj) {
+  /// Sierra `obj_cel_update` copies picbuff→screen for the **union** of the
+  /// old and new cel rectangles. `display()` glyphs live only on the video
+  /// buffer, so that refresh wipes them — SQ1 room 65 `reposition.to(o2, 113, 46)`
+  /// from x=0 dirties ~153px and blanks the keypad dots in one shot, before
+  /// the banner ever covers them.
+  ///
+  /// Ordinary 1-pixel steps must NOT do this: walking Ego would eat overlay
+  /// `display()` text (SQ2 F6, notices, etc.).
+  void _eraseVideoTextInBlitUnion(AnimatedObject obj, int newX, int newY) {
     if (!obj.isDrawn) return;
-    final view = obj.cachedView ?? getView(obj.view);
-    if (view == null) return;
-    final loop = view.getLoop(obj.loop);
-    if (loop == null || loop.cels.isEmpty) return;
-    final cel = loop.getCel(obj.cel);
-    if (cel == null) return;
+    final width = obj.getCelWidth();
+    final height = obj.getCelHeight();
+    if (width <= 0 || height <= 0) return;
 
-    final left = obj.x;
-    final right = obj.x + cel.width - 1;
-    final bottom = obj.y;
-    final top = obj.y - cel.height + 1;
-
-    // Convert pixel coordinates (160x168) to text grid (40 columns x 21 playfield rows)
-    final startCol = (left / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
-    final endCol = (right / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
-    final startRow = ((top / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
-    final endRow = ((bottom / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
-
-    bool modified = false;
-    for (int r = startRow; r <= endRow; r++) {
-      for (int c = startCol; c <= endCol; c++) {
-        final cell = textScreenBuffer.getCell(r, c);
-        // Only erase non-blank cells where bg == 0 (transparent playfield text)
-        if (!cell.isBlank && cell.bg == 0) {
-          cell.char = ' ';
-          cell.fg = 15;
-          cell.bg = 0;
-          modified = true;
-        }
-      }
-    }
-    if (modified) {
-      textScreenBuffer.recalculateStats();
-    }
-  }
-
-  /// In authentic Sierra AGI (blists_erase), when an object is dispatched along a motion
-  /// path (move.obj), the entire bounding sweep will be erased/restored with background picture pixels.
-  void _eraseTextScreenUnderObjectPath(AnimatedObject obj, int targetX, int targetY) {
-    if (!obj.isDrawn) return;
-    final view = obj.cachedView ?? getView(obj.view);
-    if (view == null) return;
-    final loop = view.getLoop(obj.loop);
-    if (loop == null || loop.cels.isEmpty) return;
-    final cel = loop.getCel(obj.cel);
-    if (cel == null) return;
-
-    final minX = math.min(obj.x, targetX);
-    final maxX = math.max(obj.x, targetX);
-    final minY = math.min(obj.y, targetY);
-    final maxY = math.max(obj.y, targetY);
+    final minX = math.min(obj.x, newX);
+    final maxX = math.max(obj.x, newX);
+    final minY = math.min(obj.y, newY);
+    final maxY = math.max(obj.y, newY);
 
     final left = minX;
-    final right = maxX + cel.width - 1;
+    final right = maxX + width - 1;
     final bottom = maxY;
-    final top = minY - cel.height + 1;
+    final top = minY - height + 1;
 
-    final startCol = (left / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
-    final endCol = (right / 4).floor().clamp(0, AgiTextScreenBuffer.columns - 1);
-    final startRow = ((top / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
-    final endRow = ((bottom / 8).floor() + _playfieldRow).clamp(_playfieldRow, _playfieldRow + 20);
+    final startCol = (left / 4).floor();
+    final endCol = (right / 4).floor();
+    final startRow = (top / 8).floor() + _playfieldRow;
+    final endRow = (bottom / 8).floor() + _playfieldRow;
 
-    bool modified = false;
-    for (int r = startRow; r <= endRow; r++) {
-      for (int c = startCol; c <= endCol; c++) {
-        final cell = textScreenBuffer.getCell(r, c);
-        if (!cell.isBlank && cell.bg == 0) {
-          cell.char = ' ';
-          cell.fg = 15;
-          cell.bg = 0;
-          modified = true;
-        }
-      }
-    }
-    if (modified) {
-      textScreenBuffer.recalculateStats();
-    }
+    textScreenBuffer.clearTransparentGlyphs(
+      row0: startRow,
+      col0: startCol,
+      row1: endRow,
+      col1: endCol,
+    );
   }
 
   /// Sierra `EndMoveObj`: restore the pre-`move.obj` step size and signal done.
@@ -2397,7 +2273,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       obj.prevY = obj.y;
     }
     posShuffle(obj);
-    _eraseTextScreenUnderObject(obj);
     if (obj.number == 0) {
       _updateEgoFlags(currentPic?.priorityBuffer);
     }
@@ -2408,27 +2283,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
-  void onStartUpdate(AnimatedObject obj) {
-    _eraseTextScreenUnderObject(obj);
-  }
+  void onStartUpdate(AnimatedObject obj) {}
 
   @override
-  void onErase(AnimatedObject obj) {
-    _eraseTextScreenUnderObject(obj);
-  }
+  void onErase(AnimatedObject obj) {}
 
   @override
   void onReposition(AnimatedObject obj, int newX, int newY) {
-    _eraseTextScreenUnderObjectPath(obj, newX, newY);
-    obj.x = newX;
-    obj.y = newY;
-    _eraseTextScreenUnderObject(obj);
+    _eraseVideoTextInBlitUnion(obj, newX, newY);
   }
 
   @override
-  void onMoveObj(AnimatedObject obj, int targetX, int targetY) {
-    _eraseTextScreenUnderObjectPath(obj, targetX, targetY);
-  }
+  void onMoveObj(AnimatedObject obj, int targetX, int targetY) {}
 
   @override
   void onSetHorizon(int horizon) {

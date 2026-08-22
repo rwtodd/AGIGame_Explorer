@@ -165,4 +165,42 @@ class AgiTextScreenBuffer {
 
   /// Returns true if there are any non-space characters or non-zero background colors in the buffer.
   bool get hasContent => _nonBlankCellCount > 0;
+
+  /// Clears video-only (`bg == 0`) glyphs in the inclusive cell rectangle.
+  ///
+  /// Matches Sierra copying `picbuff` over a sprite dirty rectangle: `display()`
+  /// text is not in the picture buffer, so that refresh wipes it. Newspaper /
+  /// `clear.text.rect` fills (`bg != 0`) are left alone.
+  void clearTransparentGlyphs({
+    required int row0,
+    required int col0,
+    required int row1,
+    required int col1,
+  }) {
+    final minR = row0.clamp(0, rows - 1);
+    final maxR = row1.clamp(0, rows - 1);
+    final minC = col0.clamp(0, columns - 1);
+    final maxC = col1.clamp(0, columns - 1);
+    final rStart = minR <= maxR ? minR : maxR;
+    final rEnd = minR <= maxR ? maxR : minR;
+    final cStart = minC <= maxC ? minC : maxC;
+    final cEnd = minC <= maxC ? maxC : minC;
+
+    var changed = false;
+    for (var r = rStart; r <= rEnd; r++) {
+      for (var c = cStart; c <= cEnd; c++) {
+        final cell = _grid[r][c];
+        if (cell.bg != 0) continue;
+        if (cell.isBlank && !cell.isWritten) continue;
+        cell.char = ' ';
+        cell.fg = 15;
+        cell.bg = 0;
+        cell.isWritten = false;
+        changed = true;
+      }
+    }
+    if (changed) {
+      recalculateStats();
+    }
+  }
 }
