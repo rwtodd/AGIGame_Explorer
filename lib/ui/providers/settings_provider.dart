@@ -103,6 +103,7 @@ class SettingsNotifier extends StateNotifier<AgiUserSettings> {
     bool? strictIntegerScaling,
     bool? showCrtShader,
     bool? showPixelGrid,
+    bool? renderBlackTextBackgrounds,
     AgiPictureRenderMode? renderMode,
   }) {
     state = state.copyWith(
@@ -111,6 +112,7 @@ class SettingsNotifier extends StateNotifier<AgiUserSettings> {
         strictIntegerScaling: strictIntegerScaling,
         showCrtShader: showCrtShader,
         showPixelGrid: showPixelGrid,
+        renderBlackTextBackgrounds: renderBlackTextBackgrounds,
         renderMode: renderMode,
       ),
     );

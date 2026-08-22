@@ -55,6 +55,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   AgiPictureRenderMode _renderMode = AgiPictureRenderMode.compositedSlices;
   bool _showCrtShader = false;
   bool _showPixelGrid = false;
+  bool _renderBlackTextBackgrounds = false;
   bool _correctAspectRatio = true;
   bool _strictIntegerScaling = false;
   SidebarPanelTab? _openPanelTab;
@@ -68,6 +69,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (initSettings != null) {
       _showCrtShader = initSettings.display.showCrtShader;
       _showPixelGrid = initSettings.display.showPixelGrid;
+      _renderBlackTextBackgrounds = initSettings.display.renderBlackTextBackgrounds;
       _correctAspectRatio = initSettings.display.correctAspectRatio;
       _strictIntegerScaling = initSettings.display.strictIntegerScaling;
       _renderMode = initSettings.display.renderMode;
@@ -447,6 +449,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void _safeUpdateDisplay({
     bool? showCrtShader,
     bool? showPixelGrid,
+    bool? renderBlackTextBackgrounds,
     bool? correctAspectRatio,
     bool? strictIntegerScaling,
     AgiPictureRenderMode? renderMode,
@@ -455,6 +458,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       ref.read(settingsProvider.notifier).updateDisplay(
             showCrtShader: showCrtShader,
             showPixelGrid: showPixelGrid,
+            renderBlackTextBackgrounds: renderBlackTextBackgrounds,
             correctAspectRatio: correctAspectRatio,
             strictIntegerScaling: strictIntegerScaling,
             renderMode: renderMode,
@@ -497,6 +501,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             renderMode: _renderMode,
                             showCrtShader: _showCrtShader,
                             showPixelGrid: _showPixelGrid,
+                            renderBlackTextBackgrounds: _renderBlackTextBackgrounds,
                             correctAspectRatio: _correctAspectRatio,
                             strictIntegerScaling: _strictIntegerScaling,
                             currentInputText: _currentInputText,
@@ -580,6 +585,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       onPixelGridChanged: (val) {
         setState(() => _showPixelGrid = val);
         _safeUpdateDisplay(showPixelGrid: val);
+      },
+      renderBlackTextBackgrounds: _renderBlackTextBackgrounds,
+      onRenderBlackTextBackgroundsChanged: (val) {
+        setState(() => _renderBlackTextBackgrounds = val);
+        _safeUpdateDisplay(renderBlackTextBackgrounds: val);
       },
       correctAspectRatio: _correctAspectRatio,
       onAspectRatioChanged: (val) {

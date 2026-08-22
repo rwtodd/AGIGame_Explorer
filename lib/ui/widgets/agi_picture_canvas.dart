@@ -136,6 +136,7 @@ class AgiPicturePainter extends CustomPainter {
   final int? isolatedPrioritySlice;
   final int playfieldRow;
   final bool showPixelGrid;
+  final bool renderBlackTextBackgrounds;
   final AgiMenuManager? menuManager;
 
   AgiPicturePainter({
@@ -157,6 +158,7 @@ class AgiPicturePainter extends CustomPainter {
     this.controlMapImage,
     this.isolatedPrioritySlice,
     this.showPixelGrid = false,
+    this.renderBlackTextBackgrounds = false,
     this.menuManager,
   });
 
@@ -455,7 +457,8 @@ class AgiPicturePainter extends CustomPainter {
       int c = 0;
       while (c < AgiTextScreenBuffer.columns) {
         final cell = textScreenBuffer!.getCell(r, c);
-        if (cell.bg == 0) {
+        final shouldPaintBg = cell.bg != 0 || (renderBlackTextBackgrounds && cell.isWritten);
+        if (!shouldPaintBg) {
           c++;
           continue;
         }
@@ -470,7 +473,8 @@ class AgiPicturePainter extends CustomPainter {
 
         while (c < AgiTextScreenBuffer.columns) {
           final nextCell = textScreenBuffer!.getCell(r, c);
-          if (nextCell.bg != bg) {
+          final nextShouldPaintBg = nextCell.bg != 0 || (renderBlackTextBackgrounds && nextCell.isWritten);
+          if (!nextShouldPaintBg || nextCell.bg != bg) {
             break;
           }
           if (targetPriority != null && _getCellPriority(r, c, pic) != targetPriority) {
@@ -942,6 +946,7 @@ class AgiPictureWidget extends StatefulWidget {
   final bool enableIntegerScaling;
   final bool enableAspectRatioCorrection;
   final bool showPixelGrid;
+  final bool renderBlackTextBackgrounds;
   final int? isolatedPrioritySlice;
   final void Function(int x, int y)? onHoverPixel;
   final void Function()? onExitHover;
@@ -957,6 +962,7 @@ class AgiPictureWidget extends StatefulWidget {
     this.enableIntegerScaling = false,
     this.enableAspectRatioCorrection = true,
     this.showPixelGrid = false,
+    this.renderBlackTextBackgrounds = false,
     this.isolatedPrioritySlice,
     this.onHoverPixel,
     this.onExitHover,
@@ -1111,6 +1117,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
                         controlMapImage: _ctrlImage,
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,
                         showPixelGrid: widget.showPixelGrid,
+                        renderBlackTextBackgrounds: widget.renderBlackTextBackgrounds,
                       ),
                     ),
                   ),

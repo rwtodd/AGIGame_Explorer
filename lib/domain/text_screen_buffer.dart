@@ -3,17 +3,19 @@ class AgiTextCell {
   String char;
   int fg; // EGA color 0..15
   int bg; // EGA color 0..15
+  bool isWritten;
 
   AgiTextCell({
     this.char = ' ',
     this.fg = 15, // Default White
     this.bg = 0,  // Default Black
+    this.isWritten = false,
   });
 
-  bool get isEmpty => char == ' ' && (bg == 0 || bg == 15 && fg == 15);
+  bool get isEmpty => !isWritten && char == ' ' && (bg == 0 || bg == 15 && fg == 15);
   bool get isBlank => char == ' ' || char.isEmpty;
 
-  AgiTextCell clone() => AgiTextCell(char: char, fg: fg, bg: bg);
+  AgiTextCell clone() => AgiTextCell(char: char, fg: fg, bg: bg, isWritten: isWritten);
 }
 
 /// Authentic Sierra AGI 40-column by 25-row character screen matrix.
@@ -53,7 +55,7 @@ class AgiTextScreenBuffer {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < columns; c++) {
         final cell = _grid[r][c];
-        if (!cell.isBlank || cell.bg != 0) {
+        if (!cell.isBlank || cell.bg != 0 || cell.isWritten) {
           count++;
         }
       }
@@ -70,6 +72,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].char = ' ';
         _grid[r][c].fg = effectiveFg;
         _grid[r][c].bg = effectiveBg;
+        _grid[r][c].isWritten = (effectiveBg != 0);
       }
     }
     _nonBlankCellCount = (effectiveBg != 0) ? (rows * columns) : 0;
@@ -88,6 +91,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].char = ' ';
         _grid[r][c].fg = currentFg;
         _grid[r][c].bg = color.clamp(0, 15);
+        _grid[r][c].isWritten = (color != 0);
       }
     }
     recalculateStats();
@@ -110,6 +114,7 @@ class AgiTextScreenBuffer {
         _grid[r][c].char = ' ';
         _grid[r][c].fg = currentFg;
         _grid[r][c].bg = color.clamp(0, 15);
+        _grid[r][c].isWritten = (color != 0);
       }
     }
     recalculateStats();
@@ -152,6 +157,7 @@ class AgiTextScreenBuffer {
       _grid[curRow][curCol].char = ch;
       _grid[curRow][curCol].fg = effectiveFg;
       _grid[curRow][curCol].bg = effectiveBg;
+      _grid[curRow][curCol].isWritten = true;
       curCol++;
     }
     recalculateStats();

@@ -635,6 +635,14 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
           icon: Icons.grid_4x4,
           onChanged: (val) => notifier.updateDisplay(showPixelGrid: val),
         ),
+        const SizedBox(height: 10),
+        _buildSwitchOption(
+          title: 'Render Black Text Backgrounds',
+          subtitle: 'Draw solid black backing box behind text characters (DOS/BIOS style)',
+          value: display.renderBlackTextBackgrounds,
+          icon: Icons.format_color_fill,
+          onChanged: (val) => notifier.updateDisplay(renderBlackTextBackgrounds: val),
+        ),
 
         const SizedBox(height: 20),
         const Divider(color: AgiTheme.egaBorder),

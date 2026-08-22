@@ -28,6 +28,8 @@ class SidebarSlideoutPanel extends ConsumerStatefulWidget {
   final ValueChanged<bool> onCrtShaderChanged;
   final bool showPixelGrid;
   final ValueChanged<bool> onPixelGridChanged;
+  final bool renderBlackTextBackgrounds;
+  final ValueChanged<bool> onRenderBlackTextBackgroundsChanged;
   final bool correctAspectRatio;
   final ValueChanged<bool> onAspectRatioChanged;
   final bool strictIntegerScaling;
@@ -46,6 +48,8 @@ class SidebarSlideoutPanel extends ConsumerStatefulWidget {
     required this.onCrtShaderChanged,
     required this.showPixelGrid,
     required this.onPixelGridChanged,
+    required this.renderBlackTextBackgrounds,
+    required this.onRenderBlackTextBackgroundsChanged,
     required this.correctAspectRatio,
     required this.onAspectRatioChanged,
     required this.strictIntegerScaling,
@@ -787,6 +791,17 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           onChanged: widget.onPixelGridChanged,
           icon: Icons.grid_4x4,
         ),
+        const SizedBox(height: 6),
+
+        _buildSwitchTile(
+          title: 'Render Black Text Backgrounds',
+          subtitle: widget.renderBlackTextBackgrounds
+              ? 'Draw authentic solid black box behind text characters (DOS/BIOS style)'
+              : 'Render transparent text background (modern clean look)',
+          value: widget.renderBlackTextBackgrounds,
+          onChanged: widget.onRenderBlackTextBackgroundsChanged,
+          icon: Icons.format_color_fill,
+        ),
 
         const SizedBox(height: 16),
         const Divider(color: AgiTheme.egaBorder, height: 1),
@@ -889,47 +904,51 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
     required ValueChanged<bool> onChanged,
     required IconData icon,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF131D31),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0xFF27354A)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: value ? AgiTheme.egaCyan : AgiTheme.egaMuted),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontFamily: 'Courier',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: AgiTheme.egaWhite,
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131D31),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFF27354A)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: value ? AgiTheme.egaCyan : AgiTheme.egaMuted),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: 'Courier',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: AgiTheme.egaWhite,
+                    ),
                   ),
-                ),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontFamily: 'Courier',
-                    fontSize: 10,
-                    color: AgiTheme.egaMuted,
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontFamily: 'Courier',
+                      fontSize: 10,
+                      color: AgiTheme.egaMuted,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Switch(
-            value: value,
-            activeThumbColor: AgiTheme.egaCyan,
-            onChanged: onChanged,
-          ),
-        ],
+            Switch(
+              value: value,
+              activeThumbColor: AgiTheme.egaCyan,
+              onChanged: onChanged,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -8,6 +8,7 @@ class AgiDisplaySettings {
   final bool strictIntegerScaling;
   final bool showCrtShader;
   final bool showPixelGrid;
+  final bool renderBlackTextBackgrounds;
   final AgiPictureRenderMode renderMode;
 
   const AgiDisplaySettings({
@@ -15,6 +16,7 @@ class AgiDisplaySettings {
     this.strictIntegerScaling = false,
     this.showCrtShader = false,
     this.showPixelGrid = false,
+    this.renderBlackTextBackgrounds = false,
     this.renderMode = AgiPictureRenderMode.compositedSlices,
   });
 
@@ -23,6 +25,7 @@ class AgiDisplaySettings {
     bool? strictIntegerScaling,
     bool? showCrtShader,
     bool? showPixelGrid,
+    bool? renderBlackTextBackgrounds,
     AgiPictureRenderMode? renderMode,
   }) {
     return AgiDisplaySettings(
@@ -30,6 +33,8 @@ class AgiDisplaySettings {
       strictIntegerScaling: strictIntegerScaling ?? this.strictIntegerScaling,
       showCrtShader: showCrtShader ?? this.showCrtShader,
       showPixelGrid: showPixelGrid ?? this.showPixelGrid,
+      renderBlackTextBackgrounds:
+          renderBlackTextBackgrounds ?? this.renderBlackTextBackgrounds,
       renderMode: renderMode ?? this.renderMode,
     );
   }
@@ -39,6 +44,7 @@ class AgiDisplaySettings {
         'strictIntegerScaling': strictIntegerScaling,
         'showCrtShader': showCrtShader,
         'showPixelGrid': showPixelGrid,
+        'renderBlackTextBackgrounds': renderBlackTextBackgrounds,
         'renderMode': renderMode.name,
       };
 
@@ -59,6 +65,8 @@ class AgiDisplaySettings {
       strictIntegerScaling: json['strictIntegerScaling'] as bool? ?? false,
       showCrtShader: json['showCrtShader'] as bool? ?? false,
       showPixelGrid: json['showPixelGrid'] as bool? ?? false,
+      renderBlackTextBackgrounds:
+          json['renderBlackTextBackgrounds'] as bool? ?? false,
       renderMode: mode,
     );
   }

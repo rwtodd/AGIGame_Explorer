@@ -77,16 +77,18 @@ void main() {
       expect(find.text('Strict Integer Scaling'), findsOneWidget);
       expect(find.text('CRT Scanlines & Phosphor Shader'), findsOneWidget);
       expect(find.text('Pixel Grid Overlay'), findsOneWidget);
+      expect(find.text('Render Black Text Backgrounds'), findsOneWidget);
       expect(find.text('DEFAULT RENDER MODE'), findsOneWidget);
 
       // Toggle CRT scanlines on
       final switches = find.byType(Switch);
-      expect(switches, findsNWidgets(4));
+      expect(switches, findsNWidgets(5));
 
       // Switch 0 = Aspect ratio (starts true)
       // Switch 1 = Strict integer (starts false)
       // Switch 2 = CRT Scanlines (starts false)
       // Switch 3 = Pixel Grid (starts false)
+      // Switch 4 = Render Black Text Backgrounds (starts false)
       await tester.ensureVisible(switches.at(2));
       await tester.tap(switches.at(2));
       await tester.pumpAndSettle();

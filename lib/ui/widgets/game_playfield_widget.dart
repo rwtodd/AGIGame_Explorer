@@ -17,6 +17,7 @@ class GamePlayfieldWidget extends StatefulWidget {
   final AgiPictureRenderMode renderMode;
   final bool showCrtShader;
   final bool showPixelGrid;
+  final bool renderBlackTextBackgrounds;
   final bool correctAspectRatio;
   final bool strictIntegerScaling;
   final int? isolatedPrioritySlice;
@@ -29,6 +30,7 @@ class GamePlayfieldWidget extends StatefulWidget {
     this.renderMode = AgiPictureRenderMode.compositedSlices,
     this.showCrtShader = false,
     this.showPixelGrid = false,
+    this.renderBlackTextBackgrounds = false,
     this.correctAspectRatio = true,
     this.strictIntegerScaling = false,
     this.isolatedPrioritySlice,
@@ -292,6 +294,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           engine: widget.engine,
                           renderMode: widget.renderMode,
                           showPixelGrid: widget.showPixelGrid,
+                          renderBlackTextBackgrounds: widget.renderBlackTextBackgrounds,
                           isolatedPrioritySlice: widget.isolatedPrioritySlice,
                           cursorBlink: _cursorBlink,
                           buildActors: _buildActorSprites,
@@ -497,6 +500,7 @@ class _GamePlayfieldPainter extends CustomPainter {
   final AgiGameEngine engine;
   final AgiPictureRenderMode renderMode;
   final bool showPixelGrid;
+  final bool renderBlackTextBackgrounds;
   final int? isolatedPrioritySlice;
   final ValueNotifier<bool> cursorBlink;
   final List<AgiActorSprite> Function() buildActors;
@@ -505,6 +509,7 @@ class _GamePlayfieldPainter extends CustomPainter {
     required this.engine,
     required this.renderMode,
     required this.showPixelGrid,
+    required this.renderBlackTextBackgrounds,
     required this.isolatedPrioritySlice,
     required this.cursorBlink,
     required this.buildActors,
@@ -539,6 +544,7 @@ class _GamePlayfieldPainter extends CustomPainter {
       controlMapImage: pic?.cachedControlMapImage,
       isolatedPrioritySlice: isolatedPrioritySlice,
       showPixelGrid: showPixelGrid,
+      renderBlackTextBackgrounds: renderBlackTextBackgrounds,
       menuManager: engine.menuManager,
     ).paint(canvas, size);
     canvas.restore();
@@ -549,6 +555,7 @@ class _GamePlayfieldPainter extends CustomPainter {
     return oldDelegate.engine != engine ||
         oldDelegate.renderMode != renderMode ||
         oldDelegate.showPixelGrid != showPixelGrid ||
+        oldDelegate.renderBlackTextBackgrounds != renderBlackTextBackgrounds ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice;
   }
 }
