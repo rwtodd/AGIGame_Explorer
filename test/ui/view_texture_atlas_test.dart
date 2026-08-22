@@ -134,12 +134,27 @@ void main() {
       expect(image.height, equals(100));
     });
 
+    test('computes unique packed integer keys for (view, loop, cel)', () {
+      final key1 = AtlasCelEntry.computeKey(1, 0, 0);
+      final key2 = AtlasCelEntry.computeKey(1, 0, 1);
+      final key3 = AtlasCelEntry.computeKey(1, 1, 0);
+      final key4 = AtlasCelEntry.computeKey(2, 0, 0);
+
+      expect(key1, equals((1 << 16) | (0 << 8) | 0));
+      expect(key2, equals((1 << 16) | (0 << 8) | 1));
+      expect(key3, equals((1 << 16) | (1 << 8) | 0));
+      expect(key4, equals((2 << 16) | (0 << 8) | 0));
+
+      final keys = {key1, key2, key3, key4};
+      expect(keys.length, equals(4));
+    });
+
     test('throws AgiException when rendering without image or missing cel', () {
       final atlas = ViewTextureAtlas(
         width: 16,
         height: 16,
         rgbaPixels: Uint8List(16 * 16 * 4),
-        entries: {},
+        entries: const {},
       );
 
       final recorder = ui.PictureRecorder();

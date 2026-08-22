@@ -41,6 +41,13 @@ class AtlasCelEntry {
     required this.sourceCel,
   });
 
+  /// Fast 32-bit packed integer key: `(view << 16) | (loop << 8) | cel`.
+  static int computeKey(int viewNumber, int loopNumber, int celNumber) =>
+      ((viewNumber & 0xFFFF) << 16) | ((loopNumber & 0xFF) << 8) | (celNumber & 0xFF);
+
+  /// The 32-bit packed integer key for this cel entry.
+  int get intKey => computeKey(viewNumber, loopNumber, celNumber);
+
   String get key => '${viewNumber}_${loopNumber}_$celNumber';
 
   @override
@@ -78,7 +85,7 @@ class ViewTextureAtlas {
   final int width;
   final int height;
   final Uint8List rgbaPixels;
-  final Map<String, AtlasCelEntry> entries;
+  final Map<int, AtlasCelEntry> entries;
   ui.Image? _image;
 
   ViewTextureAtlas({
@@ -123,12 +130,12 @@ class ViewTextureAtlas {
 
   /// Look up an entry by (viewNumber, loopNumber, celNumber).
   AtlasCelEntry? getEntry(int viewNumber, int loopNumber, int celNumber) {
-    return entries['${viewNumber}_${loopNumber}_$celNumber'];
+    return entries[AtlasCelEntry.computeKey(viewNumber, loopNumber, celNumber)];
   }
 
   /// Check if a cel exists in this atlas.
   bool containsCel(int viewNumber, int loopNumber, int celNumber) {
-    return entries.containsKey('${viewNumber}_${loopNumber}_$celNumber');
+    return entries.containsKey(AtlasCelEntry.computeKey(viewNumber, loopNumber, celNumber));
   }
 
   /// List of all cel entries in this atlas.
@@ -264,8 +271,8 @@ class ViewAtlasBuilder {
     _unmirroredItems.clear();
     _allEntries.clear();
 
-    // Map: 'view_sourceLoop_sourceCel' -> _CelPackItem
-    final sourceMap = <String, _CelPackItem>{};
+    // Map: packed intKey -> _CelPackItem
+    final sourceMap = <int, _CelPackItem>{};
 
     for (final view in _views.values) {
       // First pass: collect all forward (unmirrored) cels
@@ -273,7 +280,7 @@ class ViewAtlasBuilder {
         for (var cIdx = 0; cIdx < loop.cels.length; cIdx++) {
           final cel = loop.cels[cIdx];
           if (!cel.isMirrored) {
-            final key = '${view.viewNumber}_${loop.loopNumber}_$cIdx';
+            final key = AtlasCelEntry.computeKey(view.viewNumber, loop.loopNumber, cIdx);
             final item = _CelPackItem(
               viewNumber: view.viewNumber,
               loopNumber: loop.loopNumber,
@@ -294,7 +301,7 @@ class ViewAtlasBuilder {
         for (var cIdx = 0; cIdx < loop.cels.length; cIdx++) {
           final cel = loop.cels[cIdx];
           if (cel.isMirrored) {
-            final sourceKey = '${view.viewNumber}_${cel.mirrorLoop}_$cIdx';
+            final sourceKey = AtlasCelEntry.computeKey(view.viewNumber, cel.mirrorLoop, cIdx);
             var sourceItem = sourceMap[sourceKey];
             if (sourceItem == null) {
               // If source loop wasn't parsed as forward or is missing, try resolving directly
@@ -326,7 +333,7 @@ class ViewAtlasBuilder {
         width: 1,
         height: 1,
         rgbaPixels: Uint8List(4),
-        entries: {},
+        entries: const {},
       );
     }
 
@@ -400,7 +407,7 @@ class ViewAtlasBuilder {
 
     // Rasterize all unmirrored cels into RGBA buffer
     final rgbaBuffer = Uint8List(atlasWidth * atlasHeight * 4);
-    final resultMap = <String, AtlasCelEntry>{};
+    final resultMap = <int, AtlasCelEntry>{};
 
     for (final item in _unmirroredItems) {
       final rect = placements[item]!;
@@ -419,7 +426,7 @@ class ViewAtlasBuilder {
         sourceLoop: item.loopNumber,
         sourceCel: item.celNumber,
       );
-      resultMap[entry.key] = entry;
+      resultMap[entry.intKey] = entry;
 
       // Copy pixels into RGBA buffer
       final rawPixels = item.cel.getUnflippedPixels();
@@ -454,11 +461,12 @@ class ViewAtlasBuilder {
       for (final loop in view.loops) {
         for (var cIdx = 0; cIdx < loop.cels.length; cIdx++) {
           final cel = loop.cels[cIdx];
-          final key = '${view.viewNumber}_${loop.loopNumber}_$cIdx';
+          final key = AtlasCelEntry.computeKey(view.viewNumber, loop.loopNumber, cIdx);
           if (resultMap.containsKey(key)) continue;
 
           if (cel.isMirrored) {
-            final sourceEntry = resultMap['${view.viewNumber}_${cel.mirrorLoop}_$cIdx'];
+            final sourceKey = AtlasCelEntry.computeKey(view.viewNumber, cel.mirrorLoop, cIdx);
+            final sourceEntry = resultMap[sourceKey];
             if (sourceEntry != null) {
               final mirroredEntry = AtlasCelEntry(
                 viewNumber: view.viewNumber,
@@ -601,7 +609,7 @@ class ViewAtlasManager {
             width: 1,
             height: 1,
             rgbaPixels: Uint8List(4),
-            entries: {},
+            entries: const {},
           );
           await emptyAtlas.ensureImage();
           final oldAtlas = _primaryAtlas;
