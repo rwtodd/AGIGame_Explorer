@@ -15,6 +15,7 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
+import 'package:flutter_agigame/domain/priority_table.dart';
 import 'package:flutter_agigame/engine/controllers/agi_controller_manager.dart';
 import 'package:flutter_agigame/engine/motion/agi_motion.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
@@ -125,8 +126,11 @@ class AgiDisplayText {
 /// - Post-Scan: Resets transient flags (Flag 1, Flag 2, Flag 4) and updates game clocks
 class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   final AgiResourceLoader? resourceLoader;
-  final AgiSoundPlayer? soundPlayer;
+  /// Player instance for AGI sound synthesis and PCM playback.
+  final AgiSoundPlayer soundPlayer;
+  final bool _ownsSoundPlayer;
   final AgiMemory memory;
+  final AgiPriorityTable priorityTable;
   final List<AnimatedObject> animatedObjects;
   final List<AgiObject>? _customObjects;
   late final AgiLogicInterpreter interpreter;
@@ -212,23 +216,28 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   AgiGameEngine({
     this.resourceLoader,
-    this.soundPlayer,
+    AgiSoundPlayer? soundPlayer,
     AgiDictionary? dictionary,
+    AgiPriorityTable? priorityTable,
     AgiMemory? memory,
     List<AnimatedObject>? animatedObjects,
     List<AgiObject>? objects,
     this._speedHz = 20.0,
     int? randomSeed,
     int maxAnimatedObjects = 64,
-  })  : _customDictionary = dictionary,
+  })  : soundPlayer = soundPlayer ?? AgiSoundPlayer(),
+        _ownsSoundPlayer = soundPlayer == null,
+        _customDictionary = dictionary,
+        priorityTable = priorityTable ?? AgiPriorityTable(),
         memory = memory ?? AgiMemory(),
         animatedObjects = animatedObjects ??
             List.generate(maxAnimatedObjects, (i) => AnimatedObject(number: i)),
         _customObjects = objects,
         _rng = randomSeed != null ? math.Random(randomSeed) : math.Random() {
-    if (soundPlayer != null) {
-      soundPlayer!.onFinished = _onSoundFinished;
+    for (final obj in this.animatedObjects) {
+      obj.priorityTable = this.priorityTable;
     }
+    this.soundPlayer.onFinished = _onSoundFinished;
 
     interpreter = AgiLogicInterpreter(
       memory: this.memory,
@@ -376,14 +385,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   /// Pauses the game loop and sound playback.
   void pause() {
     _isPaused = true;
-    soundPlayer?.pause();
+    soundPlayer.pause();
     notifyListeners();
   }
 
   /// Resumes a paused game loop and sound playback.
   void resume() {
     _isPaused = false;
-    soundPlayer?.resume();
+    soundPlayer.resume();
     notifyListeners();
   }
 
@@ -758,10 +767,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void setSoundOn(bool value) {
     if (value) {
       memory.setFlag(9);
-      soundPlayer?.resume();
+      soundPlayer.unmute();
     } else {
       memory.resetFlag(9);
-      soundPlayer?.pause();
+      soundPlayer.mute();
     }
     notifyListeners();
   }
@@ -772,11 +781,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     switch (mode) {
       case AgiSoundMode.off:
         memory.resetFlag(9); // %f9 = sound off
-        soundPlayer?.stop();
+        soundPlayer.mute();
         break;
       case AgiSoundMode.ibmPc:
         memory.setFlag(9); // %f9 = sound on
         memory.setVar(22, 1); // %v22 = 1 voice
+        soundPlayer.unmute();
         _synthesizerConfig = _synthesizerConfig.copyWith(
           mode: PcmPlaybackMode.ibmPcSingleChannel,
           enableReverb: false,
@@ -785,6 +795,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       case AgiSoundMode.pcJr:
         memory.setFlag(9); // %f9 = sound on
         memory.setVar(22, 3); // %v22 = 3 voices
+        soundPlayer.unmute();
         _synthesizerConfig = _synthesizerConfig.copyWith(
           mode: PcmPlaybackMode.tandy3VoiceNoise,
           enableReverb: false,
@@ -793,6 +804,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       case AgiSoundMode.enhanced:
         memory.setFlag(9); // %f9 = sound on
         memory.setVar(22, 3); // %v22 = 3 voices
+        soundPlayer.unmute();
         _synthesizerConfig = _synthesizerConfig.copyWith(
           mode: PcmPlaybackMode.enhanced,
           enableReverb: _synthesizerConfig.reverbMix > 0.0,
@@ -1266,9 +1278,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   void _updateEgoFlags(PriorityBuffer? priBuf) {
     if (priBuf == null) return;
     final egoObj = ego;
-    final egoPri = egoObj.fixedPriority
-        ? egoObj.priority
-        : AnimatedObject.calculatePriorityForY(egoObj.y);
+    if (!egoObj.isDrawn || !egoObj.isAnimated) {
+      memory.resetFlag(0);
+      memory.resetFlag(3);
+      return;
+    }
+    final egoPri = egoObj.effectivePriority;
     if (egoPri == 15) {
       memory.resetFlag(0);
       memory.resetFlag(3);
@@ -1761,6 +1776,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _bufferedEgoDirection = null;
     _displayedTexts.clear();
     textScreenBuffer.clear(fg: _textFgColor, bg: _textBgColor);
+
+    // Reset modals, dialogs, timers, and prompts on room transition
+    _dialogAutoCloseTimer?.cancel();
+    _dialogAutoCloseTimer = null;
+    _dialogAutoCloseTicks = null;
+    activeDialog?.dismissCompleter?.complete();
+    activeDialog = null;
+    activeInputPrompt = null;
+
     _statusLineNeedsRedraw = true;
     updateStatusLine(force: true);
     _isTextScreen = false;
@@ -2320,6 +2344,37 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   @override
+  void onSetPriBase(int priorityBase) {
+    // Version check: only supported in AGI v3 and late v2 (>= 2.936, == 2.425)
+    final isV3 = resourceLoader?.meta.isV3 ?? true;
+    final ver = resourceLoader?.meta.version;
+    if (!isV3 && (ver != null && ver < 2.936 && ver != 2.425)) {
+      return;
+    }
+    setPriorityBase(priorityBase);
+  }
+
+  /// Sets dynamic priority base (Opcode 174 `set.pri.base`) and recalculates auto-priority objects.
+  void setPriorityBase(int priorityBase) {
+    priorityTable.setPriorityBase(priorityBase);
+    for (final obj in animatedObjects) {
+      if (!obj.fixedPriority) {
+        CollisionDetector.syncAutoPriority(obj, obj.y);
+      }
+    }
+  }
+
+  /// Resets the priority table back to default static AGI bands (base 48).
+  void resetPriorityTable() {
+    priorityTable.createDefaultTable();
+    for (final obj in animatedObjects) {
+      if (!obj.fixedPriority) {
+        CollisionDetector.syncAutoPriority(obj, obj.y);
+      }
+    }
+  }
+
+  @override
   void onInputMode(bool enabled) {
     _isInputEnabled = enabled;
     notifyListeners();
@@ -2435,18 +2490,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     // Set the new sound's completion flag to false per AGI specification
     memory.resetFlag(completionFlag);
 
-    // If sound is disabled or muted, complete flag immediately without playing
-    if (!memory.getFlag(9) || _soundMode == AgiSoundMode.off) {
-      memory.setFlag(completionFlag);
-      return;
-    }
+    final isMuted = !memory.getFlag(9) || _soundMode == AgiSoundMode.off;
 
-    if (soundPlayer != null && resourceLoader != null) {
+    if (resourceLoader != null) {
       if (resourceLoader!.presentSoundNumbers.contains(soundNumber)) {
         final snd = resourceLoader!.loadSound(soundNumber);
         if (!snd.isEmpty && snd.length > 0) {
           _activeSoundEndFlag = completionFlag;
-          soundPlayer!.play(snd, config: _synthesizerConfig).catchError((_) {
+          soundPlayer.play(
+            snd,
+            config: _synthesizerConfig,
+            muted: isMuted,
+          ).catchError((_) {
             if (_activeSoundEndFlag == completionFlag) {
               memory.setFlag(completionFlag);
               _activeSoundEndFlag = null;
@@ -2466,7 +2521,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       memory.setFlag(_activeSoundEndFlag!);
       _activeSoundEndFlag = null;
     }
-    soundPlayer?.stop();
+    soundPlayer.stop();
   }
 
   @override
@@ -3011,6 +3066,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _dialogAutoCloseTimer = null;
     onStopSound();
     stop();
+    if (_ownsSoundPlayer) {
+      soundPlayer.dispose();
+    }
     currentPic?.dispose();
     currentPic = null;
     atlasManager.dispose();

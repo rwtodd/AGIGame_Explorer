@@ -106,7 +106,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void dispose() {
     if (widget.engine == null) {
       _engine.stop();
-      _engine.soundPlayer?.dispose();
+      _engine.soundPlayer.dispose();
       _engine.dispose();
     }
     _gameFocusNode.dispose();

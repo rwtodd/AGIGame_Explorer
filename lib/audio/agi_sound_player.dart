@@ -104,6 +104,9 @@ class AgiSoundPlayer {
         _autoDisposeSink = sink == null;
 
   static AudioOutputSink _createDefaultSink() {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      return NullAudioSink();
+    }
     if (Platform.isMacOS) {
       try {
         return MacAudioQueueSink();
@@ -124,11 +127,30 @@ class AgiSoundPlayer {
     _sink.setVolume(_volume);
   }
 
+  bool _isMuted = false;
+
+  /// Whether playback is currently muted.
+  bool get isMuted => _isMuted;
+
+  /// Mutes audio output while keeping playback timer running.
+  void mute() {
+    _isMuted = true;
+    _sink.setVolume(0.0);
+  }
+
+  /// Unmutes audio output.
+  void unmute() {
+    _isMuted = false;
+    _sink.setVolume(_volume);
+  }
+
   /// Plays [sound] using the provided [config], starting from [startTick].
+  /// When [muted] is true, the sound timer drives playback to completion without audio output.
   Future<void> play(
     AgiSound sound, {
     SynthesizerConfig? config,
     int startTick = 0,
+    bool muted = false,
   }) async {
     if (sound.isEmpty || sound.length <= 0) {
       stop();
@@ -139,38 +161,41 @@ class AgiSoundPlayer {
     if (config != null) _currentConfig = config;
     _totalTicks = sound.length;
     _startTickOffset = startTick.clamp(0, _totalTicks);
-
-    // Make sure sink is initialized
-    if (_sink.status == AudioPlaybackStatus.uninitialized) {
-      await initialize(sampleRate: _currentConfig.sampleRate);
-    }
+    _isMuted = muted;
 
     _sink.stop();
     _sink.flush();
 
-    // Synthesize PCM samples
-    final synth = PcmSynthesizer(_currentConfig);
-    final pcmSamples = synth.renderPcm(sound);
+    if (!muted) {
+      // Make sure sink is initialized
+      if (_sink.status == AudioPlaybackStatus.uninitialized) {
+        await initialize(sampleRate: _currentConfig.sampleRate);
+      }
 
-    if (pcmSamples.isEmpty) {
-      stop();
-      return;
+      // Synthesize PCM samples
+      final synth = PcmSynthesizer(_currentConfig);
+      final pcmSamples = synth.renderPcm(sound);
+
+      if (pcmSamples.isEmpty) {
+        stop();
+        return;
+      }
+
+      // If starting from a non-zero tick offset, calculate sample offset
+      Int16List samplesToWrite;
+      if (_startTickOffset > 0) {
+        final sampleRate = _currentConfig.sampleRate;
+        final startFrame = ((_startTickOffset / 60.0) * sampleRate).round();
+        final startSampleIndex = min(startFrame * 2, pcmSamples.length);
+        samplesToWrite = Int16List.sublistView(pcmSamples, startSampleIndex);
+      } else {
+        samplesToWrite = pcmSamples;
+      }
+
+      _sink.writePcm(samplesToWrite);
+      _sink.setVolume(_volume);
+      _sink.play();
     }
-
-    // If starting from a non-zero tick offset, calculate sample offset
-    Int16List samplesToWrite;
-    if (_startTickOffset > 0) {
-      final sampleRate = _currentConfig.sampleRate;
-      final startFrame = ((_startTickOffset / 60.0) * sampleRate).round();
-      final startSampleIndex = min(startFrame * 2, pcmSamples.length);
-      samplesToWrite = Int16List.sublistView(pcmSamples, startSampleIndex);
-    } else {
-      samplesToWrite = pcmSamples;
-    }
-
-    _sink.writePcm(samplesToWrite);
-    _sink.setVolume(_volume);
-    _sink.play();
 
     _status = SoundPlayerStatus.playing;
     _stopwatch.reset();

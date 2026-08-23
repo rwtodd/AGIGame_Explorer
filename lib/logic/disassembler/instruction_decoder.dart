@@ -481,7 +481,7 @@ class InstructionDecoder {
     BasicInstruction.template('unknown171', 0, 0x0),
     BasicInstruction.template('unknown172', 0, 0x0),
     BasicInstruction.template('unknown173', 0, 0x0),
-    BasicInstruction.template('unknown174', 1, 0x0),
+    BasicInstruction.template('set.pri.base', 1, 0x0),
     BasicInstruction.template('unknown175', 1, 0x0), // 175
     BasicInstruction.template('unknown176', 0, 0x0), // 176 (overridden by version)
     BasicInstruction.template('unknown177', 1, 0x0),

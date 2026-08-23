@@ -1,4 +1,5 @@
 import 'package:flutter_agigame/domain/agi_view.dart';
+import 'package:flutter_agigame/domain/priority_table.dart';
 
 /// Represents the state of an animated sprite/object slot in the Sierra AGI engine.
 /// Slot 0 is always reserved for the player character (Ego).
@@ -105,10 +106,16 @@ class AnimatedObject {
     return (v != null) ? 36 : 4;
   }
 
+  /// Optional reference to the active game engine's priority table.
+  AgiPriorityTable? priorityTable;
+
   /// Calculates priority band (4..14) based on base-Y position if priority is automatic (0).
   int get effectivePriority {
     if (fixedPriority && priority > 0) {
       return priority;
+    }
+    if (priorityTable != null) {
+      return priorityTable!.priorityFromY(y);
     }
     return calculatePriorityForY(y);
   }
@@ -116,12 +123,15 @@ class AnimatedObject {
   /// Y used for sprite z-order, matching Sierra OBJLIST.C / ScummVM `sprite.cpp`.
   ///
   /// Automatic-priority objects sort by their actual baseline Y. Fixed-priority
-  /// objects sort as the **top** of that priority band (`(P - 5) * 12 + 48`),
+  /// objects sort as the **top** of that priority band (`(P - 5) * 12 + 48` or via priority table),
   /// not their on-screen Y. Otherwise a `stop.update` prop planted lower on the
   /// screen (KQ2 room 48 bridge scenery) paints over Ego even when Ego is in
   /// front of that band.
   int get effectiveSortY {
     if (fixedPriority && priority > 0) {
+      if (priorityTable != null) {
+        return priorityTable!.priorityToY(priority);
+      }
       return calculateSortYForPriority(priority);
     }
     return y;

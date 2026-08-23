@@ -446,7 +446,11 @@ class AgiGameStateSnapshot {
     this.activeBlock,
     this.loadedLogics = const [],
     this.addToPicEntries = const [],
+    this.priorityBase,
   });
+
+  /// The dynamic priority base set via `set.pri.base` opcode 174, or null for default static table.
+  final int? priorityBase;
 
   /// Captures a complete snapshot from live [AgiGameEngine].
   factory AgiGameStateSnapshot.capture(
@@ -551,6 +555,7 @@ class AgiGameStateSnapshot {
       activeBlock: block,
       loadedLogics: engine.loadedLogicNumbers.toList(),
       addToPicEntries: engine.addToPicCalls.toList(),
+      priorityBase: engine.priorityTable.priorityBase,
     );
   }
 
@@ -675,6 +680,13 @@ class AgiGameStateSnapshot {
       addToPicEntries: addToPicEntries,
     );
 
+    // Restore priority table base if modified
+    if (priorityBase != null) {
+      engine.setPriorityBase(priorityBase!);
+    } else {
+      engine.resetPriorityTable();
+    }
+
     // Restore screen configuration and status line state
     engine.onConfigureScreen(engine.playfieldRow, engine.inputRow, statusRow);
     engine.onStatusLine(isStatusLineEnabled);
@@ -714,6 +726,7 @@ class AgiGameStateSnapshot {
         if (activeBlock != null) 'activeBlock': activeBlock,
         if (loadedLogics.isNotEmpty) 'loadedLogics': loadedLogics,
         if (addToPicEntries.isNotEmpty) 'addToPic': addToPicEntries.map((e) => e.toJson()).toList(),
+        if (priorityBase != null) 'priorityBase': priorityBase,
         if (includeThumbnail && thumbnailRgba != null) 'thumbnail': base64Encode(thumbnailRgba!),
       };
 
@@ -912,6 +925,7 @@ class AgiGameStateSnapshot {
       activeBlock: activeBlock,
       loadedLogics: loadedLogics,
       addToPicEntries: addToPicEntries,
+      priorityBase: (json['priorityBase'] as num?)?.toInt(),
     );
   }
 

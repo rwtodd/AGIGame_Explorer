@@ -1785,11 +1785,17 @@ class AgiLogicInterpreter {
         frame.ip++;
         break;
 
+      case 174: // set.pri.base(priorityBase)
+        final priBase = code[frame.ip + 1];
+        delegate.onSetPriBase(priBase);
+        frame.ip += 2;
+        break;
+
       default:
         // Handle unknown instructions by skipping their length or throwing
         if (opcode >= 170 && opcode <= 181) {
           final numArgs = switch (opcode) {
-            170 || 174 || 175 || 177 => 1,
+            170 || 175 || 177 => 1,
             179 => 4,
             180 => 2,
             176 => (version == 3.002086) ? 1 : 0,

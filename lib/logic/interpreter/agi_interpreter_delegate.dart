@@ -179,6 +179,9 @@ abstract class AgiInterpreterDelegate {
   /// Called when `disable.item` is executed.
   void onDisableItem(int controllerSlot) {}
 
+  /// Called when `set.pri.base` is executed to change the dynamic priority table base.
+  void onSetPriBase(int priorityBase) {}
+
   /// Called when `menu.input` is executed.
   void onMenuInput() {}
 

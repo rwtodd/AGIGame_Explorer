@@ -143,7 +143,7 @@ class CollisionDetector {
   }) {
     final pri = obj.fixedPriority
         ? obj.priority
-        : AnimatedObject.calculatePriorityForY(y);
+        : (obj.priorityTable?.priorityFromY(y) ?? AnimatedObject.calculatePriorityForY(y));
     if (pri == 15) return true;
 
     final effectiveWidth = math.max(1, width);
@@ -170,7 +170,7 @@ class CollisionDetector {
   /// Writes the Y-band into [obj.priority] when priority is not fixed.
   static void syncAutoPriority(AnimatedObject obj, int y) {
     if (!obj.fixedPriority) {
-      obj.priority = AnimatedObject.calculatePriorityForY(y);
+      obj.priority = obj.priorityTable?.priorityFromY(y) ?? AnimatedObject.calculatePriorityForY(y);
     }
   }
 

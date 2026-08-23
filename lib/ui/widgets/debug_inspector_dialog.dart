@@ -13,10 +13,7 @@ import 'package:flutter_agigame/ui/widgets/snapshot_thumbnail_widget.dart';
 class DebugInspectorDialog extends StatefulWidget {
   final AgiGameEngine engine;
 
-  const DebugInspectorDialog({
-    super.key,
-    required this.engine,
-  });
+  const DebugInspectorDialog({super.key, required this.engine});
 
   static Future<void> show(BuildContext context, AgiGameEngine engine) {
     engine.pause();
@@ -32,9 +29,10 @@ class DebugInspectorDialog extends StatefulWidget {
 }
 
 class _DebugInspectorDialogState extends State<DebugInspectorDialog>
-  with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  final TextEditingController _checkpointLabelController = TextEditingController();
+  final TextEditingController _checkpointLabelController =
+      TextEditingController();
   final TextEditingController _searchFilterController = TextEditingController();
   final TextEditingController _watchSpecController = TextEditingController();
   final TextEditingController _teleportRoomController = TextEditingController();
@@ -43,6 +41,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   int? _diffBeforeIndex;
   int? _diffAfterIndex;
   String? _computedDiffMarkdown;
+
   /// In-progress variable edits (typed but not yet SET/PIN'd).
   final Map<int, int> _pendingVarEdits = {};
 
@@ -125,7 +124,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   void _showToast(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
+        content: Text(
+          message,
+          style: const TextStyle(fontFamily: 'Courier', fontSize: 12),
+        ),
         duration: const Duration(seconds: 2),
         backgroundColor: AgiTheme.egaCardSurface,
       ),
@@ -133,7 +135,8 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   }
 
   void _handleTeleport({int? roomNumber, bool closeInspector = false}) {
-    final targetRoom = roomNumber ?? int.tryParse(_teleportRoomController.text.trim());
+    final targetRoom =
+        roomNumber ?? int.tryParse(_teleportRoomController.text.trim());
     if (targetRoom == null || targetRoom < 0 || targetRoom > 255) {
       _showToast('⚠️ Please enter a valid room number (0–255)');
       return;
@@ -155,7 +158,8 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   }
 
   void _showTeleportDialog() {
-    final allPresentLogics = widget.engine.resourceLoader?.presentLogicNumbers.toList() ?? [];
+    final allPresentLogics =
+        widget.engine.resourceLoader?.presentLogicNumbers.toList() ?? [];
     allPresentLogics.sort();
 
     showDialog(
@@ -200,20 +204,34 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                         controller: _teleportRoomController,
                         keyboardType: TextInputType.number,
                         autofocus: true,
-                        style: const TextStyle(fontFamily: 'Courier', fontSize: 13, color: AgiTheme.egaWhite),
+                        style: const TextStyle(
+                          fontFamily: 'Courier',
+                          fontSize: 13,
+                          color: AgiTheme.egaWhite,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'Room # (0–255)',
-                          hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 12),
+                          hintStyle: const TextStyle(
+                            color: AgiTheme.egaMuted,
+                            fontSize: 12,
+                          ),
                           filled: true,
                           fillColor: const Color(0xFF0F172A),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(4),
-                            borderSide: const BorderSide(color: AgiTheme.egaBorder),
+                            borderSide: const BorderSide(
+                              color: AgiTheme.egaBorder,
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(4),
-                            borderSide: const BorderSide(color: AgiTheme.egaCyan),
+                            borderSide: const BorderSide(
+                              color: AgiTheme.egaCyan,
+                            ),
                           ),
                         ),
                         onSubmitted: (val) {
@@ -231,7 +249,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                   const SizedBox(height: 12),
                   const Text(
                     'Available Rooms / Logics:',
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: AgiTheme.egaAmber,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   ConstrainedBox(
@@ -240,7 +262,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                       child: Wrap(
                         spacing: 6,
                         runSpacing: 6,
-                        children: allPresentLogics.where((l) => l != 0).map((r) {
+                        children: allPresentLogics.where((l) => l != 0).map((
+                          r,
+                        ) {
                           final isCurrent = r == widget.engine.currentRoom;
                           return ActionChip(
                             label: Text(
@@ -249,15 +273,28 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                                 fontFamily: 'Courier',
                                 fontSize: 10.5,
                                 fontWeight: FontWeight.bold,
-                                color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan,
+                                color: isCurrent
+                                    ? AgiTheme.egaAmber
+                                    : AgiTheme.egaCyan,
                               ),
                             ),
-                            backgroundColor: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.12),
+                            backgroundColor:
+                                (isCurrent
+                                        ? AgiTheme.egaAmber
+                                        : AgiTheme.egaCyan)
+                                    .withValues(alpha: 0.12),
                             side: BorderSide(
-                              color: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.6),
+                              color:
+                                  (isCurrent
+                                          ? AgiTheme.egaAmber
+                                          : AgiTheme.egaCyan)
+                                      .withValues(alpha: 0.6),
                               width: 1,
                             ),
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 2,
+                            ),
                             onPressed: () {
                               Navigator.of(ctx).pop();
                               _handleTeleport(roomNumber: r);
@@ -274,7 +311,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel', style: TextStyle(color: AgiTheme.egaMuted)),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AgiTheme.egaMuted),
+              ),
             ),
             ElevatedButton.icon(
               onPressed: () {
@@ -285,8 +325,16 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 }
               },
               icon: const Icon(Icons.flash_on, size: 14, color: Colors.black),
-              label: const Text('Teleport (Inspect)', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(backgroundColor: AgiTheme.egaCyan),
+              label: const Text(
+                'Teleport (Inspect)',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AgiTheme.egaCyan,
+              ),
             ),
             ElevatedButton.icon(
               onPressed: () {
@@ -297,8 +345,16 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 }
               },
               icon: const Icon(Icons.play_arrow, size: 14, color: Colors.black),
-              label: const Text('Teleport & Play', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(backgroundColor: AgiTheme.egaGreen),
+              label: const Text(
+                'Teleport & Play',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AgiTheme.egaGreen,
+              ),
             ),
           ],
         );
@@ -409,7 +465,8 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
               color: isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
               width: 1.2,
             ),
-            backgroundColor: (isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber).withValues(alpha: 0.15),
+            backgroundColor: (isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber)
+                .withValues(alpha: 0.15),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             visualDensity: VisualDensity.compact,
           ),
@@ -442,7 +499,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         // Capture Snapshot in Header
         OutlinedButton.icon(
           onPressed: _handleTakeSnapshot,
-          icon: const Icon(Icons.camera_alt_outlined, size: 15, color: Color(0xFF22C55E)),
+          icon: const Icon(
+            Icons.camera_alt_outlined,
+            size: 15,
+            color: Color(0xFF22C55E),
+          ),
           label: const Text(
             'Capture Snapshot',
             style: TextStyle(
@@ -463,7 +524,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         // Teleport Button in Header
         OutlinedButton.icon(
           onPressed: _showTeleportDialog,
-          icon: const Icon(Icons.flight_takeoff, size: 15, color: AgiTheme.egaAmber),
+          icon: const Icon(
+            Icons.flight_takeoff,
+            size: 15,
+            color: AgiTheme.egaAmber,
+          ),
           label: const Text(
             'Teleport',
             style: TextStyle(
@@ -519,14 +584,19 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: engine.isPaused
                         ? AgiTheme.egaAmber.withValues(alpha: 0.2)
                         : AgiTheme.egaGreen.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(3),
                     border: Border.all(
-                      color: engine.isPaused ? AgiTheme.egaAmber : AgiTheme.egaGreen,
+                      color: engine.isPaused
+                          ? AgiTheme.egaAmber
+                          : AgiTheme.egaGreen,
                       width: 0.8,
                     ),
                   ),
@@ -535,7 +605,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.bold,
-                      color: engine.isPaused ? AgiTheme.egaAmber : AgiTheme.egaGreen,
+                      color: engine.isPaused
+                          ? AgiTheme.egaAmber
+                          : AgiTheme.egaGreen,
                     ),
                   ),
                 ),
@@ -591,16 +663,40 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     ),
                   ),
                   const Divider(color: AgiTheme.egaBorder, height: 12),
-                  _buildMetricRow('Room Number:', '${engine.currentRoom} (prev: ${mem.getVar(1)})'),
+                  _buildMetricRow(
+                    'Room Number:',
+                    '${engine.currentRoom} (prev: ${mem.getVar(1)})',
+                  ),
                   _buildMetricRow('Cycle Count:', '${engine.cycleCount}'),
-                  _buildMetricRow('Score / Max:', '${mem.getVar(3)} / ${mem.getVar(7)}'),
-                  _buildMetricRow('Execution Speed:', '${engine.speedHz.toStringAsFixed(1)} Hz (v10: ${mem.getVar(10)})'),
-                  _buildMetricRow('Ego Position (x, y):', '(${ego.x}, ${ego.y})'),
-                  _buildMetricRow('Ego Priority:', '${ego.priority}${ego.fixedPriority ? " (fixed)" : " (auto)"}'),
+                  _buildMetricRow(
+                    'Score / Max:',
+                    '${mem.getVar(3)} / ${mem.getVar(7)}',
+                  ),
+                  _buildMetricRow(
+                    'Execution Speed:',
+                    '${engine.speedHz.toStringAsFixed(1)} Hz (v10: ${mem.getVar(10)})',
+                  ),
+                  _buildMetricRow(
+                    'Ego Position (x, y):',
+                    '(${ego.x}, ${ego.y})',
+                  ),
+                  _buildMetricRow(
+                    'Ego Priority:',
+                    '${ego.priority}${ego.fixedPriority ? " (fixed)" : " (auto)"}',
+                  ),
                   _buildMetricRow('Ego Direction (v6):', '${ego.direction}'),
-                  _buildMetricRow('Ego View/Loop/Cel:', 'v${ego.view} / l${ego.loop} / c${ego.cel}'),
-                  _buildMetricRow('User Control:', engine.isUserControl ? 'YES' : 'NO (program.control)'),
-                  _buildMetricRow('Sound Enabled (f9):', engine.isSoundOn ? 'ON (${engine.soundMode.name})' : 'OFF'),
+                  _buildMetricRow(
+                    'Ego View/Loop/Cel:',
+                    'v${ego.view} / l${ego.loop} / c${ego.cel}',
+                  ),
+                  _buildMetricRow(
+                    'User Control:',
+                    engine.isUserControl ? 'YES' : 'NO (program.control)',
+                  ),
+                  _buildMetricRow(
+                    'Sound Enabled (f9):',
+                    engine.isSoundOn ? 'ON (${engine.soundMode.name})' : 'OFF',
+                  ),
                 ],
               ),
             ),
@@ -619,7 +715,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted, fontFamily: 'Courier'),
+              style: const TextStyle(
+                fontSize: 10,
+                color: AgiTheme.egaMuted,
+                fontFamily: 'Courier',
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -665,7 +765,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
 
     List<AgiGameStateSnapshot> displayedSnapshots;
     if (_checkpointFilterIndex == 1) {
-      displayedSnapshots = allHistory.where((s) => !s.isRoomTransition).toList();
+      displayedSnapshots = allHistory
+          .where((s) => !s.isRoomTransition)
+          .toList();
     } else if (_checkpointFilterIndex == 2) {
       displayedSnapshots = widget.engine.roomCheckpoints;
     } else {
@@ -689,9 +791,13 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                       controller: _checkpointLabelController,
                       style: const TextStyle(fontSize: 12),
                       decoration: const InputDecoration(
-                        hintText: 'Snapshot label (e.g. "Before climbing tree")',
+                        hintText:
+                            'Snapshot label (e.g. "Before climbing tree")',
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -699,9 +805,15 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                   ElevatedButton.icon(
                     onPressed: _handleTakeSnapshot,
                     icon: const Icon(Icons.camera_alt, size: 14),
-                    label: const Text('Capture', style: TextStyle(fontSize: 11)),
+                    label: const Text(
+                      'Capture',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                     ),
                   ),
                 ],
@@ -715,12 +827,18 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                   OutlinedButton.icon(
                     onPressed: _handleCopyCurrentJson,
                     icon: const Icon(Icons.copy, size: 13),
-                    label: const Text('Copy State JSON', style: TextStyle(fontSize: 10)),
+                    label: const Text(
+                      'Copy State JSON',
+                      style: TextStyle(fontSize: 10),
+                    ),
                   ),
                   if (allHistory.isNotEmpty)
                     TextButton(
                       onPressed: () => widget.engine.clearCheckpoints(),
-                      child: const Text('Clear History', style: TextStyle(fontSize: 10, color: AgiTheme.egaRed)),
+                      child: const Text(
+                        'Clear History',
+                        style: TextStyle(fontSize: 10, color: AgiTheme.egaRed),
+                      ),
                     ),
                 ],
               ),
@@ -753,7 +871,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                               ? 'No room transitions recorded yet.\nWalk between rooms to automatically capture breadcrumbs.'
                               : 'No checkpoints captured yet.\nClick "Capture" to record a state snapshot.',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+                          style: const TextStyle(
+                            color: AgiTheme.egaMuted,
+                            fontSize: 11,
+                          ),
                         ),
                       )
                     : ListView.builder(
@@ -761,8 +882,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                         itemBuilder: (ctx, idx) {
                           final snap = displayedSnapshots[idx];
                           final originalIndex = allHistory.indexOf(snap);
-                          final isSelectedBefore = _diffBeforeIndex == originalIndex;
-                          final isSelectedAfter = _diffAfterIndex == originalIndex;
+                          final isSelectedBefore =
+                              _diffBeforeIndex == originalIndex;
+                          final isSelectedAfter =
+                              _diffAfterIndex == originalIndex;
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 6),
@@ -775,8 +898,12 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                               border: Border.all(
                                 color: isSelectedAfter
                                     ? AgiTheme.egaCyan
-                                    : (isSelectedBefore ? AgiTheme.egaAmber : AgiTheme.egaBorder),
-                                width: (isSelectedBefore || isSelectedAfter) ? 1.5 : 1.0,
+                                    : (isSelectedBefore
+                                          ? AgiTheme.egaAmber
+                                          : AgiTheme.egaBorder),
+                                width: (isSelectedBefore || isSelectedAfter)
+                                    ? 1.5
+                                    : 1.0,
                               ),
                             ),
                             child: Row(
@@ -789,35 +916,50 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                                   height: 54,
                                   borderColor: isSelectedAfter
                                       ? AgiTheme.egaCyan
-                                      : (isSelectedBefore ? AgiTheme.egaAmber : AgiTheme.egaBorder),
+                                      : (isSelectedBefore
+                                            ? AgiTheme.egaAmber
+                                            : AgiTheme.egaBorder),
                                 ),
                                 const SizedBox(width: 8),
 
                                 // Snapshot Metadata & Details
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                              vertical: 1.5,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: snap.isRoomTransition
-                                                  ? AgiTheme.egaAmber.withValues(alpha: 0.2)
-                                                  : AgiTheme.egaGreen.withValues(alpha: 0.2),
-                                              borderRadius: BorderRadius.circular(3),
+                                                  ? AgiTheme.egaAmber
+                                                        .withValues(alpha: 0.2)
+                                                  : AgiTheme.egaGreen
+                                                        .withValues(alpha: 0.2),
+                                              borderRadius:
+                                                  BorderRadius.circular(3),
                                               border: Border.all(
-                                                color: snap.isRoomTransition ? AgiTheme.egaAmber : AgiTheme.egaGreen,
+                                                color: snap.isRoomTransition
+                                                    ? AgiTheme.egaAmber
+                                                    : AgiTheme.egaGreen,
                                                 width: 0.8,
                                               ),
                                             ),
                                             child: Text(
-                                              snap.isRoomTransition ? '🚪 ROOM ENTRY' : '📸 SNAPSHOT',
+                                              snap.isRoomTransition
+                                                  ? '🚪 ROOM ENTRY'
+                                                  : '📸 SNAPSHOT',
                                               style: TextStyle(
                                                 fontSize: 8.5,
                                                 fontWeight: FontWeight.bold,
-                                                color: snap.isRoomTransition ? AgiTheme.egaAmber : AgiTheme.egaGreen,
+                                                color: snap.isRoomTransition
+                                                    ? AgiTheme.egaAmber
+                                                    : AgiTheme.egaGreen,
                                               ),
                                             ),
                                           ),
@@ -838,7 +980,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                                       const SizedBox(height: 3),
                                       Text(
                                         'Room ${snap.roomNumber} | Cycle ${snap.cycleCount} | Score ${snap.score}/${snap.maxScore}',
-                                        style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted),
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: AgiTheme.egaMuted,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -847,27 +992,52 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
 
                                 // Actions: Restore, Copy, Delete
                                 IconButton(
-                                  icon: const Icon(Icons.restore, size: 18, color: AgiTheme.egaGreen),
+                                  icon: const Icon(
+                                    Icons.restore,
+                                    size: 18,
+                                    color: AgiTheme.egaGreen,
+                                  ),
                                   tooltip: 'Restore this state',
                                   onPressed: () {
                                     widget.engine.restoreSnapshot(snap);
-                                    _showToast('State restored to: ${snap.label}');
+                                    _showToast(
+                                      'State restored to: ${snap.label}',
+                                    );
                                   },
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.copy, size: 14, color: AgiTheme.egaCyan),
+                                  icon: const Icon(
+                                    Icons.copy,
+                                    size: 14,
+                                    color: AgiTheme.egaCyan,
+                                  ),
                                   tooltip: 'Copy JSON for this snapshot (no thumbnail)',
                                   onPressed: () {
-                                    Clipboard.setData(ClipboardData(text: snap.toJsonString(pretty: true, includeThumbnail: false)));
-                                    _showToast('Snapshot JSON (no thumbnail) copied!');
+                                    Clipboard.setData(
+                                      ClipboardData(
+                                        text: snap.toJsonString(
+                                          pretty: true,
+                                          includeThumbnail: false,
+                                        ),
+                                      ),
+                                    );
+                                    _showToast(
+                                      'Snapshot JSON (no thumbnail) copied!',
+                                    );
                                   },
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 14, color: AgiTheme.egaMuted),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 14,
+                                    color: AgiTheme.egaMuted,
+                                  ),
                                   tooltip: 'Delete',
                                   onPressed: () {
                                     if (originalIndex >= 0) {
-                                      widget.engine.removeCheckpoint(originalIndex);
+                                      widget.engine.removeCheckpoint(
+                                        originalIndex,
+                                      );
                                     }
                                   },
                                 ),
@@ -893,7 +1063,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
             children: [
               const Text(
                 'COMPARE CHECKPOINTS (BEFORE / AFTER DIFF)',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AgiTheme.egaAmber,
+                ),
               ),
               const SizedBox(height: 6),
               if (allHistory.length >= 2) ...[
@@ -906,7 +1080,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                         decoration: const InputDecoration(
                           labelText: 'Before (Checkpoint A)',
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                         ),
                         items: List.generate(allHistory.length, (i) {
                           return DropdownMenuItem(
@@ -934,7 +1111,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                         decoration: const InputDecoration(
                           labelText: 'After (Checkpoint B)',
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                         ),
                         items: List.generate(allHistory.length, (i) {
                           return DropdownMenuItem(
@@ -962,9 +1142,15 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     ElevatedButton.icon(
                       onPressed: _handleComputeDiff,
                       icon: const Icon(Icons.compare_arrows, size: 14),
-                      label: const Text('Compute Diff', style: TextStyle(fontSize: 11)),
+                      label: const Text(
+                        'Compute Diff',
+                        style: TextStyle(fontSize: 11),
+                      ),
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                       ),
                     ),
                     const Spacer(),
@@ -972,9 +1158,15 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                       ElevatedButton.icon(
                         onPressed: _handleCopyDiff,
                         icon: const Icon(Icons.copy, size: 13),
-                        label: const Text('Copy Markdown Diff', style: TextStyle(fontSize: 11)),
+                        label: const Text(
+                          'Copy Markdown Diff',
+                          style: TextStyle(fontSize: 11),
+                        ),
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
                         ),
                       ),
                   ],
@@ -1062,25 +1254,32 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     bool matchesFlag(int i) {
       if (query.isEmpty) return true;
       final name = (agiFlagNames[i] ?? '').toLowerCase();
-      return '$i'.contains(query) || name.contains(query) || 'f$i'.contains(query);
+      return '$i'.contains(query) ||
+          name.contains(query) ||
+          'f$i'.contains(query);
     }
 
     bool matchesVar(int i, int val) {
       if (query.isEmpty) return true;
       final name = (agiVariableNames[i] ?? '').toLowerCase();
-      return '$i'.contains(query) || name.contains(query) || '$val'.contains(query) || 'v$i'.contains(query);
+      return '$i'.contains(query) ||
+          name.contains(query) ||
+          '$val'.contains(query) ||
+          'v$i'.contains(query);
     }
 
     final flagIds = <int>[];
     for (int i = 0; i < 256; i++) {
-      final show = mem.getFlag(i) || mem.isFlagPinned(i) || mem.watchedFlags.contains(i);
+      final show =
+          mem.getFlag(i) || mem.isFlagPinned(i) || mem.watchedFlags.contains(i);
       if (show && matchesFlag(i)) flagIds.add(i);
     }
 
     final varIds = <int>[];
     for (int i = 0; i < 256; i++) {
       final val = mem.getVar(i);
-      final show = val != 0 || mem.isVarPinned(i) || mem.watchedVars.contains(i);
+      final show =
+          val != 0 || mem.isVarPinned(i) || mem.watchedVars.contains(i);
       if (show && matchesVar(i, val)) varIds.add(i);
     }
 
@@ -1110,7 +1309,12 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildSectionHeader('ACTIVE FLAGS', flagIds.length, AgiTheme.egaGreen, const Color(0xFF238636)),
+                    _buildSectionHeader(
+                      'ACTIVE FLAGS',
+                      flagIds.length,
+                      AgiTheme.egaGreen,
+                      const Color(0xFF238636),
+                    ),
                     const SizedBox(height: 6),
                     Expanded(
                       child: _buildListPanel(
@@ -1128,7 +1332,12 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildSectionHeader('NON-ZERO VARIABLES', varIds.length, AgiTheme.egaAmber, const Color(0xFF9E6A03)),
+                    _buildSectionHeader(
+                      'NON-ZERO VARIABLES',
+                      varIds.length,
+                      AgiTheme.egaAmber,
+                      const Color(0xFF9E6A03),
+                    ),
                     const SizedBox(height: 6),
                     Expanded(
                       child: _buildListPanel(
@@ -1147,18 +1356,33 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     );
   }
 
-  Widget _buildSectionHeader(String title, int count, Color titleColor, Color badgeColor) {
+  Widget _buildSectionHeader(
+    String title,
+    int count,
+    Color titleColor,
+    Color badgeColor,
+  ) {
     return Row(
       children: [
         Text(
           title,
-          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: titleColor),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: titleColor,
+          ),
         ),
         const SizedBox(width: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-          decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(10)),
-          child: Text('$count', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+          decoration: BoxDecoration(
+            color: badgeColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '$count',
+            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold),
+          ),
         ),
       ],
     );
@@ -1176,11 +1400,17 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         border: Border.all(color: AgiTheme.egaBorder),
       ),
       child: itemCount == 0
-          ? Center(child: Text(emptyLabel, style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted)))
+          ? Center(
+              child: Text(
+                emptyLabel,
+                style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted),
+              ),
+            )
           : ListView.separated(
               padding: const EdgeInsets.all(6),
               itemCount: itemCount,
-              separatorBuilder: (_, _) => const Divider(color: AgiTheme.egaBorder, height: 4),
+              separatorBuilder: (_, _) =>
+                  const Divider(color: AgiTheme.egaBorder, height: 4),
               itemBuilder: itemBuilder,
             ),
     );
@@ -1208,7 +1438,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           child: TextButton(
             key: const Key('debug-watch-set'),
             onPressed: () => _applyWatchSpec(pin: false),
-            child: const Text('SET', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+            child: const Text(
+              'SET',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+            ),
           ),
         ),
         Tooltip(
@@ -1216,7 +1449,14 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           child: TextButton(
             key: const Key('debug-watch-pin'),
             onPressed: () => _applyWatchSpec(pin: true),
-            child: const Text('PIN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber)),
+            child: const Text(
+              'PIN',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: AgiTheme.egaAmber,
+              ),
+            ),
           ),
         ),
       ],
@@ -1232,7 +1472,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     final mem = widget.engine.memory;
     if (spec.isFlag) {
       // No explicit value → keep/watch the current bit (lets you add a zero flag).
-      final value = spec.value == null ? mem.getFlag(spec.index) : spec.value != 0;
+      final value = spec.value == null
+          ? mem.getFlag(spec.index)
+          : spec.value != 0;
       mem.watchFlag(spec.index);
       if (pin) {
         mem.pinFlag(spec.index, value);
@@ -1347,7 +1589,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           const SizedBox(width: 4),
           _tinyAction(
             label: on ? 'CLR' : 'SET',
-            tooltip: on ? 'Clear flag (LOGIC may set it again)' : 'Set flag ON (LOGIC may clear it)',
+            tooltip: on
+                ? 'Clear flag (LOGIC may set it again)'
+                : 'Set flag ON (LOGIC may clear it)',
             onPressed: () {
               mem.watchFlag(f);
               final next = !on;
@@ -1365,7 +1609,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           ),
           _tinyAction(
             label: pinned ? 'UNPIN' : 'PIN',
-            tooltip: pinned ? 'Stop restoring after each tick' : 'Restore this value after every tick',
+            tooltip: pinned
+                ? 'Stop restoring after each tick'
+                : 'Restore this value after every tick',
             color: pinned ? AgiTheme.egaAmber : null,
             onPressed: () {
               if (pinned) {
@@ -1413,12 +1659,20 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
             child: TextFormField(
               key: ValueKey('var-$vNum-$val'),
               initialValue: '${_pendingVarEdits[vNum] ?? val}',
-              style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: AgiTheme.egaCyan, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 12,
+                color: AgiTheme.egaCyan,
+                fontWeight: FontWeight.bold,
+              ),
               keyboardType: TextInputType.number,
               textAlign: TextAlign.right,
               decoration: const InputDecoration(
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 4,
+                ),
                 border: OutlineInputBorder(),
               ),
               onChanged: (text) {
@@ -1449,7 +1703,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           ),
           _tinyAction(
             label: pinned ? 'UNPIN' : 'PIN',
-            tooltip: pinned ? 'Stop restoring after each tick' : 'Restore this value after every tick',
+            tooltip: pinned
+                ? 'Stop restoring after each tick'
+                : 'Restore this value after every tick',
             color: pinned ? AgiTheme.egaAmber : null,
             onPressed: () {
               if (pinned) {
@@ -1485,7 +1741,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         ),
         child: Text(
           label,
-          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color ?? AgiTheme.egaCyan),
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            color: color ?? AgiTheme.egaCyan,
+          ),
         ),
       ),
     );
@@ -1507,7 +1767,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           children: [
             const Text(
               'ACTIVE ANIMATED OBJECTS',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: AgiTheme.egaAmber,
+              ),
             ),
             const SizedBox(width: 6),
             Container(
@@ -1517,7 +1781,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AgiTheme.egaBorder),
               ),
-              child: Text('${activeObjects.length} active', style: const TextStyle(fontSize: 9, color: AgiTheme.egaCyan)),
+              child: Text(
+                '${activeObjects.length} active',
+                style: const TextStyle(fontSize: 9, color: AgiTheme.egaCyan),
+              ),
             ),
           ],
         ),
@@ -1535,7 +1802,9 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 decoration: BoxDecoration(
                   color: AgiTheme.egaCardSurface,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: isEgo ? AgiTheme.egaCyan : AgiTheme.egaBorder),
+                  border: Border.all(
+                    color: isEgo ? AgiTheme.egaCyan : AgiTheme.egaBorder,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1574,9 +1843,21 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Text('View: ${obj.view} | Loop: ${obj.loop} | Cel: ${obj.cel}', style: const TextStyle(fontSize: 10, color: AgiTheme.egaWhite)),
+                        Text(
+                          'View: ${obj.view} | Loop: ${obj.loop} | Cel: ${obj.cel}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: AgiTheme.egaWhite,
+                          ),
+                        ),
                         const SizedBox(width: 12),
-                        Text('Dir: ${obj.direction} | StepSize: ${obj.stepSize}', style: const TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
+                        Text(
+                          'Dir: ${obj.direction} | StepSize: ${obj.stepSize}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: AgiTheme.egaMuted,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -1584,32 +1865,56 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                       spacing: 4,
                       runSpacing: 4,
                       children: [
-                        if (obj.isDrawn) _buildStatusBadge('Drawn', AgiTheme.egaGreen),
-                        if (obj.isAnimated) _buildStatusBadge('Animated', AgiTheme.egaCyan),
-                        if (obj.isCycling) _buildStatusBadge('Cycling', AgiTheme.egaAmber),
-                        if (obj.motionType == 1) _buildStatusBadge('Wander', AgiTheme.egaAmber),
-                        if (obj.motionType == 2) _buildStatusBadge('FollowEgo', AgiTheme.egaGreen),
-                        if (obj.motionType == 3) _buildStatusBadge('MoveObj', AgiTheme.egaCyan),
-                        if (obj.cycleMode == 1) _buildStatusBadge('RevCycle', AgiTheme.egaMagenta),
-                        if (obj.cycleMode == 2) _buildStatusBadge('EndOfLoop', AgiTheme.egaMagenta),
-                        if (obj.cycleMode == 3) _buildStatusBadge('RevLoop', AgiTheme.egaMagenta),
-                        if (obj.ignoreBlocks) _buildStatusBadge('IgnoreBlocks', AgiTheme.egaMagenta),
-                        if (obj.ignoreHorizon) _buildStatusBadge('IgnoreHorizon', AgiTheme.egaBlue),
-                        if (obj.ignoreObjects) _buildStatusBadge('IgnoreObjects', AgiTheme.egaMuted),
+                        if (obj.isDrawn)
+                          _buildStatusBadge('Drawn', AgiTheme.egaGreen),
+                        if (obj.isAnimated)
+                          _buildStatusBadge('Animated', AgiTheme.egaCyan),
+                        if (obj.isCycling)
+                          _buildStatusBadge('Cycling', AgiTheme.egaAmber),
+                        if (obj.motionType == 1)
+                          _buildStatusBadge('Wander', AgiTheme.egaAmber),
+                        if (obj.motionType == 2)
+                          _buildStatusBadge('FollowEgo', AgiTheme.egaGreen),
+                        if (obj.motionType == 3)
+                          _buildStatusBadge('MoveObj', AgiTheme.egaCyan),
+                        if (obj.cycleMode == 1)
+                          _buildStatusBadge('RevCycle', AgiTheme.egaMagenta),
+                        if (obj.cycleMode == 2)
+                          _buildStatusBadge('EndOfLoop', AgiTheme.egaMagenta),
+                        if (obj.cycleMode == 3)
+                          _buildStatusBadge('RevLoop', AgiTheme.egaMagenta),
+                        if (obj.ignoreBlocks)
+                          _buildStatusBadge(
+                            'IgnoreBlocks',
+                            AgiTheme.egaMagenta,
+                          ),
+                        if (obj.ignoreHorizon)
+                          _buildStatusBadge('IgnoreHorizon', AgiTheme.egaBlue),
+                        if (obj.ignoreObjects)
+                          _buildStatusBadge('IgnoreObjects', AgiTheme.egaMuted),
                       ],
                     ),
                     if (obj.motionType == 3) ...[
                       const SizedBox(height: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: AgiTheme.egaCyan.withValues(alpha: 0.5)),
+                          border: Border.all(
+                            color: AgiTheme.egaCyan.withValues(alpha: 0.5),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.near_me, size: 12, color: AgiTheme.egaCyan),
+                            const Icon(
+                              Icons.near_me,
+                              size: 12,
+                              color: AgiTheme.egaCyan,
+                            ),
                             const SizedBox(width: 5),
                             Text(
                               'move.obj -> Target: (${obj.targetX}, ${obj.targetY})',
@@ -1637,15 +1942,24 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     if (obj.motionType == 2) ...[
                       const SizedBox(height: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: AgiTheme.egaGreen.withValues(alpha: 0.5)),
+                          border: Border.all(
+                            color: AgiTheme.egaGreen.withValues(alpha: 0.5),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.person_pin_circle_outlined, size: 12, color: AgiTheme.egaGreen),
+                            const Icon(
+                              Icons.person_pin_circle_outlined,
+                              size: 12,
+                              color: AgiTheme.egaGreen,
+                            ),
                             const SizedBox(width: 5),
                             const Text(
                               'follow.ego',
@@ -1674,18 +1988,29 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     if (obj.cycleMode == 2 || obj.cycleMode == 3) ...[
                       const SizedBox(height: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: AgiTheme.egaMagenta.withValues(alpha: 0.5)),
+                          border: Border.all(
+                            color: AgiTheme.egaMagenta.withValues(alpha: 0.5),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.replay, size: 12, color: AgiTheme.egaMagenta),
+                            const Icon(
+                              Icons.replay,
+                              size: 12,
+                              color: AgiTheme.egaMagenta,
+                            ),
                             const SizedBox(width: 5),
                             Text(
-                              obj.cycleMode == 2 ? 'end.of.loop' : 'reverse.loop',
+                              obj.cycleMode == 2
+                                  ? 'end.of.loop'
+                                  : 'reverse.loop',
                               style: const TextStyle(
                                 fontFamily: 'Courier',
                                 fontSize: 10.5,
@@ -1728,7 +2053,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: color),
+        style: TextStyle(
+          fontSize: 8.5,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
       ),
     );
   }
@@ -1743,35 +2072,38 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
       ...widget.engine.loadedLogicNumbers,
       widget.engine.currentRoom,
     }.toList()..sort();
-    final allPresentLogics = (widget.engine.resourceLoader?.presentLogicNumbers ?? loadedLogics).toList()..sort();
+    final allPresentLogics =
+        (widget.engine.resourceLoader?.presentLogicNumbers ?? loadedLogics)
+            .toList()
+          ..sort();
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. TELEPORT / ROOM SELECTOR
-          _buildTeleportSection(allPresentLogics),
-          const SizedBox(height: 12),
-
-          // 2. CURRENTLY LOADED LOGIC SCRIPTS (Interactive Workbench Links)
+          // 1. CURRENTLY LOADED LOGIC SCRIPTS (Interactive Workbench Links)
           _buildLoadedLogicsSection(loadedLogics, allPresentLogics),
           const SizedBox(height: 12),
 
-          // 3. ENGINE & ROOM STATUS
+          // 2. ENGINE & ROOM STATUS
           _buildEngineAndRoomStatusSection(),
           const SizedBox(height: 12),
 
-          // 4. LOGIC CALL STACK
+          // 3. LOGIC CALL STACK
           _buildLogicCallStackSection(stack),
           const SizedBox(height: 12),
 
-          // 5. INVENTORY & MEMORY ALLOCATION
+          // 4. INVENTORY & MEMORY ALLOCATION
           _buildInfoSection('INVENTORY & MEMORY ALLOCATION', [
             'Scan Start IP: ${widget.engine.memory.scanStartIp}',
             'Item Rooms Count: ${widget.engine.memory.itemRooms.length}',
             'String Variables Count: ${widget.engine.memory.strings.length}',
             'Max Animated Objects: ${widget.engine.animatedObjects.length}',
           ]),
+          const SizedBox(height: 12),
+
+          // 5. TELEPORT TO ROOM
+          _buildTeleportSection(allPresentLogics),
         ],
       ),
     );
@@ -1785,18 +2117,29 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
       decoration: BoxDecoration(
         color: AgiTheme.egaCardSurface,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AgiTheme.egaCyan.withValues(alpha: 0.6), width: 1.2),
+        border: Border.all(
+          color: AgiTheme.egaCyan.withValues(alpha: 0.6),
+          width: 1.2,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.flight_takeoff, size: 16, color: AgiTheme.egaCyan),
+              const Icon(
+                Icons.flight_takeoff,
+                size: 16,
+                color: AgiTheme.egaCyan,
+              ),
               const SizedBox(width: 6),
               const Text(
                 'TELEPORT / ROOM SELECTOR',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaCyan),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AgiTheme.egaCyan,
+                ),
               ),
               const Spacer(),
               Container(
@@ -1808,7 +2151,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 ),
                 child: Text(
                   'Current: Room $currentRoom',
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AgiTheme.egaCyan),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: AgiTheme.egaCyan,
+                  ),
                 ),
               ),
             ],
@@ -1827,13 +2174,23 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                 child: TextField(
                   controller: _teleportRoomController,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: AgiTheme.egaWhite),
+                  style: const TextStyle(
+                    fontFamily: 'Courier',
+                    fontSize: 12,
+                    color: AgiTheme.egaWhite,
+                  ),
                   decoration: InputDecoration(
                     hintText: 'Room # (0–255)',
-                    hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+                    hintStyle: const TextStyle(
+                      color: AgiTheme.egaMuted,
+                      fontSize: 11,
+                    ),
                     filled: true,
                     fillColor: const Color(0xFF0F172A),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(4),
                       borderSide: const BorderSide(color: AgiTheme.egaBorder),
@@ -1851,24 +2208,52 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
               const SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: () => _handleTeleport(),
-                icon: const Icon(Icons.flash_on, size: 14, color: AgiTheme.egaCyan),
-                label: const Text('Teleport (Inspect)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaCyan)),
+                icon: const Icon(
+                  Icons.flash_on,
+                  size: 14,
+                  color: AgiTheme.egaCyan,
+                ),
+                label: const Text(
+                  'Teleport (Inspect)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AgiTheme.egaCyan,
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: AgiTheme.egaCyan, width: 1.2),
                   backgroundColor: AgiTheme.egaCyan.withValues(alpha: 0.15),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   visualDensity: VisualDensity.compact,
                 ),
               ),
               const SizedBox(width: 6),
               OutlinedButton.icon(
                 onPressed: () => _handleTeleport(closeInspector: true),
-                icon: const Icon(Icons.play_arrow, size: 14, color: AgiTheme.egaGreen),
-                label: const Text('Teleport & Play', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaGreen)),
+                icon: const Icon(
+                  Icons.play_arrow,
+                  size: 14,
+                  color: AgiTheme.egaGreen,
+                ),
+                label: const Text(
+                  'Teleport & Play',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AgiTheme.egaGreen,
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: AgiTheme.egaGreen, width: 1.2),
                   backgroundColor: AgiTheme.egaGreen.withValues(alpha: 0.15),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   visualDensity: VisualDensity.compact,
                 ),
               ),
@@ -1878,7 +2263,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
             const SizedBox(height: 10),
             const Text(
               'Quick Room Jump:',
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: AgiTheme.egaAmber,
+              ),
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -1887,7 +2276,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
               children: allPresentLogics.where((l) => l != 0).map((roomNum) {
                 final isCurrent = roomNum == currentRoom;
                 return ActionChip(
-                  avatar: Icon(Icons.travel_explore, size: 12, color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan),
+                  avatar: Icon(
+                    Icons.travel_explore,
+                    size: 12,
+                    color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan,
+                  ),
                   label: Text(
                     'Room $roomNum${isCurrent ? " (Current)" : ""}',
                     style: TextStyle(
@@ -1897,12 +2290,18 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                       color: isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan,
                     ),
                   ),
-                  backgroundColor: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.12),
+                  backgroundColor:
+                      (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan)
+                          .withValues(alpha: 0.12),
                   side: BorderSide(
-                    color: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan).withValues(alpha: 0.6),
+                    color: (isCurrent ? AgiTheme.egaAmber : AgiTheme.egaCyan)
+                        .withValues(alpha: 0.6),
                     width: 1,
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
                   onPressed: () => _handleTeleport(roomNumber: roomNum),
                   tooltip: 'Teleport immediately to Room $roomNum',
                 );
@@ -1914,7 +2313,10 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     );
   }
 
-  Widget _buildLoadedLogicsSection(List<int> loadedLogics, List<int> allPresentLogics) {
+  Widget _buildLoadedLogicsSection(
+    List<int> loadedLogics,
+    List<int> allPresentLogics,
+  ) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(10),
@@ -1932,7 +2334,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
               const SizedBox(width: 6),
               const Text(
                 'CURRENTLY LOADED LOGIC SCRIPTS',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AgiTheme.egaAmber,
+                ),
               ),
               const Spacer(),
               Text(
@@ -1967,7 +2373,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     : (isCurrentRoom ? AgiTheme.egaAmber : AgiTheme.egaGreen);
 
                 return ActionChip(
-                  avatar: Icon(Icons.description_outlined, size: 14, color: accentColor),
+                  avatar: Icon(
+                    Icons.description_outlined,
+                    size: 14,
+                    color: accentColor,
+                  ),
                   label: Text(
                     badge,
                     style: TextStyle(
@@ -1978,14 +2388,24 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     ),
                   ),
                   backgroundColor: accentColor.withValues(alpha: 0.12),
-                  side: BorderSide(color: accentColor.withValues(alpha: 0.6), width: 1),
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  side: BorderSide(
+                    color: accentColor.withValues(alpha: 0.6),
+                    width: 1,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
                   onPressed: () => _openLogicWorkbench(logicNum),
                   tooltip: 'Open LOGIC $logicNum in Logic Workbench',
                 );
               }),
               ActionChip(
-                avatar: const Icon(Icons.open_in_new, size: 13, color: AgiTheme.egaWhite),
+                avatar: const Icon(
+                  Icons.open_in_new,
+                  size: 13,
+                  color: AgiTheme.egaWhite,
+                ),
                 label: const Text(
                   'Browse All Logics ↗',
                   style: TextStyle(
@@ -2022,21 +2442,32 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         children: [
           const Text(
             'ENGINE & ROOM STATUS',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaAmber,
+            ),
           ),
           const SizedBox(height: 6),
           Row(
             children: [
               Text(
                 'Current Room: Room $currentRoom',
-                style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaWhite),
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontSize: 11,
+                  color: AgiTheme.egaWhite,
+                ),
               ),
               const SizedBox(width: 8),
               InkWell(
                 onTap: () => _openLogicWorkbench(currentRoom),
                 borderRadius: BorderRadius.circular(3),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1.5,
+                  ),
                   decoration: BoxDecoration(
                     color: AgiTheme.egaAmber.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(3),
@@ -2047,10 +2478,18 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     children: [
                       Text(
                         'Open Logic Script',
-                        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          color: AgiTheme.egaAmber,
+                        ),
                       ),
                       SizedBox(width: 3),
-                      Icon(Icons.open_in_new, size: 10, color: AgiTheme.egaAmber),
+                      Icon(
+                        Icons.open_in_new,
+                        size: 10,
+                        color: AgiTheme.egaAmber,
+                      ),
                     ],
                   ),
                 ),
@@ -2060,28 +2499,48 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
           const SizedBox(height: 3),
           Text(
             'Current Cycle Count: ${widget.engine.cycleCount}',
-            style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaWhite),
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11,
+              color: AgiTheme.egaWhite,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             'Engine Speed: ${widget.engine.speedHz.toInt()} Hz (${widget.engine.isPaused ? "PAUSED" : "RUNNING"})',
-            style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaWhite),
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11,
+              color: AgiTheme.egaWhite,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             'Sound Enabled: ${widget.engine.memory.getFlag(9) ? "YES" : "NO"}',
-            style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaWhite),
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11,
+              color: AgiTheme.egaWhite,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             'Last User Command: "${widget.engine.lastSubmittedCommand ?? ""}"',
-            style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaWhite),
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11,
+              color: AgiTheme.egaWhite,
+            ),
           ),
           if (widget.engine.lastError != null) ...[
             const SizedBox(height: 2),
             Text(
               'Last Error: ${widget.engine.lastError}',
-              style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaRed),
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 11,
+                color: AgiTheme.egaRed,
+              ),
             ),
           ],
         ],
@@ -2103,13 +2562,21 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         children: [
           const Text(
             'LOGIC CALL STACK',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaAmber,
+            ),
           ),
           const SizedBox(height: 6),
           if (stack.isEmpty)
             const Text(
               'Call stack is empty (engine is at root frame).',
-              style: TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaMuted),
+              style: TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 11,
+                color: AgiTheme.egaMuted,
+              ),
             )
           else
             ...stack.asMap().entries.map((e) {
@@ -2137,14 +2604,21 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                     ),
                     const SizedBox(width: 8),
                     InkWell(
-                      onTap: () => _openLogicWorkbench(frame.scriptNumber as int),
+                      onTap: () =>
+                          _openLogicWorkbench(frame.scriptNumber as int),
                       borderRadius: BorderRadius.circular(3),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: AgiTheme.egaCyan.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(3),
-                          border: Border.all(color: AgiTheme.egaCyan, width: 0.8),
+                          border: Border.all(
+                            color: AgiTheme.egaCyan,
+                            width: 0.8,
+                          ),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
@@ -2158,7 +2632,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                               ),
                             ),
                             SizedBox(width: 2),
-                            Icon(Icons.open_in_new, size: 10, color: AgiTheme.egaCyan),
+                            Icon(
+                              Icons.open_in_new,
+                              size: 10,
+                              color: AgiTheme.egaCyan,
+                            ),
                           ],
                         ),
                       ),
@@ -2195,15 +2673,28 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AgiTheme.egaAmber)),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: AgiTheme.egaAmber,
+            ),
+          ),
           const SizedBox(height: 6),
-          ...lines.map((l) => Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  l,
-                  style: const TextStyle(fontFamily: 'Courier', fontSize: 11, color: AgiTheme.egaWhite),
+          ...lines.map(
+            (l) => Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(
+                l,
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontSize: 11,
+                  color: AgiTheme.egaWhite,
                 ),
-              )),
+              ),
+            ),
+          ),
         ],
       ),
     );

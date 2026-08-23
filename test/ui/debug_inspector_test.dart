@@ -457,6 +457,7 @@ void main() {
 
       // Enter room 75 and click Teleport (Inspect)
       await tester.enterText(find.widgetWithText(TextField, 'Room # (0–255)'), '75');
+      await tester.ensureVisible(find.widgetWithText(OutlinedButton, 'Teleport (Inspect)'));
       await tester.tap(find.widgetWithText(OutlinedButton, 'Teleport (Inspect)'));
       await tester.pumpAndSettle();
 
