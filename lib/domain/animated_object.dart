@@ -201,11 +201,13 @@ class AnimatedObject {
 
   /// Resets per-room motion, timers, and control flags on room transitions
   /// while preserving object coordinates and view assignments (following Sierra NEWROOM.C).
-  void resetForNewRoom() {
+  void resetForNewRoom({bool preserveDirection = false}) {
     priority = 0;
     fixedPriority = false;
     fixedLoop = false;
-    direction = 0;
+    if (!preserveDirection) {
+      direction = 0;
+    }
     stepSize = 1;
     stepTime = 1;
     stepTimer = 1;
@@ -235,7 +237,6 @@ class AnimatedObject {
       stepSize = oldStepSize;
     }
     motionType = 0;
-    direction = 0;
   }
 
   /// Sierra VIEW.C `SetCel` border clamp after a cel, loop, or view change.

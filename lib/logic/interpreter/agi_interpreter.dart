@@ -748,10 +748,6 @@ class AgiLogicInterpreter {
         o.prevX = o.x;
         o.prevY = o.y;
         frame.ip += 4;
-        if (o.isDrawn) {
-          final res37 = delegate.onDraw(o);
-          if (res37 is Future) return res37.then((_) => InterpreterStatus.running);
-        }
         break;
 
       case 38: // position.v(o, %vx, %vy)
@@ -761,10 +757,6 @@ class AgiLogicInterpreter {
         o.prevX = o.x;
         o.prevY = o.y;
         frame.ip += 4;
-        if (o.isDrawn) {
-          final res38 = delegate.onDraw(o);
-          if (res38 is Future) return res38.then((_) => InterpreterStatus.running);
-        }
         break;
 
       case 39: // get.posn(o, %vx, %vy)
@@ -782,16 +774,12 @@ class AgiLogicInterpreter {
         if (dy >= 128) dy -= 256;
         final targetX = (o.x + dx).clamp(0, 159);
         final targetY = (o.y + dy).clamp(0, 167);
-        delegate.onReposition(o, targetX, targetY);
         o.x = targetX;
         o.y = targetY;
         o.prevX = o.x;
         o.prevY = o.y;
+        delegate.onReposition(o, targetX, targetY);
         frame.ip += 4;
-        if (o.isDrawn) {
-          final res40 = delegate.onDraw(o);
-          if (res40 is Future) return res40.then((_) => InterpreterStatus.running);
-        }
         break;
 
       case 41: // set.view(o, v)

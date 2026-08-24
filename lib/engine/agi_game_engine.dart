@@ -637,11 +637,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return true;
     }
 
-    // Synchronize Ego motion direction from %v6 (var[EGODIR]) per Sierra MAIN.C:102.
+    // Synchronize Ego motion direction from %v6 (var[EGODIR]) per Sierra MAIN.C:102 / ScummVM cycle.cpp:165.
+    // Unconditionally sync var[6] back to ego.direction after script execution (for both user and program control).
     // Do not force isCycling off when standing: scripts use start.cycling / end.of.loop
     // on a stationary Ego (KQ2 monastery pray, drowning, etc.). Walk-cycle stop is
     // handled in _applyEgoDirection when the player actually stops.
-    if (_isUserControl && ego.motionType == 0) {
+    if (ego.motionType == 0) {
       ego.direction = memory.getVar(6);
       if (ego.direction != 0) {
         ego.isCycling = true;
@@ -1538,7 +1539,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       // off the right edge (SQ1 spider droid at x=164) "catches" Ego
       // from across the room the moment it tries to step back on-screen.
       if (obj.motionType == 3) {
-        _completeMoveObj(obj);
+        _completeMoveObj(obj, isBorderHit: true);
       }
     }
 
@@ -1554,6 +1555,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       return;
     }
 
+    var actualTargetX = clampedX;
+    var actualTargetY = clampedY;
+
     // Priority buffer collision (Sierra CanBHere). Auto-priority uses the
     // proposed Y-band so a released priority-15 drop-in still observes walls.
     if (priBuf != null &&
@@ -1564,15 +1568,71 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           y: clampedY,
           width: objWidth,
         )) {
-      if (obj.motionType == 1) {
-        obj.direction = _rng.nextInt(9);
-      } else if (obj.number == 0 && obj.motionType == 0) {
-        obj.direction = 0;
-        memory.setVar(6, 0);
-        obj.isCycling = false;
+      if (obj.motionType == 3) {
+        // Corner-slip assistance for move.obj when a doorway or passage is slightly narrower than sprite alignment
+        bool slipped = false;
+        if (dx == 0 && dy != 0) {
+          for (final nudge in const [-1, 1, -2, 2, -3, 3, -4, 4]) {
+            final testX = (obj.x + nudge).clamp(0, 160 - objWidth);
+            if (CollisionDetector.objectCanBeHere(
+                  priorityBuffer: priBuf,
+                  obj: obj,
+                  x: testX,
+                  y: clampedY,
+                  width: objWidth,
+                ) &&
+                CollisionDetector.objectCanBeHere(
+                  priorityBuffer: priBuf,
+                  obj: obj,
+                  x: testX,
+                  y: obj.y,
+                  width: objWidth,
+                )) {
+              actualTargetX = testX;
+              slipped = true;
+              break;
+            }
+          }
+        } else if (dy == 0 && dx != 0) {
+          for (final nudge in const [-1, 1, -2, 2, -3, 3, -4, 4]) {
+            final minScreenY = math.max(0, obj.getCelHeight() - 1);
+            final minY = obj.ignoreHorizon ? minScreenY : math.max(horizon, minScreenY);
+            final testY = (obj.y + nudge).clamp(minY + 1, 167);
+            if (CollisionDetector.objectCanBeHere(
+                  priorityBuffer: priBuf,
+                  obj: obj,
+                  x: clampedX,
+                  y: testY,
+                  width: objWidth,
+                ) &&
+                CollisionDetector.objectCanBeHere(
+                  priorityBuffer: priBuf,
+                  obj: obj,
+                  x: obj.x,
+                  y: testY,
+                  width: objWidth,
+                )) {
+              actualTargetY = testY;
+              slipped = true;
+              break;
+            }
+          }
+        }
+        if (!slipped) {
+          posShuffle(obj);
+          return;
+        }
+      } else {
+        if (obj.motionType == 1) {
+          obj.direction = _rng.nextInt(9);
+        } else if (obj.number == 0 && obj.motionType == 0) {
+          obj.direction = 0;
+          memory.setVar(6, 0);
+          obj.isCycling = false;
+        }
+        posShuffle(obj);
+        return;
       }
-      posShuffle(obj);
-      return;
     }
 
     // Object-to-object collision check (baseline intersection & crossing per Sierra COLLIDE.C)
@@ -1584,15 +1644,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
         final otherWidth = other.getCelWidth();
 
-        final aLeft = clampedX;
-        final aRight = clampedX + objWidth - 1;
+        final aLeft = actualTargetX;
+        final aRight = actualTargetX + objWidth - 1;
         final bLeft = other.x;
         final bRight = other.x + otherWidth - 1;
 
         if (aRight >= bLeft && aLeft <= bRight) {
-          if (clampedY == other.y ||
-              (clampedY > other.y && obj.prevY < other.prevY) ||
-              (clampedY < other.y && obj.prevY > other.prevY)) {
+          if (actualTargetY == other.y ||
+              (actualTargetY > other.y && obj.prevY < other.prevY) ||
+              (actualTargetY < other.y && obj.prevY > other.prevY)) {
             if (obj.motionType == 1) {
               obj.direction = _rng.nextInt(9);
             } else if (obj.number == 0 && obj.motionType == 0) {
@@ -1609,8 +1669,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     obj.prevX = obj.x;
     obj.prevY = obj.y;
-    obj.x = clampedX;
-    obj.y = clampedY;
+    obj.x = actualTargetX;
+    obj.y = actualTargetY;
     CollisionDetector.syncAutoPriority(obj, obj.y);
 
     if (obj.motionType == 3) {
@@ -1657,16 +1717,20 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     );
   }
 
-  /// Sierra `EndMoveObj`: restore the pre-`move.obj` step size and signal done.
-  void _completeMoveObj(AnimatedObject obj) {
+  void _completeMoveObj(AnimatedObject obj, {bool isBorderHit = false}) {
     obj.endMoveObj();
     if (obj.targetFlag != null) {
       memory.setFlag(obj.targetFlag!);
       obj.targetFlag = null;
     }
     if (obj.number == 0) {
-      memory.setVar(6, 0);
+      if (!isBorderHit) {
+        obj.direction = 0;
+        memory.setVar(6, 0);
+      }
       _isUserControl = true;
+    } else {
+      obj.direction = 0;
     }
   }
 
@@ -1793,7 +1857,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.setVar(16, ego.view);
 
     // Unload non-Ego animated objects and reset Ego per-room state
-    ego.resetForNewRoom();
+    ego.resetForNewRoom(preserveDirection: borderHit != 0);
     final egoView = _loadedViews[ego.view];
     _loadedViews.clear();
     atlasManager.clear();
@@ -2315,6 +2379,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onReposition(AnimatedObject obj, int newX, int newY) {
     _eraseVideoTextInBlitUnion(obj, newX, newY);
+    posShuffle(obj);
   }
 
   @override
