@@ -46,12 +46,21 @@ class LauncherState {
   }
 }
 
-class LauncherNotifier extends StateNotifier<LauncherState> {
-  LauncherNotifier() : super(const LauncherState());
+class LauncherNotifier extends Notifier<LauncherState> {
+  AgiResourceLoader? _currentLoader;
+
+  @override
+  LauncherState build() {
+    ref.onDispose(() {
+      _currentLoader?.close();
+      _currentLoader = null;
+    });
+    return const LauncherState();
+  }
 
   Future<void> pickDirectory() async {
     try {
-      final selectedDirectory = await FilePicker.platform.getDirectoryPath(
+      final selectedDirectory = await FilePickerPlatform.instance.getDirectoryPath(
         dialogTitle: 'Select Sierra AGI Game Directory',
       );
       if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
@@ -74,9 +83,10 @@ class LauncherNotifier extends StateNotifier<LauncherState> {
 
     try {
       // Close previous loader if open
-      state.loader?.close();
+      _currentLoader?.close();
 
       final loader = await AgiResourceLoader.fromDirectory(dirPath);
+      _currentLoader = loader;
       final gameInfo = loader.toGameInfo();
 
       final updatedRecents = [
@@ -100,7 +110,8 @@ class LauncherNotifier extends StateNotifier<LauncherState> {
   }
 
   void clear() {
-    state.loader?.close();
+    _currentLoader?.close();
+    _currentLoader = null;
     state = state.copyWith(
       status: LauncherStatus.initial,
       selectedPath: null,
@@ -109,14 +120,8 @@ class LauncherNotifier extends StateNotifier<LauncherState> {
       errorMessage: null,
     );
   }
-
-  @override
-  void dispose() {
-    state.loader?.close();
-    super.dispose();
-  }
 }
 
-final launcherProvider = StateNotifierProvider<LauncherNotifier, LauncherState>((ref) {
-  return LauncherNotifier();
-});
+final launcherProvider = NotifierProvider<LauncherNotifier, LauncherState>(
+  LauncherNotifier.new,
+);

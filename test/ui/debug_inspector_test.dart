@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
@@ -16,7 +17,17 @@ void main() {
     late AgiGameEngine engine;
 
     setUp(() {
-      engine = AgiGameEngine(speedHz: 20.0, randomSeed: 123);
+      engine = AgiGameEngine(
+        speedHz: 20.0,
+        randomSeed: 123,
+        objects: const [
+          AgiObject(name: 'Golden Key', startingRoom: 255),
+          AgiObject(name: 'Brass Lantern', startingRoom: 3),
+          AgiObject(name: 'Silver Dagger', startingRoom: 10),
+          AgiObject(name: '?', startingRoom: 0),
+          AgiObject(name: 'Magic Wand', startingRoom: 5),
+        ],
+      );
       final priBuf = PriorityBuffer();
       engine.currentPic = AgiPic(
         visualPixels: Uint8List(160 * 168),
@@ -463,6 +474,248 @@ void main() {
 
       expect(engine.currentRoom, 75);
       expect(find.text('Current: Room 75'), findsOneWidget);
+    });
+
+    testWidgets('Inventory Objects tab displays all objects and allows adding and removing items via checkboxes', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => DebugInspectorDialog.show(context, engine),
+                child: const Text('Open Debugger'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+
+      // Switch to Inventory Objects tab
+      await tester.tap(find.text('Inventory Objects'));
+      await tester.pumpAndSettle();
+
+      // Verify header and initial counts (Golden Key is in room 255 initially)
+      expect(find.text('GAME OBJECTS & INVENTORY'), findsOneWidget);
+      expect(find.text('1 / 5 Carried'), findsOneWidget);
+
+      // Verify items rendered
+      expect(find.text('Golden Key'), findsOneWidget);
+      expect(find.text('Carried (Room 255)'), findsOneWidget);
+      expect(find.text('Brass Lantern'), findsOneWidget);
+      expect(find.text('Silver Dagger'), findsOneWidget);
+      expect(find.text('Magic Wand'), findsOneWidget);
+      expect(find.byKey(const Key('inventory-set-room-btn-1')), findsOneWidget);
+      expect(find.byKey(const Key('inventory-set-room-btn-2')), findsOneWidget);
+      expect(find.byKey(const Key('inventory-set-room-btn-4')), findsOneWidget);
+
+      // Dummy item '?' is hidden by default
+      expect(find.text('?'), findsNothing);
+
+      // Verify initial carried item
+      expect(engine.isItemCarried(0), isTrue);
+      expect(engine.isItemCarried(1), isFalse);
+      expect(engine.getCarriedItems().map((c) => c.name), contains('Golden Key'));
+      expect(engine.getCarriedItems().map((c) => c.name), isNot(contains('Brass Lantern')));
+
+      // Check the checkbox for Brass Lantern (#1) to add it to inventory
+      final lanternCheckbox = find.byKey(const Key('inventory-checkbox-1'));
+      expect(lanternCheckbox, findsOneWidget);
+      await tester.tap(lanternCheckbox);
+      await tester.pumpAndSettle();
+
+      // Verify engine and UI updated immediately
+      expect(engine.isItemCarried(1), isTrue);
+      expect(engine.getObjectRoom(1), 255);
+      expect(engine.getCarriedItems().map((c) => c.name), containsAll(['Golden Key', 'Brass Lantern']));
+      expect(find.text('2 / 5 Carried'), findsOneWidget);
+
+      // Uncheck Golden Key (#0) to remove it from inventory
+      final keyCheckbox = find.byKey(const Key('inventory-checkbox-0'));
+      expect(keyCheckbox, findsOneWidget);
+      await tester.tap(keyCheckbox);
+      await tester.pumpAndSettle();
+
+      // Verify Golden Key is no longer in inventory
+      expect(engine.isItemCarried(0), isFalse);
+      expect(engine.getObjectRoom(0), 0);
+      expect(engine.getCarriedItems().map((c) => c.name), isNot(contains('Golden Key')));
+      expect(engine.getCarriedItems().map((c) => c.name), contains('Brass Lantern'));
+      expect(find.text('1 / 5 Carried'), findsOneWidget);
+    });
+
+    testWidgets('Inventory Objects tab search field and filter chips accurately filter objects', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => DebugInspectorDialog.show(context, engine),
+                child: const Text('Open Debugger'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inventory Objects'));
+      await tester.pumpAndSettle();
+
+      // Search for Dagger
+      await tester.enterText(find.byKey(const Key('inventory-search-field')), 'Dagger');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Silver Dagger'), findsOneWidget);
+      expect(find.text('Golden Key'), findsNothing);
+      expect(find.text('Brass Lantern'), findsNothing);
+      expect(find.text('Magic Wand'), findsNothing);
+
+      // Clear search
+      await tester.enterText(find.byKey(const Key('inventory-search-field')), '');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Golden Key'), findsOneWidget);
+      expect(find.text('Brass Lantern'), findsOneWidget);
+
+      // Filter: Carried (Golden Key)
+      await tester.tap(find.byKey(const Key('inventory-filter-carried')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Golden Key'), findsOneWidget);
+      expect(find.text('Brass Lantern'), findsNothing);
+      expect(find.text('Silver Dagger'), findsNothing);
+
+      // Filter: Not Carried
+      await tester.tap(find.byKey(const Key('inventory-filter-not-carried')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Golden Key'), findsNothing);
+      expect(find.text('Brass Lantern'), findsOneWidget);
+      expect(find.text('Silver Dagger'), findsOneWidget);
+      expect(find.text('Magic Wand'), findsOneWidget);
+
+      // Reset to All
+      await tester.tap(find.byKey(const Key('inventory-filter-all')));
+      await tester.pumpAndSettle();
+
+      // Toggle Hide Dummy (?) off
+      await tester.tap(find.byKey(const Key('inventory-hide-dummy-chip')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('?'), findsOneWidget);
+      expect(find.text('#3'), findsOneWidget);
+    });
+
+    testWidgets('Inventory Objects tab Take All and Drop All bulk actions update all object locations in engine', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => DebugInspectorDialog.show(context, engine),
+                child: const Text('Open Debugger'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inventory Objects'));
+      await tester.pumpAndSettle();
+
+      // Tap Take All
+      await tester.tap(find.byKey(const Key('inventory-take-all-btn')));
+      await tester.pumpAndSettle();
+
+      // All 4 non-dummy items should be in inventory
+      expect(engine.isItemCarried(0), isTrue);
+      expect(engine.isItemCarried(1), isTrue);
+      expect(engine.isItemCarried(2), isTrue);
+      expect(engine.isItemCarried(4), isTrue);
+      expect(find.text('4 / 5 Carried'), findsOneWidget);
+
+      // Tap Drop All
+      await tester.tap(find.byKey(const Key('inventory-drop-all-btn')));
+      await tester.pumpAndSettle();
+
+      // All items dropped
+      expect(engine.isItemCarried(0), isFalse);
+      expect(engine.isItemCarried(1), isFalse);
+      expect(engine.isItemCarried(2), isFalse);
+      expect(engine.isItemCarried(4), isFalse);
+      expect(find.text('0 / 5 Carried'), findsOneWidget);
+    });
+
+    testWidgets('Inventory Objects tab allows setting a custom room number for an object', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => DebugInspectorDialog.show(context, engine),
+                child: const Text('Open Debugger'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Debugger'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inventory Objects'));
+      await tester.pumpAndSettle();
+
+      // Tap Room button on Brass Lantern (#1)
+      await tester.tap(find.byKey(const Key('inventory-set-room-btn-1')));
+      await tester.pumpAndSettle();
+
+      // Verify Set Room dialog
+      expect(find.text('SET ROOM FOR OBJECT #1'), findsOneWidget);
+      expect(find.descendant(of: find.byType(AlertDialog), matching: find.text('Brass Lantern')), findsOneWidget);
+
+      // Enter room 42
+      await tester.enterText(find.widgetWithText(TextField, 'Room # (0–255)'), '42');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Set Room'));
+      await tester.pumpAndSettle();
+
+      // Verify engine and UI updated
+      expect(engine.getObjectRoom(1), 42);
+      expect(find.text('Room 42'), findsWidgets);
+      expect(find.text('(Initial: 3)'), findsOneWidget);
     });
   });
 }

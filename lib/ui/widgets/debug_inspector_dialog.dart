@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/loader/object_view_resolver.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
+import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 import 'package:flutter_agigame/ui/widgets/snapshot_thumbnail_widget.dart';
 
@@ -36,11 +39,15 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   final TextEditingController _searchFilterController = TextEditingController();
   final TextEditingController _watchSpecController = TextEditingController();
   final TextEditingController _teleportRoomController = TextEditingController();
+  final TextEditingController _inventorySearchController =
+      TextEditingController();
 
   int _checkpointFilterIndex = 0;
   int? _diffBeforeIndex;
   int? _diffAfterIndex;
   String? _computedDiffMarkdown;
+  int _inventoryFilterMode = 0; // 0: All, 1: Carried, 2: Not Carried
+  bool _hideDummyInventoryObjects = true;
 
   /// In-progress variable edits (typed but not yet SET/PIN'd).
   final Map<int, int> _pendingVarEdits = {};
@@ -48,7 +55,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     widget.engine.addListener(_onEngineUpdate);
 
     if (widget.engine.checkpointHistory.isNotEmpty) {
@@ -67,6 +74,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
     _searchFilterController.dispose();
     _watchSpecController.dispose();
     _teleportRoomController.dispose();
+    _inventorySearchController.dispose();
     super.dispose();
   }
 
@@ -401,6 +409,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                               _buildCheckpointsTab(),
                               _buildVariablesAndFlagsTab(),
                               _buildObjectsTab(),
+                              _buildInventoryObjectsTab(),
                               _buildLogicAndSystemTab(),
                             ],
                           ),
@@ -749,6 +758,7 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
         Tab(text: 'Checkpoints & Diff'),
         Tab(text: 'Variables & Flags'),
         Tab(text: 'Animated Objects'),
+        Tab(text: 'Inventory Objects'),
         Tab(text: 'Logic & Stack'),
       ],
     );
@@ -2063,7 +2073,702 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
   }
 
   // ---------------------------------------------------------------------------
-  // Tab 4: Logic & System
+  // Tab 4: Inventory Objects
+  // ---------------------------------------------------------------------------
+
+  Widget _buildInventoryObjectsTab() {
+    final engine = widget.engine;
+    final objects = engine.objects;
+    final loader = engine.resourceLoader;
+    final query = _inventorySearchController.text.trim().toLowerCase();
+
+    // Calculate total and carried counts
+    var carriedCount = 0;
+    for (var i = 0; i < objects.length; i++) {
+      if (engine.isItemCarried(i)) {
+        carriedCount++;
+      }
+    }
+
+    final filteredIndices = <int>[];
+    for (var i = 0; i < objects.length; i++) {
+      final obj = objects[i];
+      if (_hideDummyInventoryObjects &&
+          (obj.name.trim().startsWith('?') || obj.name.trim().isEmpty)) {
+        continue;
+      }
+      final isCarried = engine.isItemCarried(i);
+      if (_inventoryFilterMode == 1 && !isCarried) {
+        continue;
+      }
+      if (_inventoryFilterMode == 2 && isCarried) {
+        continue;
+      }
+      final currentRoom = engine.getObjectRoom(i);
+      if (query.isNotEmpty) {
+        final matchesName = obj.name.toLowerCase().contains(query);
+        final matchesIndex = '#$i'.contains(query) || '$i' == query;
+        final matchesRoom = currentRoom.toString() == query ||
+            'room $currentRoom'.contains(query);
+        if (!matchesName && !matchesIndex && !matchesRoom) {
+          continue;
+        }
+      }
+      filteredIndices.add(i);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header Row & Badges
+        Row(
+          children: [
+            const Icon(
+              Icons.inventory_2_outlined,
+              size: 16,
+              color: AgiTheme.egaCyan,
+            ),
+            const SizedBox(width: 6),
+            const Text(
+              'GAME OBJECTS & INVENTORY',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: AgiTheme.egaCyan,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: (carriedCount > 0
+                        ? AgiTheme.egaGreen
+                        : AgiTheme.egaBorder)
+                    .withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: carriedCount > 0
+                      ? AgiTheme.egaGreen
+                      : AgiTheme.egaBorder,
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                '$carriedCount / ${objects.length} Carried',
+                style: TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.bold,
+                  color: carriedCount > 0
+                      ? AgiTheme.egaGreen
+                      : AgiTheme.egaMuted,
+                ),
+              ),
+            ),
+            const Spacer(),
+            // Quick action: Take All matching
+            if (filteredIndices.isNotEmpty) ...[
+              TextButton.icon(
+                key: const Key('inventory-take-all-btn'),
+                onPressed: () {
+                  for (final idx in filteredIndices) {
+                    engine.addItemToInventory(idx);
+                  }
+                  setState(() {});
+                  _showToast(
+                    '🎒 Added ${filteredIndices.length} items to inventory',
+                  );
+                },
+                icon: const Icon(
+                  Icons.add_shopping_cart,
+                  size: 13,
+                  color: AgiTheme.egaGreen,
+                ),
+                label: const Text(
+                  'Take All',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    color: AgiTheme.egaGreen,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+            // Quick action: Drop All carried
+            if (carriedCount > 0)
+              TextButton.icon(
+                key: const Key('inventory-drop-all-btn'),
+                onPressed: () {
+                  for (var i = 0; i < objects.length; i++) {
+                    if (engine.isItemCarried(i)) {
+                      engine.removeItemFromInventory(i);
+                    }
+                  }
+                  setState(() {});
+                  _showToast('📦 Dropped all carried items');
+                },
+                icon: const Icon(
+                  Icons.remove_shopping_cart,
+                  size: 13,
+                  color: AgiTheme.egaAmber,
+                ),
+                label: const Text(
+                  'Drop All',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    color: AgiTheme.egaAmber,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        // Search Bar & Filter Controls
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 32,
+                child: TextField(
+                  key: const Key('inventory-search-field'),
+                  controller: _inventorySearchController,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontFamily: 'Courier',
+                    color: AgiTheme.egaWhite,
+                  ),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText:
+                        'Search items by name, #index, or room number...',
+                    hintStyle: const TextStyle(
+                      fontSize: 11,
+                      color: AgiTheme.egaMuted,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      size: 14,
+                      color: AgiTheme.egaMuted,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    suffixIcon: _inventorySearchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(
+                              Icons.clear,
+                              size: 13,
+                              color: AgiTheme.egaMuted,
+                            ),
+                            onPressed: () {
+                              _inventorySearchController.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+
+        // Filter Chips Row
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildFilterChoiceChip(
+                key: const Key('inventory-filter-all'),
+                label: 'All (${objects.length})',
+                isSelected: _inventoryFilterMode == 0,
+                onSelected: () => setState(() => _inventoryFilterMode = 0),
+              ),
+              const SizedBox(width: 6),
+              _buildFilterChoiceChip(
+                key: const Key('inventory-filter-carried'),
+                label: 'Carried ($carriedCount)',
+                isSelected: _inventoryFilterMode == 1,
+                onSelected: () => setState(() => _inventoryFilterMode = 1),
+                accentColor: AgiTheme.egaGreen,
+              ),
+              const SizedBox(width: 6),
+              _buildFilterChoiceChip(
+                key: const Key('inventory-filter-not-carried'),
+                label: 'Not Carried (${objects.length - carriedCount})',
+                isSelected: _inventoryFilterMode == 2,
+                onSelected: () => setState(() => _inventoryFilterMode = 2),
+                accentColor: AgiTheme.egaAmber,
+              ),
+              const SizedBox(width: 8),
+              FilterChip(
+                key: const Key('inventory-hide-dummy-chip'),
+                label: const Text(
+                  'Hide Dummy (?)',
+                  style: TextStyle(fontSize: 10.5),
+                ),
+                selected: _hideDummyInventoryObjects,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                onSelected: (val) =>
+                    setState(() => _hideDummyInventoryObjects = val),
+                avatar: Icon(
+                  _hideDummyInventoryObjects
+                      ? Icons.visibility_off
+                      : Icons.visibility,
+                  size: 13,
+                  color: _hideDummyInventoryObjects
+                      ? AgiTheme.egaCyan
+                      : AgiTheme.egaMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Main List of Items
+        Expanded(
+          child: objects.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No game OBJECTs defined for this game.',
+                    style: TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+                  ),
+                )
+              : filteredIndices.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No objects matching filter.',
+                        style:
+                            TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      itemCount: filteredIndices.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 4),
+                      itemBuilder: (ctx, idx) {
+                        final objIdx = filteredIndices[idx];
+                        final obj = objects[objIdx];
+                        final isCarried = engine.isItemCarried(objIdx);
+                        final currentRoom = engine.getObjectRoom(objIdx);
+
+                        final viewNum = loader != null
+                            ? ObjectViewResolver.resolveViewNumber(
+                                objectIndex: objIdx,
+                                object: obj,
+                                loader: loader,
+                              )
+                            : objIdx;
+
+                        AgiView? objView;
+                        if (loader != null &&
+                            loader.presentViewNumbers.contains(viewNum)) {
+                          try {
+                            objView = loader.loadView(viewNum);
+                          } catch (_) {}
+                        }
+
+                        final formattedName = obj.name.isEmpty
+                            ? '<Nameless Item>'
+                            : engine.formatMessage(obj.name.trim());
+
+                        return Container(
+                          key: Key('inventory-item-card-$objIdx'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isCarried
+                                ? const Color(0xFF13231B)
+                                : AgiTheme.egaCardSurface,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isCarried
+                                  ? AgiTheme.egaGreen.withValues(alpha: 0.6)
+                                  : AgiTheme.egaBorder,
+                              width: isCarried ? 1.2 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              // Checkbox to Add/Remove from Inventory
+                              SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: Checkbox(
+                                  key: Key('inventory-checkbox-$objIdx'),
+                                  value: isCarried,
+                                  activeColor: AgiTheme.egaGreen,
+                                  checkColor: Colors.black,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                  onChanged: (checked) {
+                                    if (checked == true) {
+                                      engine.addItemToInventory(objIdx);
+                                    } else {
+                                      engine.removeItemFromInventory(objIdx);
+                                    }
+                                    setState(() {});
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+
+                              // Index Badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: AgiTheme.egaBorder),
+                                ),
+                                child: Text(
+                                  '#$objIdx',
+                                  style: const TextStyle(
+                                    fontFamily: 'Courier',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10.5,
+                                    color: AgiTheme.egaCyan,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+
+                              // Optional Mini Cel Image Preview
+                              if (objView != null &&
+                                  objView.loops.isNotEmpty &&
+                                  objView.loops[0].cels.isNotEmpty) ...[
+                                Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black,
+                                    borderRadius: BorderRadius.circular(3),
+                                    border:
+                                        Border.all(color: AgiTheme.egaBorder),
+                                  ),
+                                  child: Center(
+                                    child: CelImageWidget(
+                                      view: objView,
+                                      loopIndex: 0,
+                                      celIndex: 0,
+                                      scale: 0.9,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+
+                              // Item Name & Current Location
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      formattedName,
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: obj.name.isEmpty
+                                            ? AgiTheme.egaMuted
+                                            : isCarried
+                                                ? AgiTheme.egaWhite
+                                                : const Color(0xFFD1D5DB),
+                                        fontStyle: obj.name.isEmpty
+                                            ? FontStyle.italic
+                                            : FontStyle.normal,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          isCarried
+                                              ? 'Carried (Room 255)'
+                                              : 'Room $currentRoom',
+                                          style: TextStyle(
+                                            fontFamily: 'Courier',
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isCarried
+                                                ? AgiTheme.egaGreen
+                                                : AgiTheme.egaMuted,
+                                          ),
+                                        ),
+                                        if (!isCarried &&
+                                            currentRoom !=
+                                                obj.startingRoom) ...[
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '(Initial: ${obj.startingRoom})',
+                                            style: const TextStyle(
+                                              fontFamily: 'Courier',
+                                              fontSize: 9.5,
+                                              color: AgiTheme.egaAmber,
+                                            ),
+                                          ),
+                                        ],
+                                        if (objView != null) ...[
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'VIEW $viewNum',
+                                            style: const TextStyle(
+                                              fontFamily: 'Courier',
+                                              fontSize: 9,
+                                              color: AgiTheme.egaMagenta,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Quick Room Change Button
+                              Tooltip(
+                                message: 'Set Room Number (0–255)',
+                                child: InkWell(
+                                  key: Key('inventory-set-room-btn-$objIdx'),
+                                  borderRadius: BorderRadius.circular(4),
+                                  onTap: () => _showSetObjectRoomDialog(
+                                    objIdx,
+                                    obj.name,
+                                    currentRoom,
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E293B),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(
+                                        color: AgiTheme.egaBorder,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.meeting_room_outlined,
+                                          size: 11,
+                                          color: AgiTheme.egaCyan,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Room $currentRoom',
+                                          style: const TextStyle(
+                                            fontFamily: 'Courier',
+                                            fontSize: 9.5,
+                                            color: AgiTheme.egaCyan,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+
+                              // Copy Name Button
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.copy,
+                                  size: 13,
+                                  color: AgiTheme.egaMuted,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 24,
+                                  minHeight: 24,
+                                ),
+                                tooltip: 'Copy Name',
+                                onPressed: () {
+                                  Clipboard.setData(
+                                    ClipboardData(text: obj.name),
+                                  );
+                                  _showToast('Copied "${obj.name}"');
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChoiceChip({
+    Key? key,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onSelected,
+    Color? accentColor,
+  }) {
+    final color = accentColor ?? AgiTheme.egaCyan;
+    return ChoiceChip(
+      key: key,
+      label: Text(label, style: const TextStyle(fontSize: 10.5)),
+      selected: isSelected,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      selectedColor: color.withValues(alpha: 0.2),
+      side: BorderSide(
+        color: isSelected ? color : AgiTheme.egaBorder,
+        width: isSelected ? 1.2 : 0.8,
+      ),
+      onSelected: (_) => onSelected(),
+    );
+  }
+
+  void _showSetObjectRoomDialog(int objIdx, String objName, int currentRoom) {
+    final roomCtrl = TextEditingController(text: '$currentRoom');
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: const BorderSide(color: AgiTheme.egaCyan, width: 1.5),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.meeting_room, color: AgiTheme.egaCyan, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'SET ROOM FOR OBJECT #$objIdx',
+                style: const TextStyle(
+                  color: AgiTheme.egaWhite,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                objName.isEmpty ? '<Nameless Item>' : objName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AgiTheme.egaWhite,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Enter target room (0–255). Room 255 puts the item in player inventory.',
+                style: TextStyle(fontSize: 10.5, color: AgiTheme.egaMuted),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: roomCtrl,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontSize: 13,
+                  color: AgiTheme.egaWhite,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Room # (0–255)',
+                  filled: true,
+                  fillColor: const Color(0xFF0F172A),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(4),
+                    borderSide: const BorderSide(color: AgiTheme.egaBorder),
+                  ),
+                ),
+                onSubmitted: (val) {
+                  final r = int.tryParse(val.trim());
+                  if (r != null && r >= 0 && r <= 255) {
+                    widget.engine.setObjectRoom(objIdx, r);
+                    Navigator.of(ctx).pop();
+                    setState(() {});
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AgiTheme.egaMuted),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final r = int.tryParse(roomCtrl.text.trim());
+                if (r != null && r >= 0 && r <= 255) {
+                  widget.engine.setObjectRoom(objIdx, r);
+                  Navigator.of(ctx).pop();
+                  setState(() {});
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AgiTheme.egaCyan,
+              ),
+              child: const Text(
+                'Set Room',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tab 5: Logic & System
   // ---------------------------------------------------------------------------
 
   Widget _buildLogicAndSystemTab() {

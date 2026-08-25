@@ -303,6 +303,42 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   List<AgiObject> get objects =>
       _customObjects ?? resourceLoader?.initialObjects ?? const [];
 
+  /// Returns the current room location of the object at [objectIndex].
+  int getObjectRoom(int objectIndex) {
+    if (memory.itemRooms.containsKey(objectIndex)) {
+      return memory.itemRooms[objectIndex]!;
+    }
+    final all = objects;
+    if (objectIndex >= 0 && objectIndex < all.length) {
+      return all[objectIndex].startingRoom;
+    }
+    return 0;
+  }
+
+  /// Returns true if the object at [objectIndex] is currently carried in inventory (Room 255).
+  bool isItemCarried(int objectIndex) => getObjectRoom(objectIndex) == 255;
+
+  /// Sets the current room location of the object at [objectIndex] and notifies engine listeners.
+  void setObjectRoom(int objectIndex, int room) {
+    memory.itemRooms[objectIndex] = room & 0xFF;
+    notifyListeners();
+  }
+
+  /// Adds the object at [objectIndex] to the player's inventory (sets its room to 255).
+  void addItemToInventory(int objectIndex) {
+    setObjectRoom(objectIndex, 255);
+  }
+
+  /// Removes the object at [objectIndex] from inventory by placing it in [targetRoom]
+  /// (defaults to the object's original starting room, or 0 if starting room was 255).
+  void removeItemFromInventory(int objectIndex, [int? targetRoom]) {
+    final all = objects;
+    final defaultRoom = (objectIndex >= 0 && objectIndex < all.length)
+        ? (all[objectIndex].startingRoom != 255 ? all[objectIndex].startingRoom : 0)
+        : 0;
+    setObjectRoom(objectIndex, targetRoom ?? defaultRoom);
+  }
+
   /// Returns the subset of items currently carried by the player (room 255 in memory).
   List<CarriedItem> getCarriedItems() {
     final all = objects;

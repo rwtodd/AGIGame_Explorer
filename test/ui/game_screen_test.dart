@@ -430,5 +430,118 @@ void main() {
       expect(engine.currentRoom, 65);
       expect(find.textContaining('Teleported to Room 65'), findsOneWidget);
     });
+
+    testWidgets('pressing spacebar on empty input recalls last entered command', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      // Submit first command: 'look tree'
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyL, character: 'l');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK, character: 'k');
+      await tester.sendKeyEvent(LogicalKeyboardKey.space, character: ' ');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT, character: 't');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR, character: 'r');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyE, character: 'e');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyE, character: 'e');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(engine.lastSubmittedCommand, 'look tree');
+      expect(find.text('look tree'), findsNothing); // Prompt is empty after submit
+
+      // Press spacebar on empty input -> recalls 'look tree'
+      await tester.sendKeyEvent(LogicalKeyboardKey.space, character: ' ');
+      await tester.pump();
+
+      expect(find.text('look tree'), findsOneWidget);
+
+      // Press Enter to submit recalled command
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(engine.lastSubmittedCommand, 'look tree');
+      expect(find.text('look tree'), findsNothing);
+    });
+
+    testWidgets('pressing spacebar when input already contains text inserts space character', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pump();
+
+      // Submit first command: 'look tree'
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyL, character: 'l');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyO, character: 'o');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK, character: 'k');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(engine.lastSubmittedCommand, 'look');
+
+      // Now type 'take'
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT, character: 't');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA, character: 'a');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK, character: 'k');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyE, character: 'e');
+      await tester.pump();
+
+      expect(find.text('take'), findsOneWidget);
+
+      // Press spacebar while input is 'take' -> becomes 'take ', NOT 'look'
+      await tester.sendKeyEvent(LogicalKeyboardKey.space, character: ' ');
+      await tester.pump();
+
+      expect(find.text('take '), findsOneWidget);
+      expect(find.text('look'), findsNothing);
+    });
+
+    testWidgets('tapping back button exits game screen cleanly without throwing StateError from sound disposal', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const GameScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('Start Game'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open GameScreen
+      await tester.tap(find.text('Start Game'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GameScreen), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+
+      // Tap back button in sidebar to exit game
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      // Ensure we are back on the previous screen and no exception occurred
+      expect(find.byType(GameScreen), findsNothing);
+      expect(find.text('Start Game'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

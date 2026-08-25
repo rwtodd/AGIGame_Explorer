@@ -105,9 +105,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   @override
   void dispose() {
     if (widget.engine == null) {
-      _engine.stop();
-      _engine.soundPlayer.dispose();
       _engine.dispose();
+      _engine.soundPlayer.dispose();
     }
     _gameFocusNode.dispose();
     super.dispose();
@@ -422,6 +421,15 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             _currentInputText = '';
           });
         }
+        return KeyEventResult.handled;
+      } else if ((event.logicalKey == LogicalKeyboardKey.space || event.character == ' ') &&
+          _currentInputText.isEmpty &&
+          _commandHistory.isNotEmpty) {
+        // Spacebar on empty input recalls the last entered command (SCI-style QoL)
+        setState(() {
+          _currentInputText = _commandHistory.last;
+          _historyIndex = _commandHistory.length - 1;
+        });
         return KeyEventResult.handled;
       } else if (event.character != null &&
           event.character!.isNotEmpty &&

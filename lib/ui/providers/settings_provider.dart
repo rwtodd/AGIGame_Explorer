@@ -9,19 +9,39 @@ import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// Riverpod provider for global user settings.
 final settingsProvider =
-    StateNotifierProvider<SettingsNotifier, AgiUserSettings>((ref) {
-  final notifier = SettingsNotifier();
-  notifier.loadSettings();
-  return notifier;
-});
+    NotifierProvider<SettingsNotifier, AgiUserSettings>(SettingsNotifier.new);
 
 /// Manages and persists global audio-visual settings.
-class SettingsNotifier extends StateNotifier<AgiUserSettings> {
+class SettingsNotifier extends Notifier<AgiUserSettings> {
   final File? _customConfigFile;
+  AgiUserSettings _fallbackState = const AgiUserSettings();
 
-  SettingsNotifier({File? configFile})
-      : _customConfigFile = configFile,
-        super(const AgiUserSettings());
+  SettingsNotifier({File? configFile}) : _customConfigFile = configFile;
+
+  @override
+  AgiUserSettings build() {
+    Future.microtask(() => loadSettings());
+    return _fallbackState;
+  }
+
+  @visibleForTesting
+  @override
+  AgiUserSettings get state {
+    try {
+      return super.state;
+    } catch (_) {
+      return _fallbackState;
+    }
+  }
+
+  @override
+  set state(AgiUserSettings value) {
+    try {
+      super.state = value;
+    } catch (_) {
+      _fallbackState = value;
+    }
+  }
 
   File? _getConfigFile() {
     if (_customConfigFile != null) return _customConfigFile;

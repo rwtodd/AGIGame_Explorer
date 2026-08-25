@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
@@ -209,23 +210,19 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
       final config = _buildCurrentConfig();
       final synth = PcmSynthesizer(config);
       final wavBytes = synth.renderWav(snd);
+      final fileName = 'sound_${_selectedSoundNumber.toString().padLeft(3, '0')}.wav';
 
-      final path = await FilePicker.platform.saveFile(
+      final uri = await FilePickerPlatform.instance.saveFile(
         dialogTitle: 'Save Sound #$_selectedSoundNumber WAV',
-        fileName: 'sound_${_selectedSoundNumber.toString().padLeft(3, '0')}.wav',
-        type: FileType.custom,
-        allowedExtensions: ['wav'],
+        fileName: fileName,
+        bytes: wavBytes,
+        mimeType: 'audio/wav',
       );
 
-      if (path != null) {
-        final file = File(path.endsWith('.wav') ? path : '$path.wav');
-        await file.writeAsBytes(wavBytes);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Exported WAV audio to ${file.path}')),
-          );
-        }
+      if (uri != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported WAV audio to ${uri.toFilePath()}')),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -245,23 +242,19 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
         sound: snd,
         soundNumber: _selectedSoundNumber,
       );
+      final fileName = 'sound_${_selectedSoundNumber.toString().padLeft(3, '0')}.mid';
 
-      final path = await FilePicker.platform.saveFile(
+      final uri = await FilePickerPlatform.instance.saveFile(
         dialogTitle: 'Save Sound #$_selectedSoundNumber MIDI',
-        fileName: 'sound_${_selectedSoundNumber.toString().padLeft(3, '0')}.mid',
-        type: FileType.custom,
-        allowedExtensions: ['mid', 'midi'],
+        fileName: fileName,
+        bytes: midiBytes,
+        mimeType: 'audio/midi',
       );
 
-      if (path != null) {
-        final file = File(path.endsWith('.mid') || path.endsWith('.midi') ? path : '$path.mid');
-        await file.writeAsBytes(midiBytes);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Exported MIDI file to ${file.path}')),
-          );
-        }
+      if (uri != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported MIDI file to ${uri.toFilePath()}')),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -281,17 +274,18 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
         sound: snd,
         soundNumber: _selectedSoundNumber,
       );
+      final fileName = 'sound_${_selectedSoundNumber.toString().padLeft(3, '0')}.sco';
 
-      final path = await FilePicker.platform.saveFile(
+      final uri = await FilePickerPlatform.instance.saveFile(
         dialogTitle: 'Save Sound #$_selectedSoundNumber CSound Score',
-        fileName: 'sound_${_selectedSoundNumber.toString().padLeft(3, '0')}.sco',
-        type: FileType.custom,
-        allowedExtensions: ['sco'],
+        fileName: fileName,
+        bytes: utf8.encode(scoContent),
+        mimeType: 'text/plain',
       );
 
-      if (path != null) {
-        final file = File(path.endsWith('.sco') ? path : '$path.sco');
-        await file.writeAsString(scoContent);
+      if (uri != null) {
+        final filePath = uri.toFilePath();
+        final file = File(filePath);
 
         // Also output default orchestra file alongside if missing
         final orcFile = File('${file.parent.path}/agi-tandy.orc');
@@ -301,7 +295,7 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Exported CSound score to ${file.path}')),
+            SnackBar(content: Text('Exported CSound score to $filePath')),
           );
         }
       }

@@ -88,5 +88,21 @@ void main() {
 
       engine.dispose();
     });
+
+    test('AgiSoundPlayer dispose is safe and idempotent, stop/play after dispose does not throw', () async {
+      player.dispose();
+      expect(player.isDisposed, isTrue);
+
+      // Multiple dispose calls are harmless
+      player.dispose();
+      expect(player.isDisposed, isTrue);
+
+      // Stop, pause, resume, seek after dispose are safe and do not throw StateError
+      expect(() => player.stop(), returnsNormally);
+      expect(() => player.pause(), returnsNormally);
+      expect(() => player.resume(), returnsNormally);
+      expect(() => player.seekToTick(10), returnsNormally);
+      expect(() => player.setVolume(0.5), returnsNormally);
+    });
   });
 }

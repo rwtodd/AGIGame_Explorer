@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -163,23 +162,20 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           break;
       }
 
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save Picture #$_selectedPicNumber PNG',
-        fileName: 'pic_${_selectedPicNumber.toString().padLeft(3, '0')}_$suffix.png',
-        type: FileType.custom,
-        allowedExtensions: ['png'],
+      final bmp = _encodeBmp(rgba, AgiPic.renderedWidth, AgiPic.renderedHeight);
+      final fileName = 'pic_${_selectedPicNumber.toString().padLeft(3, '0')}_$suffix.bmp';
+
+      final uri = await FilePickerPlatform.instance.saveFile(
+        dialogTitle: 'Save Picture #$_selectedPicNumber BMP',
+        fileName: fileName,
+        bytes: bmp,
+        mimeType: 'image/bmp',
       );
 
-      if (path != null) {
-        // Convert RGBA to standard uncompressed PNG or write raw buffer
-        // (A quick BMP or direct file write)
-        final bmp = _encodeBmp(rgba, AgiPic.renderedWidth, AgiPic.renderedHeight);
-        final file = File(path.endsWith('.bmp') || path.endsWith('.png') ? path : '$path.bmp');
-        await file.writeAsBytes(bmp);
-
+      if (uri != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Exported picture to ${file.path}')),
+            SnackBar(content: Text('Exported picture to ${uri.toFilePath()}')),
           );
         }
       }

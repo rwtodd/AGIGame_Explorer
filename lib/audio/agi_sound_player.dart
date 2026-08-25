@@ -65,6 +65,7 @@ class AgiSoundPlayer {
 
   Timer? _positionTimer;
   final Stopwatch _stopwatch = Stopwatch();
+  bool _isDisposed = false;
 
   void Function()? onFinished;
 
@@ -73,6 +74,9 @@ class AgiSoundPlayer {
 
   /// Stream of playback position updates (emitted at ~60 Hz during active playback).
   Stream<SoundPlaybackPosition> get positionStream => _positionController.stream;
+
+  /// Whether player has been disposed.
+  bool get isDisposed => _isDisposed;
 
   /// Current playback status.
   SoundPlayerStatus get status => _status;
@@ -207,7 +211,7 @@ class AgiSoundPlayer {
 
   /// Resumes playback if paused.
   void resume() {
-    if (_status != SoundPlayerStatus.paused) return;
+    if (_isDisposed || _status != SoundPlayerStatus.paused) return;
 
     _sink.play();
     _status = SoundPlayerStatus.playing;
@@ -218,7 +222,7 @@ class AgiSoundPlayer {
 
   /// Pauses playback.
   void pause() {
-    if (_status != SoundPlayerStatus.playing) return;
+    if (_isDisposed || _status != SoundPlayerStatus.playing) return;
 
     _stopwatch.stop();
     _sink.pause();
@@ -229,6 +233,7 @@ class AgiSoundPlayer {
 
   /// Stops playback and resets position to the beginning.
   void stop() {
+    if (_isDisposed) return;
     _stopwatch.reset();
     _sink.stop();
     _status = SoundPlayerStatus.stopped;
@@ -239,6 +244,7 @@ class AgiSoundPlayer {
 
   /// Seeks to a specific [tick] position in the sound.
   Future<void> seekToTick(int tick) async {
+    if (_isDisposed) return;
     final targetTick = tick.clamp(0, _totalTicks);
     final wasPlaying = isPlaying;
 
@@ -255,6 +261,7 @@ class AgiSoundPlayer {
 
   /// Sets the output volume from 0.0 to 1.0.
   void setVolume(double volume) {
+    if (_isDisposed) return;
     _volume = volume.clamp(0.0, 1.0);
     _sink.setVolume(_volume);
   }
@@ -265,6 +272,7 @@ class AgiSoundPlayer {
   }
 
   void _startPositionTimer() {
+    if (_isDisposed) return;
     _positionTimer?.cancel();
     _positionTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
       _onPositionTick();
@@ -277,7 +285,7 @@ class AgiSoundPlayer {
   }
 
   void _onPositionTick() {
-    if (_status != SoundPlayerStatus.playing) return;
+    if (_isDisposed || _status != SoundPlayerStatus.playing) return;
 
     final elapsedSeconds =
         (_startTickOffset / 60.0) + (_stopwatch.elapsedMicroseconds / 1000000.0);
@@ -302,6 +310,8 @@ class AgiSoundPlayer {
   }
 
   void _emitPosition() {
+    if (_isDisposed || _positionController.isClosed) return;
+
     if (_totalTicks <= 0) {
       _positionController.add(SoundPlaybackPosition(status: _status));
       return;
@@ -326,11 +336,17 @@ class AgiSoundPlayer {
 
   /// Releases all player and audio sink resources.
   void dispose() {
-    stop();
+    if (_isDisposed) return;
+    _isDisposed = true;
     _stopPositionTimer();
+    _stopwatch.reset();
+    _sink.stop();
+    _status = SoundPlayerStatus.stopped;
     if (_autoDisposeSink) {
       _sink.dispose();
     }
-    _positionController.close();
+    if (!_positionController.isClosed) {
+      _positionController.close();
+    }
   }
 }
