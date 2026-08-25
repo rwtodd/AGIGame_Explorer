@@ -27,5 +27,31 @@ void main() {
         "King Graham scratches his head in puzzlement at this confusing message. It doesn't appear to be a part of his quest.",
       );
     });
+
+    test('loads and correctly decrypts uncompressed LOGIC 97 and 131 in AGI v3 (KQ4)', () {
+      const kq4Path = 'reference_games/kings-quest-4-agi';
+      if (!Directory(kq4Path).existsSync()) return;
+
+      final loader = AgiResourceLoader.fromDirectorySync(kq4Path);
+
+      // Uncompressed Logic 97 (Darkness falls cutscene)
+      final script97 = loader.loadLogic(97);
+      expect(script97.messageCount, 1);
+      expect(script97.getMessage(1), 'Like a heavy blanket, darkness enfolds you.');
+
+      // Uncompressed Logic 131 (Morning timeout cutscene)
+      final script131 = loader.loadLogic(131);
+      expect(script131.messageCount, 1);
+      expect(
+        script131.getMessage(1),
+        "Oh, oh, Rosella! Morning has come! It appears as if you're stuck marrying ol' Edgar.",
+      );
+
+      // LZW-compressed Logic 0 (Plaintext messages)
+      final script0 = loader.loadLogic(0);
+      expect(script0.messageCount, greaterThan(100));
+      expect(script0.getMessage(1), contains("King's Quest IV"));
+      expect(script0.getMessage(2), 'Not now!  Only one golden egg per day.');
+    });
   });
 }

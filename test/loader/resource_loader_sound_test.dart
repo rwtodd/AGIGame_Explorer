@@ -35,6 +35,9 @@ class _FakeVolumeManager implements VolumeManager {
   _FakeVolumeManager(this.soundBytes);
 
   @override
+  bool isCompressed(DirEntry de) => false;
+
+  @override
   void close() {}
 
   @override

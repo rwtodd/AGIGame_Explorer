@@ -32,6 +32,9 @@ class MockVolumeManager implements VolumeManager {
   }
 
   @override
+  bool isCompressed(DirEntry de) => false;
+
+  @override
   void close() {}
 }
 

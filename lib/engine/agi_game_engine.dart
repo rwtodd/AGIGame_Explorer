@@ -2682,6 +2682,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       final celRes = viewRes.getCel(entry.loop, entry.cel);
       if (celRes == null) return null;
 
+      final effectivePri = entry.priority > 0
+          ? entry.priority
+          : priorityTable.priorityFromY(entry.y);
+
       final startY = entry.y - celRes.height + 1;
       final dirtyPriorities = <int>{};
       // Stamp may lower a pixel's priority. Collect bands from the cel
@@ -2703,9 +2707,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
         width: celRes.width,
         height: celRes.height,
       );
-      if (entry.priority > 0) {
-        dirtyPriorities.add(entry.priority);
-      }
+      dirtyPriorities.add(effectivePri);
       if (entry.boxPriority > 0) {
         dirtyPriorities.add(entry.boxPriority);
       }
@@ -2767,7 +2769,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final ch = celRes.height;
     final startY = entry.y - ch + 1;
 
-    final effectivePri = entry.priority > 0 ? entry.priority : 4;
+    final effectivePri = entry.priority > 0
+        ? entry.priority
+        : priorityTable.priorityFromY(entry.y);
 
     // Burn pixels into visual buffer and priority buffer respecting background priority
     for (int cy = 0; cy < ch; cy++) {
@@ -2784,9 +2788,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           // In Sierra AGI: sprite pixels are only drawn if sprite priority >= background priority.
           if (effectivePri >= bgPri) {
             currentPic!.visualPixels[py * AgiPic.nativeWidth + px] = colorIndex;
-            if (entry.priority > 0) {
-              currentPic!.priorityBuffer.setPriorityAt(px, py, entry.priority);
-            }
+            currentPic!.priorityBuffer.setPriorityAt(px, py, effectivePri);
           }
         }
       }

@@ -42,6 +42,13 @@ abstract class VolumeManager {
   Future<Uint8List> getResourceAsync(DirEntry de);
   Uint8List getWordsData();
   Uint8List getObjectsData();
+
+  /// Returns whether the resource specified by [de] is stored in compressed form.
+  /// In AGI v2, this always returns false.
+  /// In AGI v3, this returns true for LZW-compressed or nibble-compressed resources,
+  /// and false for uncompressed resources.
+  bool isCompressed(DirEntry de) => false;
+
   void close();
 
   static VolumeManager create(GameMetaData meta) {
@@ -88,6 +95,9 @@ class V2VolumeManager implements VolumeManager {
     }
     return raf;
   }
+
+  @override
+  bool isCompressed(DirEntry de) => false;
 
   @override
   Uint8List getResource(DirEntry de) {
@@ -167,6 +177,7 @@ class V3VolumeManager implements VolumeManager {
   final String prefix;
   final Map<int, RandomAccessFile> _openFiles = {};
   final LruCache<DirEntry, Uint8List> _resourceCache;
+  final Map<DirEntry, bool> _isCompressedCache = {};
 
   V3VolumeManager(this.gamePath, this.prefix, {int cacheCapacity = 64})
       : _resourceCache = LruCache<DirEntry, Uint8List>(cacheCapacity);
@@ -183,6 +194,30 @@ class V3VolumeManager implements VolumeManager {
       _openFiles[volume] = raf;
     }
     return raf;
+  }
+
+  @override
+  bool isCompressed(DirEntry de) {
+    if (!de.isPresent) return false;
+    final cached = _isCompressedCache[de];
+    if (cached != null) return cached;
+
+    final raf = _getFile(de.volume);
+    final curPos = raf.positionSync();
+    try {
+      raf.setPositionSync(de.offset);
+      final header = raf.readSync(7);
+      if (header.length < 7) return false;
+
+      final picCompressed = (header[2] & 0x80) != 0;
+      final reslen = header[3] | (header[4] << 8);
+      final lzwlen = header[5] | (header[6] << 8);
+      final compressed = picCompressed || (reslen != lzwlen);
+      _isCompressedCache[de] = compressed;
+      return compressed;
+    } finally {
+      raf.setPositionSync(curPos);
+    }
   }
 
   @override
@@ -211,6 +246,7 @@ class V3VolumeManager implements VolumeManager {
       final picCompressed = (header[2] & 0x80) != 0;
       final reslen = header[3] | (header[4] << 8);
       final lzwlen = header[5] | (header[6] << 8);
+      _isCompressedCache[de] = picCompressed || (reslen != lzwlen);
 
       final packed = raf.readSync(lzwlen);
       if (packed.length < lzwlen) {
@@ -266,5 +302,6 @@ class V3VolumeManager implements VolumeManager {
     }
     _openFiles.clear();
     _resourceCache.clear();
+    _isCompressedCache.clear();
   }
 }

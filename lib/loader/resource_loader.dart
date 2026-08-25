@@ -231,8 +231,12 @@ class AgiResourceLoader {
     if (cached != null) {
       return cached;
     }
+    final de = rdir.findLogic(number);
     final raw = loadRawLogic(number);
-    final isEncrypted = meta.version < 3.0;
+    // In AGI v2, all logic resources are encrypted with the Avis Durgan key.
+    // In AGI v3, LZW-compressed logic resources contain plaintext messages,
+    // but uncompressed logic resources (reslen == lzwlen) are encrypted with the Avis Durgan key.
+    final isEncrypted = !vmgr.isCompressed(de);
     final script = LogicParser.parse(
       raw,
       isEncrypted: isEncrypted,
