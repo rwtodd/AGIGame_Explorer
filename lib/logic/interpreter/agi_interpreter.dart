@@ -774,10 +774,6 @@ class AgiLogicInterpreter {
         if (dy >= 128) dy -= 256;
         final targetX = (o.x + dx).clamp(0, 159);
         final targetY = (o.y + dy).clamp(0, 167);
-        o.x = targetX;
-        o.y = targetY;
-        o.prevX = o.x;
-        o.prevY = o.y;
         delegate.onReposition(o, targetX, targetY);
         frame.ip += 4;
         break;
@@ -1597,10 +1593,6 @@ class AgiLogicInterpreter {
         final targetX147 = code[frame.ip + 2];
         final targetY147 = code[frame.ip + 3];
         delegate.onReposition(o, targetX147, targetY147);
-        o.x = targetX147;
-        o.y = targetY147;
-        o.prevX = o.x;
-        o.prevY = o.y;
         frame.ip += 4;
         break;
 
@@ -1609,10 +1601,6 @@ class AgiLogicInterpreter {
         final targetX148 = memory.getVar(code[frame.ip + 2]);
         final targetY148 = memory.getVar(code[frame.ip + 3]);
         delegate.onReposition(o, targetX148, targetY148);
-        o.x = targetX148;
-        o.y = targetY148;
-        o.prevX = o.x;
-        o.prevY = o.y;
         frame.ip += 4;
         break;
 

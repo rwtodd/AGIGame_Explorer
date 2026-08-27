@@ -1388,6 +1388,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     _updateEgoFlags(priBuf);
+
+    // In Sierra AGI (ANIMATE.C:182) and ScummVM (view.cpp:684):
+    // After moving objects each animation cycle, clear the 'must be on water or land' bits for Ego.
+    ego.onWater = false;
+    ego.onLand = false;
   }
 
   void _updateEgoFlags(PriorityBuffer? priBuf) {
@@ -1406,19 +1411,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
     final objWidth = egoObj.getCelWidth();
 
-    // Flag 0: EGO on water surface (pri 3)
-    var onWater = false;
+    // Flag 0: EGO on water surface (pri 3) per Sierra CMOBJSBR.ASM and ScummVM checks.cpp:
+    // Set if and only if all pixels across Ego's baseline are on priority 3 (water).
+    var onWater = true;
     for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 3) {
-        onWater = true;
+      if (bx < 0 || bx >= 160 || egoObj.y < 0 || egoObj.y >= 168 || priBuf.priorityAt(bx, egoObj.y) != 3) {
+        onWater = false;
         break;
       }
     }
     if (onWater) {
       memory.setFlag(0);
-      if (egoObj.onLand) {
-        egoObj.onLand = false;
-      }
     } else {
       memory.resetFlag(0);
     }
@@ -1524,10 +1527,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   void _updateObjectPosition(AnimatedObject obj, PriorityBuffer? priBuf) {
     // Sierra MOVEOBJS.C: REPOS means this cycle's step is skipped (SetCel /
-    // reposition already moved the sprite). Still FindPosn the new cell.
+    // reposition already moved the sprite).
     if (obj.reposThisCycle) {
       obj.reposThisCycle = false;
-      posShuffle(obj);
       return;
     }
 
@@ -1597,7 +1599,20 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       dy = delta.$2 * step;
     }
 
-    if (dx == 0 && dy == 0) return;
+    if (dx == 0 && dy == 0) {
+      final objWidth = obj.getCelWidth();
+      if (priBuf != null &&
+          !CollisionDetector.objectCanBeHere(
+            priorityBuffer: priBuf,
+            obj: obj,
+            x: obj.x,
+            y: obj.y,
+            width: objWidth,
+          )) {
+        posShuffle(obj);
+      }
+      return;
+    }
 
     final targetX = obj.x + dx;
     final targetY = obj.y + dy;
@@ -1725,6 +1740,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           }
         }
         if (!slipped) {
+          posShuffle(obj);
           return;
         }
       } else {
@@ -1735,6 +1751,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           memory.setVar(6, 0);
           obj.isCycling = false;
         }
+        posShuffle(obj);
         return;
       }
     }
@@ -1764,6 +1781,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
               memory.setVar(6, 0);
               obj.isCycling = false;
             }
+            posShuffle(obj);
             return;
           }
         }
@@ -2357,8 +2375,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     bool isWalkablePos(int x, int y) {
       final w = obj.getCelWidth();
       final h = obj.getCelHeight();
-      final minWalkY = obj.ignoreHorizon ? math.max(0, h - 1) : math.max(horizon, math.max(0, h - 1));
-      if (x < 0 || x + w > 160 || y > 167 || y <= minWalkY || (y - h < -1)) {
+      if (x < 0 || x + w > 160 || y > 167 || (y - h < -1)) {
+        return false;
+      }
+      if (!obj.ignoreHorizon && y <= horizon) {
         return false;
       }
       if (!CollisionDetector.objectCanBeHere(
@@ -2482,6 +2502,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onReposition(AnimatedObject obj, int newX, int newY) {
     _eraseVideoTextInBlitUnion(obj, newX, newY);
+    obj.x = newX;
+    obj.y = newY;
+    obj.prevX = obj.x;
+    obj.prevY = obj.y;
+    posShuffle(obj);
   }
 
   @override

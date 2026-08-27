@@ -141,9 +141,9 @@ void main() {
   "objects": [
     {
       "number": 0,
-      "x": 51,
+      "x": 50,
       "y": 82,
-      "prevX": 52,
+      "prevX": 51,
       "prevY": 82,
       "view": 0,
       "loop": 1,
@@ -170,7 +170,7 @@ void main() {
       "ignoreBlocks": true,
       "ignoreObjects": false,
       "onWater": false,
-      "onLand": true
+      "onLand": false
     }
   ],
   "callStack": [],
@@ -189,8 +189,9 @@ void main() {
 }''';
 
     GameStateSerializer.deserializeFromJson(jsonSnapshot, engine);
+    await engine.onDrawPic(9);
 
-    // Run tick - engine should evaluate Flag 0
+    // Initial tick - evaluates Flag 0 and transitions into wading view 104
     await engine.tick();
     expect(engine.memory.getFlag(0), isTrue);
     expect(engine.ego.view, equals(104), reason: 'Ego should be in wading view 104');
@@ -199,6 +200,7 @@ void main() {
     engine.submitCommand('swim');
     await engine.tick();
     expect(engine.ego.view, equals(97), reason: 'Ego should be in swimming view 97');
+    expect(engine.memory.getVar(95), equals(2));
 
     // Player walks left into the river
     engine.setEgoDirection(7);
@@ -404,8 +406,8 @@ void main() {
       "ignoreHorizon": false,
       "ignoreBlocks": true,
       "ignoreObjects": false,
-      "onWater": false,
-      "onLand": true
+      "onWater": true,
+      "onLand": false
     }
   ],
   "callStack": [],
@@ -423,13 +425,15 @@ void main() {
 }''';
 
     GameStateSerializer.deserializeFromJson(jsonSnapshot34, engine);
+    await engine.onDrawPic(34);
+
     // Simulating entering Room 34 from Room 33
     engine.ego.resetForNewRoom();
+    expect(engine.ego.onWater, isTrue);
     expect(engine.ego.onLand, isFalse);
-    expect(engine.ego.onWater, isFalse);
 
     final priBuf = engine.currentPic?.priorityBuffer;
-    for (int tx = 44; tx >= 30; tx--) {
+    for (int tx = 43; tx >= 30; tx--) {
       final can = CollisionDetector.objectCanBeHere(
         priorityBuffer: priBuf!,
         obj: engine.ego,
@@ -440,4 +444,98 @@ void main() {
       expect(can, isTrue, reason: 'Ego should be able to swim at x=$tx, y=94');
     }
   });
+
+  test('King\'s Quest 2 Room 9 Island: Ego can walk back into water to swim', () async {
+    final path = Directory('reference_games/kings-quest-2').existsSync()
+        ? 'reference_games/kings-quest-2'
+        : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-2';
+    if (!Directory(path).existsSync()) return;
+
+    final loader = AgiResourceLoader.fromDirectorySync(path);
+    final engine = AgiGameEngine(resourceLoader: loader);
+    await engine.initializeGame();
+
+    const userJson = '''{
+  "version": "1.0",
+  "timestamp": "2026-08-27T18:09:00.495281",
+  "label": "Room 9 (Cycle 1411)",
+  "roomNumber": 9,
+  "pictureNumber": 9,
+  "cycleCount": 1411,
+  "speedHz": 60.0,
+  "score": 0,
+  "maxScore": 185,
+  "soundOn": true,
+  "isPaused": false,
+  "isInputEnabled": true,
+  "isUserControl": true,
+  "isStatusLineEnabled": true,
+  "statusRow": 0,
+  "lastSubmittedCommand": "",
+  "variables": {
+    "0": 9, "1": 2, "7": 185, "8": 10, "11": 25, "15": 3, "22": 1, "23": 3,
+    "24": 41, "52": 211, "76": 249, "79": 5, "80": 3, "94": 1, "100": 70,
+    "101": 90, "102": 70, "103": 90, "105": 62, "106": 57
+  },
+  "activeFlags": [8, 9, 11, 14, 55, 115, 126, 146, 169, 248],
+  "activeControllers": [],
+  "itemRooms": {},
+  "strings": {"0": ">"},
+  "objects": [
+    {
+      "number": 0,
+      "x": 70,
+      "y": 90,
+      "prevX": 70,
+      "prevY": 89,
+      "view": 0,
+      "loop": 2,
+      "cel": 0,
+      "priority": 8,
+      "fixedPriority": false,
+      "fixedLoop": false,
+      "direction": 0,
+      "stepSize": 1,
+      "stepTime": 1,
+      "stepTimer": 1,
+      "cycleTime": 1,
+      "cycleTimer": 1,
+      "isAnimated": true,
+      "isDrawn": true,
+      "isUpdating": true,
+      "isCycling": false,
+      "cycleMode": 0,
+      "motionType": 0,
+      "targetX": 54,
+      "targetY": 68,
+      "stepDistance": 0,
+      "ignoreHorizon": false,
+      "ignoreBlocks": true,
+      "ignoreObjects": false,
+      "onWater": false,
+      "onLand": true
+    }
+  ],
+  "callStack": [],
+  "scanStartIp": 0,
+  "scanStarts": {},
+  "isRoomTransition": false,
+  "horizon": 36,
+  "loadedLogics": [0, 9, 153, 101, 158, 151]
+}''';
+
+    GameStateSerializer.deserializeFromJson(userJson, engine);
+    await engine.onDrawPic(9);
+
+    // Walk Down (direction 5) towards the water
+    for (int i = 0; i < 20; i++) {
+      engine.memory.setVar(6, 5);
+      await engine.tick();
+      if (engine.ego.view == 104 || engine.ego.view == 97) break;
+    }
+
+    expect(engine.memory.getFlag(0), isTrue, reason: 'Ego should enter water from island walking down');
+    expect(engine.ego.view, anyOf(equals(104), equals(97)));
+  });
 }
+

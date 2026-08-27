@@ -459,25 +459,40 @@ class CollisionDetector {
     return (clampedX, clampedY);
   }
 
-  /// Checks if any pixel along the object's baseline touches water (priority 3).
+  /// Checks if the object's baseline is on water (priority 3).
   ///
-  /// In Sierra AGI, Flag 0 (on water) is set when any pixel along
-  /// the actor's baseline touches priority 3.
+  /// In Sierra AGI and ScummVM:
+  /// - When [allPixels] is true (default, matching Flag 0 evaluation): every pixel along baseline must be priority 3.
+  /// - When [allPixels] is false: checks if any pixel touches water.
   bool isWaterAtBaseline({
     required int x,
     required int y,
     required int width,
+    bool allPixels = true,
   }) {
     final effectiveWidth = math.max(1, width);
-    for (var i = 0; i < effectiveWidth; i++) {
-      final px = x + i;
-      if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
-        if (priorityBuffer.priorityAt(px, y) == 3) {
-          return true;
+    if (!allPixels) {
+      for (var i = 0; i < effectiveWidth; i++) {
+        final px = x + i;
+        if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
+          if (priorityBuffer.priorityAt(px, y) == 3) {
+            return true;
+          }
         }
       }
+      return false;
     }
-    return false;
+
+    for (var i = 0; i < effectiveWidth; i++) {
+      final px = x + i;
+      if (px < 0 || px >= screenWidth || y < 0 || y >= screenHeight) {
+        return false;
+      }
+      if (priorityBuffer.priorityAt(px, y) != 3) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Checks if the object's baseline touches a special trigger/alarm pixel (priority 2).

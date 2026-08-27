@@ -23,7 +23,7 @@ void main() {
 
       final ego = engine.ego;
       ego.x = 90;
-      ego.y = 86;
+      ego.y = 100;
 
       for (var i = 0; i < 5; i++) {
         await engine.tick();
@@ -289,8 +289,9 @@ void main() {
       };
 
       AgiGameStateSnapshot.fromJson(snapshotJson).restore(engine);
-      // Because Ego was in splashing state (v95 == 1, view 104), object.on.water is active
+      // Because Ego was in splashing state (v95 == 1, view 104), object.on.water is active and in water
       engine.ego.onWater = true;
+      engine.memory.setFlag(0);
 
       // Submit swim
       engine.submitCommand('swim');
@@ -313,7 +314,7 @@ void main() {
 
       // Ego walks into water in Room 15
       engine.ego.x = 90;
-      engine.ego.y = 86;
+      engine.ego.y = 100;
       for (var i = 0; i < 5; i++) {
         await engine.tick();
       }
@@ -372,7 +373,6 @@ void main() {
       expect(engine.ego.view, 97, reason: 'Ego must retain swimming view 97 in Room 8');
       expect(engine.memory.getVar(16), 97);
       expect(engine.memory.getVar(95), 2);
-      expect(engine.ego.onWater, isTrue);
 
       // Swim South back from Room 8 into Room 15
       engine.setEgoDirection(5); // South
@@ -385,7 +385,6 @@ void main() {
       expect(engine.ego.view, 97, reason: 'Ego must retain swimming view 97 in Room 15');
       expect(engine.memory.getVar(16), 97);
       expect(engine.memory.getVar(95), 2);
-      expect(engine.ego.onWater, isTrue);
       engine.dispose();
     });
 
@@ -595,6 +594,45 @@ void main() {
 
       expect(engine.ego.x, greaterThan(20), reason: 'Ego must move East towards the beach');
       expect(engine.memory.getFlag(36), isFalse, reason: 'Flag 36 must not re-trigger');
+      engine.dispose();
+    });
+
+    test('King\'s Quest 2 Room 8 Ocean: Walking west into ocean wades and typing swim swims', () async {
+      if (!kq2Dir.existsSync()) return;
+
+      final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
+      final engine = AgiGameEngine(resourceLoader: loader);
+      await engine.initializeGame();
+
+      engine.changeRoom(8);
+      await engine.tick();
+
+      // Start Graham on the beach at x=40, y=69 facing West (direction 7)
+      engine.ego.x = 40;
+      engine.ego.y = 69;
+      engine.ego.view = 0;
+      engine.memory.setVar(95, 0); // walking
+
+      for (int i = 0; i < 40; i++) {
+        engine.memory.setVar(6, 7); // West
+        await engine.tick();
+        if (engine.ego.view == 104) {
+          break;
+        }
+      }
+
+      expect(engine.ego.view, 104);
+      expect(engine.memory.getVar(95), 1);
+      expect(engine.memory.getFlag(0), isTrue, reason: 'Flag 0 must be true while wading in ocean');
+
+      // Type "swim"
+      engine.submitCommand('swim');
+      await engine.tick();
+
+      expect(engine.ego.view, 97, reason: 'Ego should have switched to swimming view 97');
+      expect(engine.memory.getVar(95), 2, reason: 'v95 should be 2 (swimming)');
+      expect(engine.memory.getFlag(0), isTrue);
+
       engine.dispose();
     });
   });

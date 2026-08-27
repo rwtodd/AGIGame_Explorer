@@ -192,7 +192,7 @@ void main() {
       droid.ignoreObjects = true;
       droid.x = 164;
       droid.y = 139;
-      droid.direction = 0;
+      droid.direction = 7; // west
       droid.stepSize = 1;
       droid.stepTime = 1;
       droid.stepTimer = 1;
@@ -201,16 +201,10 @@ void main() {
       droid.motionType = 0;
 
       engine.tick();
-      expect(droid.x, 140, reason: 'AdvanceCel → SetCel clamps 164 to 160-20');
-      expect(droid.reposThisCycle, isTrue);
-
-      droid.direction = 7; // west
-      engine.tick();
-      expect(droid.x, 140, reason: 'REPOS skips this cycle\'s step');
-      expect(droid.reposThisCycle, isFalse);
+      expect(droid.x, 140, reason: 'AdvanceCel → SetCel clamps 164 to 160-20 and REPOS skips west step');
 
       engine.tick();
-      expect(droid.x, 139, reason: 'next cycle walks west from the clamped cell');
+      expect(droid.x, 139, reason: 'next cycle walks west from the clamped cel');
     });
   });
 }

@@ -92,7 +92,7 @@ void main() {
             "ignoreBlocks": true,
             "ignoreObjects": false,
             "onWater": false,
-            "onLand": true
+            "onLand": false
           },
           {
             "number": 2,
@@ -133,6 +133,7 @@ void main() {
       };
 
       AgiGameStateSnapshot.fromJson(snapshotJson).restore(engine);
+      await engine.onDrawPic(32);
 
       // On first tick, Flag 0 should be set because Ego's baseline (75..78, 112) is on water (priority 3)
       await engine.tick();

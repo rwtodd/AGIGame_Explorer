@@ -384,8 +384,12 @@ void main() {
         );
         // Partially on water (x=12..16, width=5 -> touches x=15, 16)
         expect(
-          detector.isWaterAtBaseline(x: 12, y: 100, width: 5),
+          detector.isWaterAtBaseline(x: 12, y: 100, width: 5, allPixels: false),
           isTrue,
+        );
+        expect(
+          detector.isWaterAtBaseline(x: 12, y: 100, width: 5, allPixels: true),
+          isFalse,
         );
         // Completely off water
         expect(

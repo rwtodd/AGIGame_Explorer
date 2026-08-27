@@ -228,8 +228,6 @@ class AnimatedObject {
     ignoreHorizon = false;
     ignoreBlocks = false;
     ignoreObjects = false;
-    onWater = false;
-    onLand = false;
     reposThisCycle = false;
   }
 
