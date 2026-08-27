@@ -136,5 +136,48 @@ void main() {
       extractor.clearCache();
       expect(extractor.cachedScriptCount, equals(0));
     });
+
+    test('picks natural canonical words over alphabetical order and formats rich prompt descriptions', () {
+      final dict = AgiDictionary();
+      // Overloaded verb group: acquire, capture, get, grab, take
+      dict.addWord('acquire', 20);
+      dict.addWord('capture', 20);
+      dict.addWord('get', 20);
+      dict.addWord('grab', 20);
+      dict.addWord('take', 20);
+
+      // Overloaded noun group: guy, magician, manannan, sorcerer, warlock, wizard
+      dict.addWord('guy', 50);
+      dict.addWord('magician', 50);
+      dict.addWord('manannan', 50);
+      dict.addWord('sorcerer', 50);
+      dict.addWord('warlock', 50);
+      dict.addWord('wizard', 50);
+
+      final script = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF,
+          0x0E, 0x02, 0x14, 0x00, 0x32, 0x00, // said(20, 50)
+          0xFF, 0x02, 0x00, 0x65, 0x01,
+          0x00,
+        ]),
+        messages: const [],
+      );
+
+      final extracted = extractor.extractFromScript(
+        script: script,
+        dictionary: dict,
+        scriptNumber: 10,
+      );
+
+      expect(extracted.length, equals(1));
+      // Prefers 'take' and 'wizard' over 'acquire' and 'guy'
+      expect(extracted[0].canonicalPhrase, equals('take wizard'));
+      // Formats rich prompt description with distinct alternative synonyms
+      expect(
+        extracted[0].toPromptDescription(),
+        equals('take wizard (synonyms: acquire, capture, get, grab, guy, magician)'),
+      );
+    });
   });
 }
