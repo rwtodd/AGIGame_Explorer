@@ -13,6 +13,7 @@ import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 enum SidebarPanelTab {
   audio,
   video,
+  ai,
 }
 
 /// Slide-out options panel docked next to the left sidebar in [GameScreen].
@@ -66,6 +67,12 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   AgiSoundPlayer? _previewPlayer;
   bool _isPlayingPreview = false;
 
+  final TextEditingController _apiKeyController = TextEditingController();
+  bool _obscureApiKey = true;
+  bool _isTestingApiKey = false;
+  String? _apiKeyTestResult;
+  bool _apiKeyTestSuccess = false;
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +90,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   void dispose() {
     _previewPlayer?.stop();
     _previewPlayer?.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -200,9 +208,11 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
                       Expanded(
                         child: SingleChildScrollView(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          child: widget.activeTab == SidebarPanelTab.audio
-                              ? _buildAudioOptions()
-                              : _buildVideoOptions(),
+                          child: switch (widget.activeTab) {
+                            SidebarPanelTab.audio => _buildAudioOptions(),
+                            SidebarPanelTab.video => _buildVideoOptions(),
+                            SidebarPanelTab.ai => _buildAiOptions(),
+                          },
                         ),
                       ),
                     ],
@@ -215,6 +225,23 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   }
 
   Widget _buildHeader() {
+    IconData headerIcon;
+    String headerTitle;
+    switch (widget.activeTab) {
+      case SidebarPanelTab.audio:
+        headerIcon = Icons.volume_up;
+        headerTitle = 'AUDIO OPTIONS';
+        break;
+      case SidebarPanelTab.video:
+        headerIcon = Icons.tv;
+        headerTitle = 'VIDEO & DISPLAY';
+        break;
+      case SidebarPanelTab.ai:
+        headerIcon = Icons.auto_awesome;
+        headerTitle = 'AI COMMAND PARSER';
+        break;
+    }
+
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
       decoration: const BoxDecoration(
@@ -224,14 +251,14 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       child: Row(
         children: [
           Icon(
-            widget.activeTab == SidebarPanelTab.audio ? Icons.volume_up : Icons.tv,
+            headerIcon,
             size: 18,
             color: AgiTheme.egaCyan,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              widget.activeTab == SidebarPanelTab.audio ? 'AUDIO OPTIONS' : 'VIDEO & DISPLAY',
+              headerTitle,
               style: const TextStyle(
                 fontFamily: 'Courier',
                 fontWeight: FontWeight.bold,
@@ -266,12 +293,20 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               label: 'Audio',
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           Expanded(
             child: _buildTabButton(
               tab: SidebarPanelTab.video,
               icon: Icons.monitor,
               label: 'Video',
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _buildTabButton(
+              tab: SidebarPanelTab.ai,
+              icon: Icons.auto_awesome,
+              label: 'AI',
             ),
           ),
         ],
@@ -301,20 +336,25 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
               size: 14,
               color: isActive ? AgiTheme.egaCyan : AgiTheme.egaMuted,
             ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Courier',
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                fontSize: 12,
-                color: isActive ? AgiTheme.egaWhite : AgiTheme.egaMuted,
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'Courier',
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                  fontSize: 12,
+                  color: isActive ? AgiTheme.egaWhite : AgiTheme.egaMuted,
+                ),
               ),
             ),
           ],
@@ -950,6 +990,252 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAiOptions() {
+    final isEnabled = () {
+      try {
+        return ref.watch(settingsProvider).ai.enabled;
+      } catch (_) {
+        return widget.engine.isAiEnabled;
+      }
+    }();
+
+    final apiKey = () {
+      try {
+        return ref.watch(settingsProvider).ai.apiKey;
+      } catch (_) {
+        return widget.engine.aiApiKey;
+      }
+    }();
+
+    final model = () {
+      try {
+        return ref.watch(settingsProvider).ai.model;
+      } catch (_) {
+        return widget.engine.aiModel;
+      }
+    }();
+
+    if (_apiKeyController.text.isEmpty && apiKey.isNotEmpty) {
+      _apiKeyController.text = apiKey;
+    }
+
+    final selectedModel = const [
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.7-flash',
+      'gemini-flash-latest',
+    ].contains(model)
+        ? model
+        : 'gemini-3.5-flash-lite';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionTitle('AI NATURAL LANGUAGE ASSIST'),
+        const SizedBox(height: 8),
+        _buildSwitchTile(
+          title: 'Enable Gemini AI Assist',
+          subtitle: 'Translates natural English into AGI commands in real-time',
+          value: isEnabled,
+          icon: Icons.auto_awesome,
+          onChanged: (val) {
+            try {
+              ref.read(settingsProvider.notifier).updateAiSettings(enabled: val);
+            } catch (_) {}
+            widget.engine.isAiEnabled = val;
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 14),
+        _buildSectionTitle('API KEY (GOOGLE AI STUDIO)'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _apiKeyController,
+          obscureText: _obscureApiKey,
+          style: const TextStyle(
+            fontFamily: 'Courier',
+            fontSize: 12,
+            color: AgiTheme.egaWhite,
+          ),
+          decoration: InputDecoration(
+            hintText: 'Enter Gemini API Key (AIzaSy...)',
+            hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+            filled: true,
+            fillColor: const Color(0xFF131D31),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: const BorderSide(color: Color(0xFF27354A)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: const BorderSide(color: AgiTheme.egaCyan),
+            ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureApiKey ? Icons.visibility : Icons.visibility_off,
+                size: 16,
+                color: AgiTheme.egaMuted,
+              ),
+              onPressed: () {
+                setState(() {
+                  _obscureApiKey = !_obscureApiKey;
+                });
+              },
+            ),
+          ),
+          onChanged: (val) {
+            try {
+              ref.read(settingsProvider.notifier).updateAiSettings(apiKey: val.trim());
+            } catch (_) {}
+            widget.engine.aiApiKey = val.trim();
+          },
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _isTestingApiKey
+                  ? null
+                  : () async {
+                      final key = _apiKeyController.text.trim();
+                      if (key.isEmpty) {
+                        setState(() {
+                          _apiKeyTestResult = 'Please enter an API key first.';
+                          _apiKeyTestSuccess = false;
+                        });
+                        return;
+                      }
+                      setState(() {
+                        _isTestingApiKey = true;
+                        _apiKeyTestResult = null;
+                      });
+
+                      final translator = widget.engine.geminiTranslator;
+                      final result = await translator.testConnection(
+                        apiKey: key,
+                        model: selectedModel,
+                      );
+
+                      if (mounted) {
+                        setState(() {
+                          _isTestingApiKey = false;
+                          _apiKeyTestSuccess = result.success;
+                          _apiKeyTestResult = result.success
+                              ? '✓ Connected successfully!'
+                              : '✗ Failed: ${result.message}';
+                        });
+                      }
+                    },
+              icon: _isTestingApiKey
+                  ? const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : const Icon(Icons.bolt, size: 14),
+              label: const Text(
+                'TEST',
+                style: TextStyle(
+                  fontFamily: 'Courier',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AgiTheme.egaCyan,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (_apiKeyTestResult != null)
+              Expanded(
+                child: Text(
+                  _apiKeyTestResult!,
+                  style: TextStyle(
+                    fontFamily: 'Courier',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: _apiKeyTestSuccess ? AgiTheme.egaGreen : AgiTheme.egaRed,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _buildSectionTitle('GEMINI MODEL'),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131D31),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: const Color(0xFF27354A)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: selectedModel,
+              dropdownColor: const Color(0xFF131D31),
+              isExpanded: true,
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 11,
+                color: AgiTheme.egaWhite,
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'gemini-3.5-flash-lite',
+                  child: Text('Gemini 3.5 Flash-Lite (Fastest, Recommended)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-3.6-flash',
+                  child: Text('Gemini 3.6 Flash (Standard)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-3.7-flash',
+                  child: Text('Gemini 3.7 Flash (High Quality)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-flash-latest',
+                  child: Text('Gemini Flash Latest'),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  try {
+                    ref.read(settingsProvider.notifier).updateAiSettings(model: val);
+                  } catch (_) {}
+                  widget.engine.aiModel = val;
+                  setState(() {});
+                }
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildSectionTitle('ABOUT AI TRANSLATION'),
+        const SizedBox(height: 6),
+        const Text(
+          '• Matches your natural sentences to valid room actions if present (e.g. "look at computer" → "look screen").\n'
+          '• Translates non-room commands into authentic 2-word AGI-speak (e.g. "look tapestry") so standard game responses fire.\n'
+          '• Uses your personal free Google AI Studio key with zero token fees.',
+          style: TextStyle(
+            fontSize: 11,
+            color: AgiTheme.egaMuted,
+            height: 1.35,
+          ),
+        ),
+      ],
     );
   }
 }

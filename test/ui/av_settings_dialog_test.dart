@@ -100,6 +100,27 @@ void main() {
       await tester.tap(priorityBtn);
       await tester.pumpAndSettle();
       expect(container.read(settingsProvider).display.renderMode, AgiPictureRenderMode.priorityMap);
+
+      // Switch to AI Command Parser tab
+      await tester.tap(find.text('AI Command Parser'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enable Gemini AI Command Translation'), findsOneWidget);
+      expect(find.text('GOOGLE AI STUDIO API KEY (100% FREE)'), findsOneWidget);
+      expect(find.text('TEST CONNECTION'), findsOneWidget);
+
+      // Toggle AI assist switch on
+      final aiSwitch = find.byType(Switch).first;
+      await tester.tap(aiSwitch);
+      await tester.pumpAndSettle();
+      expect(container.read(settingsProvider).ai.enabled, isTrue);
+
+      // Enter API key
+      final keyField = find.byType(TextField);
+      expect(keyField, findsOneWidget);
+      await tester.enterText(keyField, 'test-key-12345');
+      await tester.pumpAndSettle();
+      expect(container.read(settingsProvider).ai.apiKey, equals('test-key-12345'));
     });
 
     testWidgets('LauncherScreen displays A/V configure button and opens AvSettingsDialog',

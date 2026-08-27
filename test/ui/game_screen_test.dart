@@ -543,5 +543,55 @@ void main() {
       expect(find.text('Start Game'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('opens AI Assist panel from sidebar, toggles AI on/off, and updates engine', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.isAiEnabled, isFalse);
+
+      // Tap AI Assist button in left sidebar
+      final aiSidebarBtn = find.byIcon(Icons.auto_awesome);
+      expect(aiSidebarBtn, findsOneWidget);
+      await tester.tap(aiSidebarBtn);
+      await tester.pumpAndSettle();
+
+      // Verify AI options panel is open
+      expect(find.text('AI COMMAND PARSER'), findsOneWidget);
+      expect(find.text('AI NATURAL LANGUAGE ASSIST'), findsOneWidget);
+      expect(find.text('Enable Gemini AI Assist'), findsOneWidget);
+      expect(find.text('TEST'), findsOneWidget);
+
+      // Toggle AI Assist switch ON
+      final aiSwitch = find.byType(Switch).first;
+      await tester.tap(aiSwitch);
+      await tester.pumpAndSettle();
+
+      expect(engine.isAiEnabled, isTrue);
+
+      // Enter API key
+      final apiKeyField = find.byType(TextField);
+      expect(apiKeyField, findsOneWidget);
+      await tester.enterText(apiKeyField, 'my-test-key-999');
+      await tester.pumpAndSettle();
+
+      expect(engine.aiApiKey, 'my-test-key-999');
+
+      // Toggle AI Assist switch OFF
+      await tester.tap(aiSwitch);
+      await tester.pumpAndSettle();
+
+      expect(engine.isAiEnabled, isFalse);
+
+      // Close panel via close button
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('AI COMMAND PARSER'), findsNothing);
+    });
   });
 }

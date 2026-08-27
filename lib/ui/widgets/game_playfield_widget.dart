@@ -351,10 +351,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     required double playfieldWidth,
   }) {
     final promptText = prompt.endsWith(' ') ? prompt : '$prompt ';
+    final lastAi = widget.engine.lastAiTranslation;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           promptText,
@@ -384,6 +384,36 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             margin: const EdgeInsets.only(left: 1),
             color: const Color(0xFF55FFFF),
           ),
+        if (lastAi != null) ...[
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xCC0F172A),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: const Color(0xFF55FFFF).withValues(alpha: 0.6),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome, size: 10, color: Color(0xFF55FFFF)),
+                const SizedBox(width: 4),
+                Text(
+                  'AI: "${lastAi.translatedCommand}"',
+                  style: TextStyle(
+                    fontFamily: 'Courier',
+                    color: const Color(0xFF55FFFF),
+                    fontSize: math.max(9.0, fontSize * 0.75),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }

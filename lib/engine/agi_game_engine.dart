@@ -24,6 +24,8 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/agi_message_formatter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
@@ -213,6 +215,30 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
   /// Callback triggered when `restart.game()` opcode executes.
   VoidCallback? onRestartGameRequested;
+
+  /// Whether AI command translation via Gemini is enabled.
+  bool isAiEnabled = false;
+
+  /// Google AI Studio API key for Gemini command translation.
+  String aiApiKey = '';
+
+  /// Gemini model name (default: 'gemini-3.5-flash-lite').
+  String aiModel = GeminiCommandTranslator.defaultModel;
+
+  /// Gemini translator instance (can be overridden for testing).
+  GeminiCommandTranslator geminiTranslator = GeminiCommandTranslator();
+
+  final AgiSaidExtractor _saidExtractor = AgiSaidExtractor();
+  AiTranslationResult? _lastAiTranslation;
+
+  /// Most recent AI translation result, if AI translation took place.
+  AiTranslationResult? get lastAiTranslation => _lastAiTranslation;
+
+  /// Clears the last AI translation result.
+  void clearAiTranslation() {
+    _lastAiTranslation = null;
+    notifyListeners();
+  }
 
   AgiGameEngine({
     this.resourceLoader,
@@ -898,11 +924,63 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     memory.resetFlag(4);
   }
 
-  /// Submits player text command, tokenizes against dictionary, and raises Flag 2 (`have.input`).
-  void submitCommand(String input) {
+  /// Submits player text command, optionally translating via Gemini AI if enabled.
+  FutureOr<void> submitCommand(String input) {
     final cleanInput = input.trim();
-    if (cleanInput.isEmpty) return;
+    if (cleanInput.isEmpty) return null;
 
+    if (isAiEnabled && aiApiKey.isNotEmpty) {
+      return _submitCommandWithAi(cleanInput);
+    } else {
+      _lastAiTranslation = null;
+      if (_isRunning) {
+        _bufferedCommands.add(cleanInput);
+      } else {
+        _applyCommand(cleanInput);
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> _submitCommandWithAi(String cleanInput) async {
+    final currentRoom = memory.getVar(0);
+    AgiLogicScript? logic0;
+    AgiLogicScript? roomLogic;
+    try {
+      logic0 = resourceLoader?.loadLogic(0);
+      roomLogic = resourceLoader?.loadLogic(currentRoom);
+    } catch (_) {}
+
+    final extracted = _saidExtractor.extractActiveRoomCommands(
+      logic0: logic0,
+      roomLogic: roomLogic,
+      dictionary: dictionary ?? AgiDictionary(),
+      roomNumber: currentRoom,
+    );
+
+    final roomCommands = extracted.map((e) => e.canonicalPhrase).toList();
+
+    final result = await geminiTranslator.translate(
+      rawInput: cleanInput,
+      roomCommands: roomCommands,
+      apiKey: aiApiKey,
+      model: aiModel,
+      roomNumber: currentRoom,
+    );
+
+    if (result != null && result.translatedCommand.isNotEmpty) {
+      _lastAiTranslation = result;
+      final commandToRun = result.translatedCommand;
+      if (_isRunning) {
+        _bufferedCommands.add(commandToRun);
+      } else {
+        _applyCommand(commandToRun);
+      }
+      notifyListeners();
+      return;
+    }
+
+    _lastAiTranslation = null;
     if (_isRunning) {
       _bufferedCommands.add(cleanInput);
     } else {

@@ -5,6 +5,7 @@ import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
@@ -46,11 +47,17 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
   late TabController _tabController;
   AgiSoundPlayer? _previewPlayer;
   bool _isPlayingPreview = false;
+  late TextEditingController _apiKeyController;
+  bool _obscureApiKey = true;
+  bool _isTestingApiKey = false;
+  String? _apiKeyTestResult;
+  bool _apiKeyTestSuccess = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+    _apiKeyController = TextEditingController();
     _previewPlayer = AgiSoundPlayer();
     _previewPlayer!.onFinished = () {
       if (mounted) {
@@ -63,6 +70,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
 
   @override
   void dispose() {
+    _apiKeyController.dispose();
     _previewPlayer?.stop();
     _previewPlayer?.dispose();
     _tabController.dispose();
@@ -169,6 +177,10 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                     padding: const EdgeInsets.all(20),
                     child: _buildVideoTab(settings.display, notifier),
                   ),
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: _buildAiTab(settings.ai, notifier),
+                  ),
                 ],
               ),
             ),
@@ -214,7 +226,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Graphics, Sound Hardware Emulation, and Shaders',
+                  'Graphics, Sound, Shaders, and Gemini AI Command Translation',
                   style: TextStyle(
                     fontSize: 11,
                     color: AgiTheme.egaMuted,
@@ -249,8 +261,261 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
         tabs: const [
           Tab(icon: Icon(Icons.music_note, size: 16), text: 'Audio & Synth'),
           Tab(icon: Icon(Icons.monitor, size: 16), text: 'Video & Display'),
+          Tab(icon: Icon(Icons.auto_awesome, size: 16), text: 'AI Command Parser'),
         ],
       ),
+    );
+  }
+
+  // ===========================================================================
+  // AI Command Parser Tab
+  // ===========================================================================
+
+  Widget _buildAiTab(AgiAiSettings ai, SettingsNotifier notifier) {
+    if (_apiKeyController.text.isEmpty && ai.apiKey.isNotEmpty) {
+      _apiKeyController.text = ai.apiKey;
+    }
+
+    final selectedModel = const [
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.7-flash',
+      'gemini-flash-latest',
+    ].contains(ai.model)
+        ? ai.model
+        : 'gemini-3.5-flash-lite';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionHeader('GEMINI AI COMMAND PARSER'),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131D31),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AgiTheme.egaBorder),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Enable Gemini AI Command Translation',
+                      style: TextStyle(
+                        fontFamily: 'Courier',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: AgiTheme.egaWhite,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Translates natural/conversational English into valid Sierra AGI commands in real time.',
+                      style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ai.enabled,
+                activeThumbColor: AgiTheme.egaCyan,
+                onChanged: (val) {
+                  notifier.updateAiSettings(enabled: val);
+                  if (widget.engine != null) {
+                    widget.engine!.isAiEnabled = val;
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildSectionHeader('GOOGLE AI STUDIO API KEY (100% FREE)'),
+        const SizedBox(height: 8),
+        const Text(
+          'Get a free Gemini API key at https://aistudio.google.com/ with your Google account. Zero cost, no credit card required.',
+          style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _apiKeyController,
+          obscureText: _obscureApiKey,
+          style: const TextStyle(
+            fontFamily: 'Courier',
+            fontSize: 12,
+            color: AgiTheme.egaWhite,
+          ),
+          decoration: InputDecoration(
+            hintText: 'Enter AI Studio API Key (AIzaSy...)',
+            hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
+            filled: true,
+            fillColor: const Color(0xFF0F172A),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: const BorderSide(color: AgiTheme.egaBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: const BorderSide(color: AgiTheme.egaCyan),
+            ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureApiKey ? Icons.visibility : Icons.visibility_off,
+                size: 16,
+                color: AgiTheme.egaMuted,
+              ),
+              onPressed: () {
+                setState(() {
+                  _obscureApiKey = !_obscureApiKey;
+                });
+              },
+            ),
+          ),
+          onChanged: (val) {
+            notifier.updateAiSettings(apiKey: val.trim());
+            if (widget.engine != null) {
+              widget.engine!.aiApiKey = val.trim();
+            }
+          },
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _isTestingApiKey
+                  ? null
+                  : () async {
+                      final key = _apiKeyController.text.trim();
+                      if (key.isEmpty) {
+                        setState(() {
+                          _apiKeyTestResult = 'Please enter an API key first.';
+                          _apiKeyTestSuccess = false;
+                        });
+                        return;
+                      }
+                      setState(() {
+                        _isTestingApiKey = true;
+                        _apiKeyTestResult = null;
+                      });
+
+                      final translator = widget.engine?.geminiTranslator ?? GeminiCommandTranslator();
+                      final result = await translator.testConnection(
+                        apiKey: key,
+                        model: selectedModel,
+                      );
+
+                      if (mounted) {
+                        setState(() {
+                          _isTestingApiKey = false;
+                          _apiKeyTestSuccess = result.success;
+                          _apiKeyTestResult = result.success
+                              ? '✓ Connected successfully to $selectedModel!'
+                              : '✗ Failed: ${result.message}';
+                        });
+                      }
+                    },
+              icon: _isTestingApiKey
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : const Icon(Icons.bolt, size: 14),
+              label: const Text(
+                'TEST CONNECTION',
+                style: TextStyle(
+                  fontFamily: 'Courier',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AgiTheme.egaCyan,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (_apiKeyTestResult != null)
+              Expanded(
+                child: Text(
+                  _apiKeyTestResult!,
+                  style: TextStyle(
+                    fontFamily: 'Courier',
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _apiKeyTestSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _buildSectionHeader('GEMINI MODEL SELECTION'),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: AgiTheme.egaBorder),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: const [
+                'gemini-3.5-flash-lite',
+                'gemini-3.6-flash',
+                'gemini-3.7-flash',
+                'gemini-flash-latest',
+              ].contains(ai.model)
+                  ? ai.model
+                  : 'gemini-3.5-flash-lite',
+              dropdownColor: const Color(0xFF131D31),
+              isExpanded: true,
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 12,
+                color: AgiTheme.egaWhite,
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'gemini-3.5-flash-lite',
+                  child: Text('Gemini 3.5 Flash-Lite (Fastest, Recommended)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-3.6-flash',
+                  child: Text('Gemini 3.6 Flash (Standard)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-3.7-flash',
+                  child: Text('Gemini 3.7 Flash (High Quality)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-flash-latest',
+                  child: Text('Gemini Flash Latest'),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  notifier.updateAiSettings(model: val);
+                  if (widget.engine != null) {
+                    widget.engine!.aiModel = val;
+                  }
+                }
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 

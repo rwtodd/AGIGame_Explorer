@@ -177,4 +177,21 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
     );
     _saveSettings();
   }
+
+  /// Updates AI command assistance settings.
+  void updateAiSettings({
+    bool? enabled,
+    String? apiKey,
+    String? model,
+  }) {
+    state = state.copyWith(
+      ai: state.ai.copyWith(
+        enabled: enabled,
+        apiKey: apiKey,
+        model: model,
+      ),
+    );
+    _saveSettings();
+  }
 }
+

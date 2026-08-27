@@ -159,23 +159,75 @@ class AgiAudioSettings {
   }
 }
 
+/// User preferences for AI natural language command parsing.
+class AgiAiSettings {
+  final bool enabled;
+  final String apiKey;
+  final String model;
+
+  const AgiAiSettings({
+    this.enabled = false,
+    this.apiKey = '',
+    this.model = 'gemini-3.5-flash-lite',
+  });
+
+  AgiAiSettings copyWith({
+    bool? enabled,
+    String? apiKey,
+    String? model,
+  }) {
+    return AgiAiSettings(
+      enabled: enabled ?? this.enabled,
+      apiKey: apiKey ?? this.apiKey,
+      model: model ?? this.model,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'apiKey': apiKey,
+        'model': model,
+      };
+
+  factory AgiAiSettings.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const AgiAiSettings();
+
+    final rawModel = json['model'] as String? ?? 'gemini-3.5-flash-lite';
+    // Auto-migrate retired/legacy models
+    final sanitizedModel = switch (rawModel) {
+      'gemini-2.0-flash' || 'gemini-2.5-flash' || 'gemini-1.5-flash' => 'gemini-3.5-flash-lite',
+      _ => rawModel,
+    };
+
+    return AgiAiSettings(
+      enabled: json['enabled'] as bool? ?? false,
+      apiKey: json['apiKey'] as String? ?? '',
+      model: sanitizedModel,
+    );
+  }
+}
+
 /// Root container for user AGI engine and workbench settings.
 class AgiUserSettings {
   final AgiDisplaySettings display;
   final AgiAudioSettings audio;
+  final AgiAiSettings ai;
 
   const AgiUserSettings({
     this.display = const AgiDisplaySettings(),
     this.audio = const AgiAudioSettings(),
+    this.ai = const AgiAiSettings(),
   });
 
   AgiUserSettings copyWith({
     AgiDisplaySettings? display,
     AgiAudioSettings? audio,
+    AgiAiSettings? ai,
   }) {
     return AgiUserSettings(
       display: display ?? this.display,
       audio: audio ?? this.audio,
+      ai: ai ?? this.ai,
     );
   }
 
@@ -183,6 +235,7 @@ class AgiUserSettings {
         'version': '1.0',
         'display': display.toJson(),
         'audio': audio.toJson(),
+        'ai': ai.toJson(),
       };
 
   factory AgiUserSettings.fromJson(Map<String, dynamic>? json) {
@@ -191,6 +244,8 @@ class AgiUserSettings {
     return AgiUserSettings(
       display: AgiDisplaySettings.fromJson(json['display'] as Map<String, dynamic>?),
       audio: AgiAudioSettings.fromJson(json['audio'] as Map<String, dynamic>?),
+      ai: AgiAiSettings.fromJson(json['ai'] as Map<String, dynamic>?),
     );
   }
 }
+

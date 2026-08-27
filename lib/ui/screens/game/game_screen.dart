@@ -80,6 +80,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       if (initSettings != null) {
         _engine.setSoundMode(initSettings.audio.soundMode);
         _engine.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+        _engine.isAiEnabled = initSettings.ai.enabled;
+        _engine.aiApiKey = initSettings.ai.apiKey;
+        _engine.aiModel = initSettings.ai.model;
       }
     } else {
       final soundPlayer = AgiSoundPlayer();
@@ -91,6 +94,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       if (initSettings != null) {
         _engine.setSoundMode(initSettings.audio.soundMode);
         _engine.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+        _engine.isAiEnabled = initSettings.ai.enabled;
+        _engine.aiApiKey = initSettings.ai.apiKey;
+        _engine.aiModel = initSettings.ai.model;
       }
 
       _engine.initializeGame(startingRoom: widget.startingRoom);
@@ -474,6 +480,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
+    try {
+      final settings = ref.watch(settingsProvider);
+      _engine.isAiEnabled = settings.ai.enabled;
+      _engine.aiApiKey = settings.ai.apiKey;
+      _engine.aiModel = settings.ai.model;
+    } catch (_) {}
+
     return Focus(
       focusNode: _gameFocusNode,
       autofocus: true,
@@ -798,6 +811,40 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                     });
                   },
                   tooltip: 'Display & Video Options',
+                ),
+              );
+            },
+          ),
+
+          // AI Command Parser Slideout Button
+          ListenableBuilder(
+            listenable: _engine,
+            builder: (context, _) {
+              final isAiOpen = _openPanelTab == SidebarPanelTab.ai;
+              final isAiEnabled = _engine.isAiEnabled;
+              return Container(
+                decoration: BoxDecoration(
+                  color: isAiOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    Icons.auto_awesome,
+                    size: 18,
+                    color: isAiOpen
+                        ? AgiTheme.egaWhite
+                        : (isAiEnabled ? AgiTheme.egaCyan : AgiTheme.egaMuted),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    setState(() {
+                      _openPanelTab = isAiOpen ? null : SidebarPanelTab.ai;
+                    });
+                  },
+                  tooltip: isAiEnabled
+                      ? 'AI Commands: ON (Click for AI Options)'
+                      : 'AI Commands: OFF (Click for AI Options)',
                 ),
               );
             },
