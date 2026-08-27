@@ -32,9 +32,16 @@ class ExtractedSaidCommand {
 /// Utility for extracting and canonicalizing `said(...)` statements from AGI logic scripts.
 class AgiSaidExtractor {
   final InstructionDecoder decoder;
+  final Map<int, List<ExtractedSaidCommand>> _scriptCache = {};
 
   AgiSaidExtractor({double version = 2.917})
       : decoder = InstructionDecoder(version: version);
+
+  /// Clears the cached extracted said commands.
+  void clearCache() => _scriptCache.clear();
+
+  /// Number of scripts currently cached in memory.
+  int get cachedScriptCount => _scriptCache.length;
 
   /// Recursively walks a [LogicInstruction] node to find all [SaidInstruction] instances.
   List<SaidInstruction> findSaidInstructions(LogicInstruction node) {
@@ -65,7 +72,7 @@ class AgiSaidExtractor {
     }
   }
 
-  /// Extracts all [ExtractedSaidCommand]s from [script].
+  /// Extracts all [ExtractedSaidCommand]s from [script], caching results per [scriptNumber].
   List<ExtractedSaidCommand> extractFromScript({
     required AgiLogicScript script,
     required AgiDictionary dictionary,
@@ -73,43 +80,48 @@ class AgiSaidExtractor {
   }) {
     if (script.bytecodes.isEmpty) return const [];
 
-    CompoundInstruction root;
+    final cached = _scriptCache[scriptNumber];
+    if (cached != null) {
+      return cached;
+    }
+
+    List<ExtractedSaidCommand> results;
     try {
-      root = decoder.decode(script.bytecodes);
+      final root = decoder.decode(script.bytecodes);
+      final saidNodes = findSaidInstructions(root);
+      results = <ExtractedSaidCommand>[];
+      final seenPhrases = <String>{};
+
+      for (final said in saidNodes) {
+        final phrase = formatWordGroupIds(said.wordGroupIds, dictionary);
+        if (phrase.isNotEmpty && !seenPhrases.contains(phrase)) {
+          seenPhrases.add(phrase);
+          final synonyms = said.wordGroupIds.map((id) {
+            if (id == AgiSaidMatcher.anyWord) return ['<any>'];
+            if (id == AgiSaidMatcher.restOfLine) return ['<rol>'];
+            return dictionary.idToWords(id);
+          }).toList();
+
+          results.add(
+            ExtractedSaidCommand(
+              scriptNumber: scriptNumber,
+              wordGroupIds: said.wordGroupIds,
+              canonicalPhrase: phrase,
+              wordSynonyms: synonyms,
+            ),
+          );
+        }
+      }
     } catch (_) {
       // Fallback: raw bytecode scanner if disassembler encounters partial or corrupted tail opcodes
-      return _extractFromRawBytecode(
+      results = _extractFromRawBytecode(
         byteCode: script.bytecodes,
         dictionary: dictionary,
         scriptNumber: scriptNumber,
       );
     }
 
-    final saidNodes = findSaidInstructions(root);
-    final results = <ExtractedSaidCommand>[];
-    final seenPhrases = <String>{};
-
-    for (final said in saidNodes) {
-      final phrase = formatWordGroupIds(said.wordGroupIds, dictionary);
-      if (phrase.isNotEmpty && !seenPhrases.contains(phrase)) {
-        seenPhrases.add(phrase);
-        final synonyms = said.wordGroupIds.map((id) {
-          if (id == AgiSaidMatcher.anyWord) return ['<any>'];
-          if (id == AgiSaidMatcher.restOfLine) return ['<rol>'];
-          return dictionary.idToWords(id);
-        }).toList();
-
-        results.add(
-          ExtractedSaidCommand(
-            scriptNumber: scriptNumber,
-            wordGroupIds: said.wordGroupIds,
-            canonicalPhrase: phrase,
-            wordSynonyms: synonyms,
-          ),
-        );
-      }
-    }
-
+    _scriptCache[scriptNumber] = results;
     return results;
   }
 

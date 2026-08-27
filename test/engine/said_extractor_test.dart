@@ -100,5 +100,41 @@ void main() {
       expect(combined[1].canonicalPhrase, equals('open door'));
       expect(combined[1].scriptNumber, equals(0)); // from logic 0
     });
+
+    test('caches extracted said commands per scriptNumber and clears cache on demand', () {
+      final script = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF,
+          0x0E, 0x02, 0x0A, 0x00, 0x66, 0x00, // said(10, 102) -> look screen
+          0xFF, 0x02, 0x00, 0x65, 0x01,
+          0x00,
+        ]),
+        messages: const [],
+      );
+
+      expect(extractor.cachedScriptCount, equals(0));
+
+      final firstExtraction = extractor.extractFromScript(
+        script: script,
+        dictionary: dictionary,
+        scriptNumber: 5,
+      );
+
+      expect(extractor.cachedScriptCount, equals(1));
+
+      // Second extraction should return identical cached list instance
+      final secondExtraction = extractor.extractFromScript(
+        script: script,
+        dictionary: dictionary,
+        scriptNumber: 5,
+      );
+
+      expect(identical(firstExtraction, secondExtraction), isTrue);
+      expect(extractor.cachedScriptCount, equals(1));
+
+      // Clear cache
+      extractor.clearCache();
+      expect(extractor.cachedScriptCount, equals(0));
+    });
   });
 }

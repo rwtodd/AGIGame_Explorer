@@ -3253,6 +3253,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     currentPic?.dispose();
     currentPic = null;
     atlasManager.dispose();
+    _saidExtractor.clearCache();
     super.dispose();
   }
 }
