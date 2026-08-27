@@ -25,6 +25,32 @@ class ExtractedSaidCommand {
     this.wordSynonyms = const [],
   });
 
+  /// Formats this command for LLM prompts, including distinctive alternative synonyms.
+  /// Example: "look wizard (synonyms: manannan, magician, sorcerer)"
+  String toPromptDescription() {
+    if (wordSynonyms.isEmpty) return canonicalPhrase;
+
+    final altWords = <String>{};
+    final canonicalTokens = canonicalPhrase.split(' ');
+
+    for (final synList in wordSynonyms) {
+      for (final syn in synList) {
+        if (syn != '<any>' &&
+            syn != '<rol>' &&
+            !syn.startsWith('word_') &&
+            !canonicalTokens.contains(syn) &&
+            syn.length > 1) {
+          altWords.add(syn);
+        }
+      }
+    }
+
+    if (altWords.isEmpty) return canonicalPhrase;
+    // Cap at top 6 most relevant alternative synonyms to keep prompt compact
+    final preview = altWords.take(6).join(', ');
+    return '$canonicalPhrase (synonyms: $preview)';
+  }
+
   @override
   String toString() => '$canonicalPhrase ($wordGroupIds) [Logic $scriptNumber]';
 }
@@ -211,6 +237,55 @@ class AgiSaidExtractor {
     return results;
   }
 
+  /// List of preferred canonical words in order of display preference.
+  static const List<String> _preferredAgiWords = [
+    // Core Actions / Verbs
+    'look', 'take', 'get', 'talk', 'ask', 'give', 'open', 'close',
+    'use', 'read', 'drop', 'eat', 'drink', 'climb', 'jump', 'kill',
+    'push', 'pull', 'unlock', 'lock', 'swim', 'throw', 'wear', 'enter',
+    'exit', 'cast', 'fly', 'sit', 'stand', 'pay', 'buy', 'feed', 'pet',
+    'show', 'help', 'save', 'restore', 'quit', 'restart', 'pause',
+    'examine', 'search', 'listen', 'smell', 'touch', 'feel', 'kiss',
+    'hit', 'fight', 'cut', 'break', 'turn', 'move', 'ride', 'drive',
+    'board', 'leave', 'sleep', 'wake', 'hide', 'sneak', 'steal', 'bribe',
+
+    // Core Nouns & Entities
+    'wizard', 'manannan', 'door', 'key', 'cupboard', 'chest', 'box',
+    'book', 'spell', 'wand', 'screen', 'computer', 'ship', 'button',
+    'switch', 'lever', 'rock', 'stone', 'tree', 'flower', 'water',
+    'food', 'meat', 'bread', 'potion', 'bottle', 'cup', 'glass',
+    'gold', 'coin', 'purse', 'money', 'treasure', 'diamond', 'gem',
+    'ring', 'sword', 'knife', 'dagger', 'rope', 'ladder', 'stairs',
+    'window', 'wall', 'floor', 'ceiling', 'bed', 'table', 'chair',
+    'desk', 'mirror', 'clock', 'candle', 'torch', 'lamp', 'fire',
+    'girl', 'woman', 'man', 'boy', 'guard', 'king', 'queen', 'prince',
+    'princess', 'cat', 'dog', 'bird', 'eagle', 'dragon', 'snake',
+    'horse', 'donkey', 'chicken', 'fish', 'mermaid', 'monster', 'bear',
+  ];
+
+  /// Picks the most natural canonical word from a list of synonyms.
+  static String chooseCanonicalWord(List<String> synonyms) {
+    if (synonyms.isEmpty) return '';
+    if (synonyms.length == 1) return synonyms.first;
+
+    // Check preferred word list in order
+    for (final pref in _preferredAgiWords) {
+      if (synonyms.contains(pref)) {
+        return pref;
+      }
+    }
+
+    // Prefer standard single-word tokens without punctuation/spaces
+    final singleWords = synonyms.where((w) => !w.contains(' ') && !w.contains('-')).toList();
+    if (singleWords.isNotEmpty) {
+      // Pick shortest single word (often most direct: "box", "key", etc.)
+      singleWords.sort((a, b) => a.length.compareTo(b.length));
+      return singleWords.first;
+    }
+
+    return synonyms.first;
+  }
+
   /// Formats word group IDs into a canonical space-separated phrase.
   static String formatWordGroupIds(List<int> wordGroupIds, AgiDictionary dictionary) {
     final words = <String>[];
@@ -223,8 +298,7 @@ class AgiSaidExtractor {
       } else {
         final list = dictionary.idToWords(id);
         if (list.isNotEmpty) {
-          // Take the primary/first synonym
-          words.add(list.first);
+          words.add(chooseCanonicalWord(list));
         } else {
           words.add('word_$id');
         }

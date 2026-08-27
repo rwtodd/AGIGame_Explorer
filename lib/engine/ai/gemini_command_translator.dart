@@ -141,13 +141,20 @@ class GeminiCommandTranslator {
     final clean = rawInput.trim();
     if (clean.isEmpty || apiKey.trim().isEmpty) return null;
 
+    bool isRoomMatch(String cmd) {
+      return roomCommands.any((rc) {
+        final base = rc.split(' (').first.trim();
+        return base == cmd || rc == cmd;
+      });
+    }
+
     final cacheKey = '${roomNumber ?? 0}:${clean.toLowerCase()}';
     if (_cache.containsKey(cacheKey)) {
       final cached = _cache[cacheKey]!;
       return AiTranslationResult(
         originalInput: clean,
         translatedCommand: cached,
-        isRoomCommandMatch: roomCommands.contains(cached),
+        isRoomCommandMatch: isRoomMatch(cached),
         fromCache: true,
       );
     }
@@ -180,32 +187,32 @@ class GeminiCommandTranslator {
 
       request.write(body);
       final response = await request.close().timeout(timeout);
+      final responseStr = await response.transform(utf8.decoder).join();
 
       if (response.statusCode != 200) {
-        final responseStr = await response.transform(utf8.decoder).join();
-        debugPrint('[Gemini API] translate error (HTTP ${response.statusCode}): $responseStr');
+        debugPrint('[Gemini API] translate HTTP error ${response.statusCode}: $responseStr');
         return null;
       }
 
-      final responseStr = await response.transform(utf8.decoder).join();
       final Map<String, dynamic> json = jsonDecode(responseStr);
-
       final candidates = json['candidates'] as List?;
-      if (candidates == null || candidates.isEmpty) {
-        debugPrint('[Gemini API] translate returned 0 candidates: $responseStr');
-        return null;
-      }
+      if (candidates == null || candidates.isEmpty) return null;
 
-      final firstCandidate = candidates.first as Map<String, dynamic>;
-      final content = firstCandidate['content'] as Map<String, dynamic>?;
+      final content = candidates[0]['content'] as Map<String, dynamic>?;
       final parts = content?['parts'] as List?;
-      if (parts == null || parts.isEmpty) {
-        debugPrint('[Gemini API] translate candidate had no parts: $responseStr');
-        return null;
-      }
+      if (parts == null || parts.isEmpty) return null;
 
-      final text = parts.first['text'] as String?;
-      if (text == null) return null;
+      // Extract model response text
+      String text = '';
+      for (final part in parts) {
+        if (part is Map && part.containsKey('text')) {
+          final t = part['text'] as String? ?? '';
+          if (t.isNotEmpty) {
+            text = t;
+            break;
+          }
+        }
+      }
 
       final cleanedResult = _cleanModelOutput(text);
       if (cleanedResult.isEmpty) return null;
@@ -216,7 +223,7 @@ class GeminiCommandTranslator {
       return AiTranslationResult(
         originalInput: clean,
         translatedCommand: cleanedResult,
-        isRoomCommandMatch: roomCommands.contains(cleanedResult),
+        isRoomCommandMatch: isRoomMatch(cleanedResult),
         fromCache: false,
       );
     } catch (e, stack) {
@@ -248,8 +255,8 @@ class GeminiCommandTranslator {
       }
       buffer.writeln();
       buffer.writeln(
-        'RULE 1: If the player\'s input is a synonym, paraphrase, or intention matching one of the above valid actions, '
-        'return that EXACT valid action.',
+        'RULE 1: If the player\'s input matches any of the above valid actions or their listed synonyms in parentheses, '
+        'return the primary action phrase before the parentheses (e.g. "look wizard", "take key").',
       );
     }
 
@@ -270,6 +277,8 @@ class GeminiCommandTranslator {
 
   String _cleanModelOutput(String raw) {
     var text = raw.trim().toLowerCase();
+    // Remove parenthesized synonyms if echoed by model
+    text = text.replaceAll(RegExp(r'\(.*?\)|\[.*?\]'), ' ');
     // Remove markdown quotes, backticks, asterisks, prefix labels
     text = text.replaceAll(RegExp(r'[`"*\n\r]'), ' ');
     if (text.startsWith('agi command:')) {

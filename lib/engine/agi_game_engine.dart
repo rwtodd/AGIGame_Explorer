@@ -958,7 +958,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       roomNumber: currentRoom,
     );
 
-    final roomCommands = extracted.map((e) => e.canonicalPhrase).toList();
+    final roomCommands = extracted.map((e) => e.toPromptDescription()).toList();
 
     final result = await geminiTranslator.translate(
       rawInput: cleanInput,
