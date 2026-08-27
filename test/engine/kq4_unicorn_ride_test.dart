@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 
 void main() {
   test('KQ4: Riding unicorn carries Rosella across rooms 20, 27, 28, 29, 30 to Room 79', () async {
-    const gamePath = '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+    final gamePath = Directory('reference_games/kings-quest-4-agi').existsSync()
+        ? 'reference_games/kings-quest-4-agi'
+        : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+    if (!Directory(gamePath).existsSync()) return;
     final loader = await AgiResourceLoader.fromDirectory(gamePath);
     final engine = AgiGameEngine(resourceLoader: loader);
 

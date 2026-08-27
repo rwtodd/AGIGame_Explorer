@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,7 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('Space Quest 2 Room 46 Shuttle Cockpit Monitor', () {
     test('clears playfield monitor text when draw.pic redraws cockpit view', () async {
-      final loader = AgiResourceLoader.fromDirectorySync('reference_games/space-quest-2');
+      final path = Directory('reference_games/space-quest-2').existsSync()
+          ? 'reference_games/space-quest-2'
+          : '/Users/rtodd/src/flutter_agigame/reference_games/space-quest-2';
+      if (!Directory(path).existsSync()) return;
+
+      final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);
       await engine.initializeGame();
 

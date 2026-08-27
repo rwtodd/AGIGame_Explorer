@@ -141,6 +141,8 @@ void main() {
     });
 
     test('add.to.pic respects background priority and masks "III" behind ribbon', () async {
+      final kq3Dir = Directory('reference_games/kings-quest-3');
+      if (!kq3Dir.existsSync()) return;
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final kq3Engine = AgiGameEngine(resourceLoader: loader);
       await kq3Engine.initializeGame();

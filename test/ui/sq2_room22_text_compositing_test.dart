@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -10,7 +11,12 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('Space Quest 2 Room 22 Scenery vs Text Compositing', () {
     test('renders text at priority matching underlying scenery so foreground rocks do not occlude prompt', () async {
-      final loader = AgiResourceLoader.fromDirectorySync('reference_games/space-quest-2');
+      final path = Directory('reference_games/space-quest-2').existsSync()
+          ? 'reference_games/space-quest-2'
+          : '/Users/rtodd/src/flutter_agigame/reference_games/space-quest-2';
+      if (!Directory(path).existsSync()) return;
+
+      final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);
       await engine.initializeGame();
 

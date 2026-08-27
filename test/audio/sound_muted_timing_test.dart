@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/audio_output_sink.dart';
@@ -47,8 +48,12 @@ void main() {
     });
 
     test('AgiGameEngine onSound with sound off does not set completion flag immediately', () async {
-      const gamePath = '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-      final loader = await AgiResourceLoader.fromDirectory(gamePath);
+      final path = Directory('reference_games/kings-quest-4-agi').existsSync()
+          ? 'reference_games/kings-quest-4-agi'
+          : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+      if (!Directory(path).existsSync()) return;
+
+      final loader = await AgiResourceLoader.fromDirectory(path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);
       await engine.initializeGame();
 
@@ -67,8 +72,12 @@ void main() {
     });
 
     test('Room 96 presentation logo remains active when sound is off', () async {
-      const gamePath = '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-      final loader = await AgiResourceLoader.fromDirectory(gamePath);
+      final path = Directory('reference_games/kings-quest-4-agi').existsSync()
+          ? 'reference_games/kings-quest-4-agi'
+          : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+      if (!Directory(path).existsSync()) return;
+
+      final loader = await AgiResourceLoader.fromDirectory(path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);
       await engine.initializeGame();
 

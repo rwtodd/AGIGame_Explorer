@@ -23,7 +23,7 @@ Reference engines, specifications, and test game data are kept in the primary re
 - **`lib/loader/`**: V2 & V3 `DIR` / `VOL` container parsers, `WORDS.TOK` vocabulary, `OBJECT` inventory table, LRU caching `VolumeManager`.
 - **`lib/domain/`**: Data models (`Picture`, `PriorityBuffer`, `AgiView`, `AgiSound`, `AgiLogicScript`, `AgiMemory`, `AnimatedObject`, `AgiObject`).
 - **`lib/picture/`**: Vector interpreter (`PicVectorInterpreter`), 16-layer depth slicer (`PictureSlicer`), and `PriorityBuffer` control/priority screen buffer.
-- **`lib/audio/`**: Multi-mode PCM sound synthesizer (PC Speaker, Tandy 3-Voice, PCjr), `AgiSoundPlayer`, macOS AudioQueue sink, MIDI & CSound exporters.
+- **`lib/audio/`**: Multi-mode PCM sound synthesizer (PC Speaker, Tandy 3-Voice, PCjr), `AgiSoundPlayer`, macOS AudioQueue sink, Windows waveOut sink, MIDI & CSound exporters.
 - **`lib/logic/`**: Bytecode VM (`AgiLogicInterpreter`), opcode execution, `AgiMemory` (256 flags, 256 vars, strings, controllers), and disassembler with syntax highlighting.
 - **`lib/engine/`**:
   - `AgiGameEngine`: 20 Hz tick coordinator, room lifecycle, script calls, interpreter delegate events.

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
@@ -23,6 +24,20 @@ class LauncherScreen extends ConsumerStatefulWidget {
 
 class _LauncherScreenState extends ConsumerState<LauncherScreen> {
   final TextEditingController _pathController = TextEditingController();
+
+  IconData get _platformIcon {
+    if (Platform.isMacOS) return Icons.desktop_mac;
+    if (Platform.isWindows) return Icons.desktop_windows;
+    if (Platform.isLinux) return Icons.terminal;
+    return Icons.computer;
+  }
+
+  String get _platformLabel {
+    if (Platform.isMacOS) return 'macOS Native';
+    if (Platform.isWindows) return 'Windows Native';
+    if (Platform.isLinux) return 'Linux Native';
+    return 'Native';
+  }
 
   @override
   void dispose() {
@@ -153,13 +168,13 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
               borderRadius: BorderRadius.circular(4),
               border: Border.all(color: AgiTheme.egaBorder),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.desktop_mac, size: 14, color: AgiTheme.egaAmber),
-                SizedBox(width: 6),
+                Icon(_platformIcon, size: 14, color: AgiTheme.egaAmber),
+                const SizedBox(width: 6),
                 Text(
-                  'macOS Native',
-                  style: TextStyle(
+                  _platformLabel,
+                  style: const TextStyle(
                     color: AgiTheme.egaAmber,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,

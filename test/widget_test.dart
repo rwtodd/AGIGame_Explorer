@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,5 +22,13 @@ void main() {
     expect(find.text('GAME DIRECTORY'), findsOneWidget);
     expect(find.text('Browse...'), findsOneWidget);
     expect(find.text('No Game Loaded'), findsOneWidget);
+    final expectedBadge = Platform.isMacOS
+        ? 'macOS Native'
+        : Platform.isWindows
+            ? 'Windows Native'
+            : Platform.isLinux
+                ? 'Linux Native'
+                : 'Native';
+    expect(find.text(expectedBadge), findsOneWidget);
   });
 }

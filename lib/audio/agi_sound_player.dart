@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_agigame/audio/audio_output_sink.dart';
 import 'package:flutter_agigame/audio/mac_audio_queue_sink.dart';
+import 'package:flutter_agigame/audio/windows_wave_out_sink.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 
@@ -114,6 +115,13 @@ class AgiSoundPlayer {
     if (Platform.isMacOS) {
       try {
         return MacAudioQueueSink();
+      } catch (e) {
+        return NullAudioSink();
+      }
+    }
+    if (Platform.isWindows) {
+      try {
+        return WindowsWaveOutSink();
       } catch (e) {
         return NullAudioSink();
       }

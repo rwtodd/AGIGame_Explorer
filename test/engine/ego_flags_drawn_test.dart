@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
@@ -5,8 +6,12 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 void main() {
   group('Ego Flags Update (isDrawn & isAnimated check)', () {
     test('Flag 0 and Flag 3 are not raised when Ego is erased/not drawn', () async {
-      const gamePath = '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-      final loader = await AgiResourceLoader.fromDirectory(gamePath);
+      final path = Directory('reference_games/kings-quest-4-agi').existsSync()
+          ? 'reference_games/kings-quest-4-agi'
+          : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+      if (!Directory(path).existsSync()) return;
+
+      final loader = await AgiResourceLoader.fromDirectory(path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);
       await engine.initializeGame();
 

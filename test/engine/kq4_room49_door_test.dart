@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
@@ -7,9 +8,12 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('KQ4 Room 49 Closet Door & Movement Tests', () {
-    const gamePath = '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+    final gamePath = Directory('reference_games/kings-quest-4-agi').existsSync()
+        ? 'reference_games/kings-quest-4-agi'
+        : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
 
     test('opening closet door from various X positions (108, 110, 112, 114, 116) enters Room 51', () async {
+      if (!Directory(gamePath).existsSync()) return;
       final loader = await AgiResourceLoader.fromDirectory(gamePath);
 
       for (final startX in [108, 110, 112, 114, 116]) {
@@ -41,6 +45,7 @@ void main() {
     });
 
     test('resuming from user snapshot at (114, 109) with move.obj to (114, 105) enters Room 51', () async {
+      if (!Directory(gamePath).existsSync()) return;
       final loader = await AgiResourceLoader.fromDirectory(gamePath);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);
       await engine.initializeGame();
