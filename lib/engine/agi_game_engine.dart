@@ -1407,26 +1407,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     final objWidth = egoObj.getCelWidth();
 
     // Flag 0: EGO on water surface (pri 3)
-    var onWater = true;
-    if (egoObj.onWater) {
-      var anyWater = false;
-      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-        if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 3) {
-          anyWater = true;
-          break;
-        }
-      }
-      onWater = anyWater;
-    } else {
-      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-        if (bx < 0 || bx >= 160 || egoObj.y < 0 || egoObj.y >= 168 || priBuf.priorityAt(bx, egoObj.y) != 3) {
-          onWater = false;
-          break;
-        }
+    var onWater = false;
+    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 3) {
+        onWater = true;
+        break;
       }
     }
     if (onWater) {
       memory.setFlag(0);
+      if (egoObj.onLand) {
+        egoObj.onLand = false;
+      }
     } else {
       memory.resetFlag(0);
     }
@@ -1733,7 +1725,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           }
         }
         if (!slipped) {
-          posShuffle(obj);
           return;
         }
       } else {
@@ -1744,7 +1735,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
           memory.setVar(6, 0);
           obj.isCycling = false;
         }
-        posShuffle(obj);
         return;
       }
     }
@@ -1774,7 +1764,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
               memory.setVar(6, 0);
               obj.isCycling = false;
             }
-            posShuffle(obj);
             return;
           }
         }
@@ -2493,7 +2482,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   void onReposition(AnimatedObject obj, int newX, int newY) {
     _eraseVideoTextInBlitUnion(obj, newX, newY);
-    posShuffle(obj);
   }
 
   @override

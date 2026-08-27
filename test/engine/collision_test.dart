@@ -371,7 +371,7 @@ void main() {
     });
 
     group('Water & Signal Detection', () {
-      test('isWaterAtBaseline detects when baseline is entirely on priority 3 water', () {
+      test('isWaterAtBaseline detects when baseline touches priority 3 water', () {
         // Draw water from x=15..25, y=100
         for (var x = 15; x <= 25; x++) {
           priorityBuffer.setPriorityAt(x, 100, 3);
@@ -382,10 +382,10 @@ void main() {
           detector.isWaterAtBaseline(x: 16, y: 100, width: 5),
           isTrue,
         );
-        // Partially on water (x=12..16, width=5 -> x=12, 13, 14 not water)
+        // Partially on water (x=12..16, width=5 -> touches x=15, 16)
         expect(
           detector.isWaterAtBaseline(x: 12, y: 100, width: 5),
-          isFalse,
+          isTrue,
         );
         // Completely off water
         expect(

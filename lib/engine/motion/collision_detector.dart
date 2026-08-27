@@ -459,40 +459,25 @@ class CollisionDetector {
     return (clampedX, clampedY);
   }
 
-  /// Checks if the object's baseline is on water (priority 3).
+  /// Checks if any pixel along the object's baseline touches water (priority 3).
   ///
-  /// In Sierra AGI:
-  /// - When not yet on water, every pixel along baseline must be priority 3 to enter water.
-  /// - When [onWater] is true (`object.on.water`), Ego remains on water as long as water is present under the sprite.
+  /// In Sierra AGI, Flag 0 (on water) is set when any pixel along
+  /// the actor's baseline touches priority 3.
   bool isWaterAtBaseline({
     required int x,
     required int y,
     required int width,
-    bool onWater = false,
   }) {
     final effectiveWidth = math.max(1, width);
-    if (onWater) {
-      for (var i = 0; i < effectiveWidth; i++) {
-        final px = x + i;
-        if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
-          if (priorityBuffer.priorityAt(px, y) == 3) {
-            return true;
-          }
-        }
-      }
-      return false;
-    }
-
     for (var i = 0; i < effectiveWidth; i++) {
       final px = x + i;
-      if (px < 0 || px >= screenWidth || y < 0 || y >= screenHeight) {
-        return false;
-      }
-      if (priorityBuffer.priorityAt(px, y) != 3) {
-        return false;
+      if (px >= 0 && px < screenWidth && y >= 0 && y < screenHeight) {
+        if (priorityBuffer.priorityAt(px, y) == 3) {
+          return true;
+        }
       }
     }
-    return true;
+    return false;
   }
 
   /// Checks if the object's baseline touches a special trigger/alarm pixel (priority 2).
