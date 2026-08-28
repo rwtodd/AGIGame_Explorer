@@ -8,9 +8,7 @@ void main() {
     late Directory kq1Dir;
 
     setUp(() {
-      kq1Dir = Directory('kings-quest-1-agi').existsSync()
-          ? Directory('kings-quest-1-agi')
-          : Directory('reference_games/kings-quest-1-agi');
+      kq1Dir = Directory('reference_games/kings-quest-1-agi');
     });
 
     test('Swimming North from Room 37 (swamp) into Room 44 (woodcutter) transitions to walking View 0', () async {
