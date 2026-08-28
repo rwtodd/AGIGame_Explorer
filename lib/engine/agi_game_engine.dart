@@ -1937,10 +1937,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       memory.setVar(1, currentRoom); // %v1 = previous room
       memory.setVar(0, roomNumber); // %v0 = current room
     }
-    memory.setFlag(5); // %f5 = new room first execution
-    memory.resetFlag(0); // %f0 = on water
-    memory.resetFlag(1); // %f1 = ego obscured
-    memory.resetFlag(3); // %f3 = signal trigger line
+    memory.setFlag(5); // %f5 = new room first execution (INITLOGS in Sierra NEWROOM.C)
 
     // Reposition Ego based on border crossed (%v2)
     final borderHit = memory.getVar(2);
@@ -2731,24 +2728,12 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       currentPic?.picNumber = picNumber;
       textScreenBuffer.clearLines(_playfieldRow, _playfieldRow + 20, 0);
       _displayedTexts.removeWhere((t) => t.row >= _playfieldRow && t.row <= _playfieldRow + 20);
-      for (final obj in animatedObjects) {
-        if (obj.isDrawn) {
-          posShuffle(obj);
-        }
-      }
-      _updateEgoFlags(currentPic?.priorityBuffer);
       return currentPic?.preloadGpuTextures();
     }
   }
 
   @override
   FutureOr<void> onShowPic() {
-    for (final obj in animatedObjects) {
-      if (obj.isDrawn) {
-        posShuffle(obj);
-      }
-    }
-    _updateEgoFlags(currentPic?.priorityBuffer);
     final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
     if (f1 is Future || f2 is Future) {

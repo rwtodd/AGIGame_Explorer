@@ -82,12 +82,40 @@ In ScummVM (`checks.cpp:updatePosition`) and Sierra AGI (`MOVEOBJS.C:MoveObjs`):
 
 ---
 
-## 4. Summary of Architecture Rules
+## 4. Cross-Room Transitions & Flag 0 Hand-off (`NEWROOM.C`)
+
+### 4.1 Cross-Room State Inspection
+In games such as *King's Quest 1* (e.g. swimming North from Room 37 swamp into Room 44 dry woodcutter cabin):
+- The dry room's initialization logic checks whether Ego entered from water in the previous room:
+  ```agi
+  if (isset(%f5)) {
+      load.pic(%v0)
+      draw.pic(%v0)
+      discard.pic(%v0)
+      if (equaln(%v1, 37) && isset(%f0)) {
+          set.view(%o0, 0)   // Return to walking view
+          reset(%f98)        // Clear swimming flag
+          assignn(%v94, 0)   // Return to walking mode
+      }
+      draw(%o0)
+      show.pic
+  }
+  ```
+- In Sierra AGI (`NEWROOM.C`), `NewRoom(n)` sets `Set(INITLOGS)` (`Flag 5 = true`) but **never resets `Flag 0`**.
+- Similarly, `draw.pic` (`PICTURE.C:DrawPic`) only renders background pixels and vectors; it does **not** evaluate priority buffer flags or execute `posShuffle` in the middle of executing a room script's initialization code.
+- This guarantees that `Flag 0` from the prior room remains intact during the initial `Flag 5` scan until the first full animation cycle completes.
+
+---
+
+## 5. Summary of Architecture Rules
 
 | State / Operation | Mechanism | Reference |
 | :--- | :--- | :--- |
 | **Flag 0 Evaluation** | Baseline `x` to `x + width - 1` must all be Priority 3. | `CMOBJSBR.ASM:103-125`, `checks.cpp:127-166` |
 | **Flag 3 Evaluation** | Any baseline pixel touches Priority 2. | `CMOBJSBR.ASM:135`, `checks.cpp:144-165` |
+| **Room Transitions** | `new.room` sets `%f5 = 1` and preserves `%f0` for new room script inspection. | `NEWROOM.C:113`, `new_room.c:120` |
+| **Picture Drawing** | `draw.pic` / `show.pic` do not prematurely mutate actor flags or positions. | `PICTURE.C:140-154` |
 | **Water / Land Flags** | Reset at the conclusion of each animation frame. | `ANIMATE.C:180-183`, `view.cpp:684` |
 | **Reposition Shuffling** | `posShuffle` runs whenever an updating object violates constraints. | `FINDPOSN.C:45-80`, `checks.cpp:301-349` |
 | **Reposition Skipping** | Setting `reposThisCycle` skips motion on that tick. | `MOVEOBJS.C:66-71`, `obj_motion.c:130` |
+

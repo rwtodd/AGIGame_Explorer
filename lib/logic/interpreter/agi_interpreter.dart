@@ -1788,11 +1788,8 @@ class AgiLogicInterpreter {
   FutureOr<void> _doNewRoom(int room) {
     memory.setVar(1, memory.getVar(0)); // %v1 = previous room (%v0)
     memory.setVar(0, room); // %v0 = new room
-    memory.setFlag(5); // %f5 = new room first execution
-    memory.resetFlag(0); // %f0 = on water
-    memory.resetFlag(1); // %f1 = obscured
+    memory.setFlag(5); // %f5 = new room first execution (INITLOGS)
     memory.resetFlag(2); // %f2 = input entered
-    memory.resetFlag(3); // %f3 = signal touched
     memory.resetFlag(4); // %f4 = said accepted
     callStack.clear(); // unroll call stack
     memory.clearNonZeroScanStarts();
