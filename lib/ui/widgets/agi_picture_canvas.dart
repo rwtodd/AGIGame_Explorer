@@ -338,6 +338,9 @@ class AgiPicturePainter extends CustomPainter {
     if (cached != null) return cached;
 
     if (_textPainterCache.length >= _maxCachedPainters) {
+      for (final p in _textPainterCache.values) {
+        p.dispose();
+      }
       _textPainterCache.clear();
     }
 

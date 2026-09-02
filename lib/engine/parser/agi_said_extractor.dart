@@ -263,16 +263,27 @@ class AgiSaidExtractor {
     'horse', 'donkey', 'chicken', 'fish', 'mermaid', 'monster', 'bear',
   ];
 
+  static final Map<String, int> _preferredWordRanks = {
+    for (int i = 0; i < _preferredAgiWords.length; i++) _preferredAgiWords[i]: i,
+  };
+
   /// Picks the most natural canonical word from a list of synonyms.
   static String chooseCanonicalWord(List<String> synonyms) {
     if (synonyms.isEmpty) return '';
     if (synonyms.length == 1) return synonyms.first;
 
-    // Check preferred word list in order
-    for (final pref in _preferredAgiWords) {
-      if (synonyms.contains(pref)) {
-        return pref;
+    // Check preferred word list via rank map (O(synonyms.length))
+    String? bestPref;
+    int bestRank = 999999;
+    for (final syn in synonyms) {
+      final rank = _preferredWordRanks[syn];
+      if (rank != null && rank < bestRank) {
+        bestRank = rank;
+        bestPref = syn;
       }
+    }
+    if (bestPref != null) {
+      return bestPref;
     }
 
     // Prefer standard single-word tokens without punctuation/spaces

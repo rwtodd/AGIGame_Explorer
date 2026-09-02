@@ -574,7 +574,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     if (resourceLoader != null) {
       // Load root logic script (LOGIC 0)
-      if (resourceLoader!.presentLogicNumbers.contains(0)) {
+      if (resourceLoader!.hasLogic(0)) {
         final logic0 = resourceLoader!.loadLogic(0);
         interpreter.loadRootScript(logic0, scriptNumber: 0);
       }
@@ -1413,11 +1413,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Flag 0: EGO on water surface (pri 3) per Sierra CMOBJSBR.ASM and ScummVM checks.cpp:
     // Set if and only if all pixels across Ego's baseline are on priority 3 (water).
+    final egoY = egoObj.y;
     var onWater = true;
-    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-      if (bx < 0 || bx >= 160 || egoObj.y < 0 || egoObj.y >= 168 || priBuf.priorityAt(bx, egoObj.y) != 3) {
-        onWater = false;
-        break;
+    if (egoY < 0 || egoY >= 168) {
+      onWater = false;
+    } else {
+      final yOffset = egoY * 160;
+      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+        if (bx < 0 || bx >= 160 || priBuf.pixels[yOffset + bx] != 3) {
+          onWater = false;
+          break;
+        }
       }
     }
     if (onWater) {
@@ -1428,10 +1434,13 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
 
     // Flag 3: EGO touches trigger/alarm line (pri 2)
     var onSignal = false;
-    for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
-      if (bx >= 0 && bx < 160 && egoObj.y >= 0 && egoObj.y < 168 && priBuf.priorityAt(bx, egoObj.y) == 2) {
-        onSignal = true;
-        break;
+    if (egoY >= 0 && egoY < 168) {
+      final yOffset = egoY * 160;
+      for (int bx = egoObj.x; bx < egoObj.x + objWidth; bx++) {
+        if (bx >= 0 && bx < 160 && priBuf.pixels[yOffset + bx] == 2) {
+          onSignal = true;
+          break;
+        }
       }
     }
     if (onSignal) {
@@ -1995,7 +2004,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     _loadedLogicNumbers.clear();
     _loadedLogicNumbers.add(0);
     _loadedLogicNumbers.add(roomNumber);
-    if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(0)) {
+    if (resourceLoader != null && resourceLoader!.hasLogic(0)) {
       final logic0 = resourceLoader!.loadLogic(0);
       interpreter.loadRootScript(logic0, scriptNumber: 0);
     }
@@ -2102,14 +2111,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
     }
 
     if (resourceLoader != null) {
-      if (resourceLoader!.presentLogicNumbers.contains(0)) {
+      if (resourceLoader!.hasLogic(0)) {
         final logic0 = resourceLoader!.loadLogic(0);
         interpreter.loadRootScript(logic0, scriptNumber: 0);
       }
 
       // Preload all active secondary logics if present
       for (final logicNum in _loadedLogicNumbers) {
-        if (logicNum != 0 && resourceLoader!.presentLogicNumbers.contains(logicNum)) {
+        if (logicNum != 0 && resourceLoader!.hasLogic(logicNum)) {
           try {
             resourceLoader!.loadLogic(logicNum);
           } catch (_) {}
@@ -2154,7 +2163,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   @override
   AgiLogicScript? loadLogic(int logicNumber) {
     _loadedLogicNumbers.add(logicNumber);
-    if (resourceLoader != null && resourceLoader!.presentLogicNumbers.contains(logicNumber)) {
+    if (resourceLoader != null && resourceLoader!.hasLogic(logicNumber)) {
       return resourceLoader!.loadLogic(logicNumber);
     }
     return null;
@@ -3078,7 +3087,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
       }
 
       // Reload root Logic 0
-      if (resourceLoader!.presentLogicNumbers.contains(0)) {
+      if (resourceLoader!.hasLogic(0)) {
         final logic0 = resourceLoader!.loadLogic(0);
         interpreter.loadRootScript(logic0, scriptNumber: 0);
       }

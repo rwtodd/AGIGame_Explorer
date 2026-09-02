@@ -1,12 +1,12 @@
 # Sierra AGI Engine & Workbench — Features & Roadmap
 
-Last updated: 2026-08 (Updated with Gemini AI parser, menu bar, and v3 engine fixes)
+Last updated: 2026-09 (Updated with water physics, Windows audio sink, performance optimizations, and KQ1 compatibility)
 
 Reference engines: `./reference_docs`  
 Reference games: `./reference_games`  
 Architecture notes: `./doc/`
 
-**Target:** Dart 3 / Flutter, macOS desktop first. AGI v2 and v3.
+**Target:** Dart 3 / Flutter, macOS & Windows desktop. AGI v2 and v3.
 
 This document is a **status map**, not a wish list. The engine can run and complete classic Sierra titles. What comes next serves two purposes: making more games fully completable, and polishing the diagnostic workbench features that make finding and fixing remaining quirks fast and effortless.
 
@@ -25,7 +25,7 @@ Two products in one app:
 
 **Phase 1 (play core games) is done**, with one deliberate architectural choice: the engine runs on the main Flutter thread rather than a separate isolate. The 20 Hz tick loop, picture slicing, audio queue events, and UI share the isolate cleanly. Yielded opcodes (`print`, `get.string`, `get.num`, status menus) interact directly with UI overlays with zero serialization overhead.
 
-**Multiple full games are playable and completable.** Space Quest II plays through to the end. There is an automated regression suite of 380+ unit and real-room integration tests for SQ1, SQ2, KQ2, KQ3, KQ4 (v3), Police Quest 1, and The Black Cauldron.
+**Multiple full games are playable and completable.** Space Quest II plays through to the end. There is an automated regression suite of 570+ unit and real-room integration tests for SQ1, SQ2, KQ1, KQ2, KQ3, KQ4 (v3), Police Quest 1, and The Black Cauldron.
 
 Release-mode cost on macOS (60 Hz UI, 20 Hz tick cycle): ~20% CPU, ~19% GPU, ~175 MB RAM.
 
@@ -35,16 +35,16 @@ Release-mode cost on macOS (60 Hz UI, 20 Hz tick cycle): ~20% CPU, ~19% GPU, ~17
 |---|---|---|
 | V2 / V3 `DIR` + `VOL` loader, LZW, Avis Durgan, nibble unpack | **Done** | Handles dual-format v2 and single/split volume v3 |
 | LRU cache of raw volumes, parsed LOGIC, VIEW, and picture templates | **Done** | Memory-efficient resource manager |
-| Picture vector interpreter (`0xF0`–`0xFA`), scanline fill, pens, splatters | **Done** | Pixel-accurate vector rasterizer |
+| Picture vector interpreter (`0xF0`–`0xFA`), scanline fill, pens, splatters | **Done** | Pixel-accurate vector rasterizer with optimized preallocated decompression |
 | Priority-sliced Impeller compositor (16 depth bands, actors Z-sorted) | **Done** | Fast GPU-accelerated depth compositing |
 | VIEW atlas, mirrored loops as GPU flips, `add.to.pic` burn + reslice | **Done** | 32-bit packed integer texture atlas keys |
-| Logic VM, flags/vars/strings/controllers, `call` / `new.room` / scan-start | **Done** | Full AGI bytecode interpreter |
-| Motion: normal, wander, follow, move.obj, horizon, blocks, shuffle | **Done** | Authentic 8-way motion and border hit detection |
-| `WORDS.TOK` parser, `said()` with ANYWORD (1) / ROL (9999) | **Done** | Noise word filtering, contraction normalization |
+| Logic VM, flags/vars/strings/controllers, `call` / `new.room` / scan-start | **Done** | Full AGI bytecode interpreter with O(1) directory presence queries |
+| Motion: normal, wander, follow, move.obj, horizon, blocks, shuffle, water physics | **Done** | Authentic 8-way motion, border hit detection, baseline water constraints (ANIMATE.C:182), and Flag 0 cross-room handoff |
+| `WORDS.TOK` parser, `said()` with ANYWORD (1) / ROL (9999) | **Done** | Noise word filtering, contraction normalization with apostrophe bypass |
 | Gemini AI Natural Language Command Translation | **Done** | AST `said(...)` extraction, in-memory caching, Google AI Studio integration |
 | Menus, `set.key`, status line, inventory, `show.obj`, `get.string` / `get.num` | **Done** | Authentic dropdown menus & keyboard navigation |
 | Save / restore / restart (`.sav` files + rolling in-memory checkpoints) | **Done** | State serialization and before/after diffing |
-| Sound: PC speaker, Tandy/PCjr 3-voice+noise, custom synth; WAV/MIDI/CSound | **Done** | Real-time macOS AudioQueue PCM playback and file export |
+| Sound: PC speaker, Tandy/PCjr 3-voice+noise, custom synth; WAV/MIDI/CSound; macOS AudioQueue & Windows waveOut | **Done** | Real-time macOS AudioQueue and Windows winmm.dll PCM playback, file export |
 | Display: 4:3 aspect correction, integer scale, pixel grid, EGA palette, CRT shader | **Done** | Toggleable text backgrounds, scanline shaders |
 | Game loop: self-rescheduling 10/20/30/60 Hz, input queue, repaint listenable | **Done** | Cycle speed selector and sync |
 
@@ -59,7 +59,7 @@ Stubs that still no-op (implement when a playable game hits them):
 | Launcher + resource browsers (Logic, Picture, View, Sound, Objects, Words) | **Done** | Full browser suite with search and playback |
 | Picture layer modes (composited / visual / priority / control) and hover inspector | **Done** | Available in Picture Browser |
 | Picture vector **replay** (step / play drawing opcodes frame-by-frame) | **Done** | Step forward/back through picture vector draws |
-| Logic **disassembler** with highlighting, jump targets, export as text | **Done** | Full instruction decoder and decompiler |
+| Logic **disassembler** with highlighting, jump targets, export as text | **Done** | Full instruction decoder and decompiler with static regex caching |
 | Sound piano-roll / playhead, channel preview, WAV/MIDI/CSound export | **Done** | Interactive tone playback and channel solo/mute |
 | In-game sidebar slideout panel (Audio, Video, AI tabs) | **Done** | Quick-access settings and API key config |
 | In-game debug inspector: checkpoints, flag/var **view**, object table, call stack | **Done** | Inspect live state and checkpoint diffs |
@@ -90,12 +90,13 @@ Stubs that still no-op (implement when a playable game hits them):
 
 ## 3. Game Compatibility
 
-Assets in `reference_games/`: Black Cauldron, KQ2, KQ3, KQ4 (AGI v3), Police Quest 1, SQ1, SQ2.
+Assets in `reference_games/`: Black Cauldron, KQ1, KQ2, KQ3, KQ4 (AGI v3), Police Quest 1, SQ1, SQ2.
 
 | Game | Engine Version | Status | Notes |
 |---|---|---|---|
 | **Space Quest II** | AGI v2.917 | **Finishable** | Full playthrough verified, endgame sequences pass |
 | **Space Quest I** | AGI v2.272 | **Finishable** | Intro, Arcada departure, keypad input, droid hazards tested |
+| **King’s Quest I** | AGI v2.0D / v2.087 | **Finishable** | Moat swim, castle, beanstalk, dragon, goat, and Flag 0 room transitions verified |
 | **King’s Quest II** | AGI v2.411 | **Finishable** | Swim, castle, Dracula, magic door, tower stairs verified |
 | **King’s Quest III** | AGI v2.917 | Playable | Wizard timer clock sync, inventory, spells, and room transitions tested |
 | **King’s Quest IV** | AGI v3.002.149 | **Finishable** | AGI v3 logic decryption, object priorities, and doorway motion tested |

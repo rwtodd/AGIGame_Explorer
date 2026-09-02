@@ -115,6 +115,18 @@ class AgiResourceLoader {
   List<int> get presentLogicNumbers => rdir.presentLogicNumbers;
   List<int> get presentSoundNumbers => rdir.presentSoundNumbers;
 
+  /// O(1) check if logic [number] is present in the directory.
+  bool hasLogic(int number) => rdir.hasLogic(number);
+
+  /// O(1) check if picture [number] is present in the directory.
+  bool hasPic(int number) => rdir.hasPic(number);
+
+  /// O(1) check if view [number] is present in the directory.
+  bool hasView(int number) => rdir.hasView(number);
+
+  /// O(1) check if sound [number] is present in the directory.
+  bool hasSound(int number) => rdir.hasSound(number);
+
   /// Loads raw uncompressed bytes for a SOUND resource.
   Uint8List loadRawSound(int number) {
     final de = rdir.findSound(number);

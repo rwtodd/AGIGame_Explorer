@@ -38,6 +38,15 @@ class DisassemblyToken {
 class DisassemblyHighlighter {
   const DisassemblyHighlighter._();
 
+  static final _gotoRegex = RegExp(r'GOTO\(0x([0-9A-Fa-f]+)\)');
+  static final _msgRegex = RegExp(r'%m(\d+)');
+  static final _logicRegex = RegExp(r'(?:call|load\.logics|new\.room|jump\.to\.room)\((\d+)\)');
+  static final _loadViewRegex = RegExp(r'(?:load\.view|discard\.view)\((?:%v)?(\d+)\)');
+  static final _setViewRegex = RegExp(r'set\.view\([^,]+,\s*(?:%v)?(\d+)\)');
+  static final _picRegex = RegExp(r'(?:load\.pic|draw\.pic|overlay\.pic|discard\.pic)\((?:%v)?(\d+)\)');
+  static final _soundRegex = RegExp(r'(?:load\.sound\((?:%v)?(\d+)\)|sound\((?:%v)?(\d+),)');
+  static final _invRegex = RegExp(r'%i(\d+)');
+
   /// Tokenizes a disassembled instruction AST into a list of syntax tokens.
   static List<DisassemblyToken> tokenize(
     LogicInstruction ast, {
@@ -469,48 +478,48 @@ class DisassemblyHighlighter {
       var tgtInv = currentTargetInventory;
 
       if (tgtAddr == null) {
-        final gotoMatch = RegExp(r'GOTO\(0x([0-9A-Fa-f]+)\)').firstMatch(raw);
+        final gotoMatch = _gotoRegex.firstMatch(raw);
         if (gotoMatch != null) {
           tgtAddr = int.tryParse(gotoMatch.group(1)!, radix: 16);
         }
       }
       if (tgtMsg == null) {
-        final msgMatch = RegExp(r'%m(\d+)').firstMatch(raw);
+        final msgMatch = _msgRegex.firstMatch(raw);
         if (msgMatch != null) {
           tgtMsg = int.tryParse(msgMatch.group(1)!);
         }
       }
       if (tgtLogic == null) {
-        final logicMatch = RegExp(r'(?:call|load\.logics|new\.room|jump\.to\.room)\((\d+)\)').firstMatch(raw);
+        final logicMatch = _logicRegex.firstMatch(raw);
         if (logicMatch != null) {
           tgtLogic = int.tryParse(logicMatch.group(1)!);
         }
       }
       if (tgtView == null) {
-        final loadViewMatch = RegExp(r'(?:load\.view|discard\.view)\((?:%v)?(\d+)\)').firstMatch(raw);
+        final loadViewMatch = _loadViewRegex.firstMatch(raw);
         if (loadViewMatch != null) {
           tgtView = int.tryParse(loadViewMatch.group(1)!);
         } else {
-          final setViewMatch = RegExp(r'set\.view\([^,]+,\s*(?:%v)?(\d+)\)').firstMatch(raw);
+          final setViewMatch = _setViewRegex.firstMatch(raw);
           if (setViewMatch != null) {
             tgtView = int.tryParse(setViewMatch.group(1)!);
           }
         }
       }
       if (tgtPic == null) {
-        final picMatch = RegExp(r'(?:load\.pic|draw\.pic|overlay\.pic|discard\.pic)\((?:%v)?(\d+)\)').firstMatch(raw);
+        final picMatch = _picRegex.firstMatch(raw);
         if (picMatch != null) {
           tgtPic = int.tryParse(picMatch.group(1)!);
         }
       }
       if (tgtSound == null) {
-        final soundMatch = RegExp(r'(?:load\.sound\((?:%v)?(\d+)\)|sound\((?:%v)?(\d+),)').firstMatch(raw);
+        final soundMatch = _soundRegex.firstMatch(raw);
         if (soundMatch != null) {
           tgtSound = int.tryParse(soundMatch.group(1) ?? soundMatch.group(2)!);
         }
       }
       if (tgtInv == null) {
-        final invMatch = RegExp(r'%i(\d+)').firstMatch(raw);
+        final invMatch = _invRegex.firstMatch(raw);
         if (invMatch != null) {
           tgtInv = int.tryParse(invMatch.group(1)!);
         }

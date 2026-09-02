@@ -154,6 +154,10 @@ class AgiTextParser {
 
   AgiTextParser(this.dictionary);
 
+  static final _punctuationRegex =
+      RegExp(r'[.,;:!?"\(\)\[\]\{\}\/\\_\-\+=<>@#$%^&*~|]');
+  static final _whitespaceRegex = RegExp(r'\s+');
+
   /// Normalizes user text:
   /// - Converts to lowercase
   /// - Expands / normalizes contractions (e.g. "don't" -> "dont")
@@ -165,22 +169,24 @@ class AgiTextParser {
 
     var text = input.toLowerCase();
 
-    // Expand known contractions first
-    commonContractions.forEach((contraction, replacement) {
-      text = text.replaceAll(contraction, replacement);
-    });
+    // Expand known contractions first if apostrophes are present
+    if (text.contains("'") || text.contains('’') || text.contains('`')) {
+      commonContractions.forEach((contraction, replacement) {
+        text = text.replaceAll(contraction, replacement);
+      });
 
-    // Remove any remaining apostrophes inside words (e.g. "rock'n'roll" -> "rocknroll")
-    text = text.replaceAll("'", '');
-    text = text.replaceAll('`', '');
-    text = text.replaceAll('’', '');
+      // Remove any remaining apostrophes inside words (e.g. "rock'n'roll" -> "rocknroll")
+      text = text.replaceAll("'", '');
+      text = text.replaceAll('`', '');
+      text = text.replaceAll('’', '');
+    }
 
     // Replace punctuation with spaces
     // Sierra AGI treats standard punctuation as word separators
-    text = text.replaceAll(RegExp(r'[.,;:!?"\(\)\[\]\{\}\/\\_\-\+=<>@#$%^&*~|]'), ' ');
+    text = text.replaceAll(_punctuationRegex, ' ');
 
     // Collapse whitespace
-    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    text = text.replaceAll(_whitespaceRegex, ' ').trim();
 
     return text;
   }

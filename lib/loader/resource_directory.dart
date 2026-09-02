@@ -17,25 +17,37 @@ abstract class ResourceDirectory {
   DirEntry findView(int number);
   DirEntry findSound(int number);
 
-  List<int> get presentLogicNumbers => [
-        for (int i = 0; i < logicCount; i++)
-          if (findLogic(i).isPresent) i,
-      ];
+  /// O(1) check if logic [number] is present in the directory.
+  bool hasLogic(int number) => number >= 0 && number < logicCount && findLogic(number).isPresent;
 
-  List<int> get presentPicNumbers => [
-        for (int i = 0; i < picCount; i++)
-          if (findPic(i).isPresent) i,
-      ];
+  /// O(1) check if picture [number] is present in the directory.
+  bool hasPic(int number) => number >= 0 && number < picCount && findPic(number).isPresent;
 
-  List<int> get presentViewNumbers => [
-        for (int i = 0; i < viewCount; i++)
-          if (findView(i).isPresent) i,
-      ];
+  /// O(1) check if view [number] is present in the directory.
+  bool hasView(int number) => number >= 0 && number < viewCount && findView(number).isPresent;
 
-  List<int> get presentSoundNumbers => [
-        for (int i = 0; i < soundCount; i++)
-          if (findSound(i).isPresent) i,
-      ];
+  /// O(1) check if sound [number] is present in the directory.
+  bool hasSound(int number) => number >= 0 && number < soundCount && findSound(number).isPresent;
+
+  late final List<int> presentLogicNumbers = List.unmodifiable([
+    for (int i = 0; i < logicCount; i++)
+      if (hasLogic(i)) i,
+  ]);
+
+  late final List<int> presentPicNumbers = List.unmodifiable([
+    for (int i = 0; i < picCount; i++)
+      if (hasPic(i)) i,
+  ]);
+
+  late final List<int> presentViewNumbers = List.unmodifiable([
+    for (int i = 0; i < viewCount; i++)
+      if (hasView(i)) i,
+  ]);
+
+  late final List<int> presentSoundNumbers = List.unmodifiable([
+    for (int i = 0; i < soundCount; i++)
+      if (hasSound(i)) i,
+  ]);
 
   static ResourceDirectory create(GameMetaData meta) {
     if (meta.isV3) {

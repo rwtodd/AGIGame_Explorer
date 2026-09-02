@@ -13,7 +13,7 @@ Reference engines, specifications, and test game data are kept in the primary re
 - **Reference Java Parser**: `/Users/rtodd/src/org.rwtodd.agi`
   - User's prior modular Java implementation for AGI v2 and v3 parsing.
 - **Reference Game Assets (for testing)**: `/Users/rtodd/src/flutter_agigame/reference_games/`
-  - `black-cauldron/`, `kings-quest-2/`, `kings-quest-3/`, `kings-quest-4-agi/`
+  - `black-cauldron/`, `kings-quest-1-agi/`, `kings-quest-2/`, `kings-quest-3/`, `kings-quest-4-agi/`, `police-quest-1/`, `space-quest-1/`, `space-quest-2/`
 
 ---
 
@@ -40,6 +40,6 @@ Reference engines, specifications, and test game data are kept in the primary re
 
 ## 3. Development & Verification Rules
 
-- **Platform Target**: Primary focus is macOS desktop.
+- **Platform Target**: Primary focus is macOS desktop (with Windows desktop supported natively via waveOut audio sink).
 - **Validation**: Every feature and fix must include tests. Always run `flutter test` and `dart analyze` before completing tasks.
 - **Terminal Execution**: Use `BypassSandbox: true` for commands requiring host platform toolchains (like `flutter` and `git`).

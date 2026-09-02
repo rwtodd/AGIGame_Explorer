@@ -275,12 +275,17 @@ class GeminiCommandTranslator {
     return buffer.toString();
   }
 
+  static final _synonymsOrBracketsRegex = RegExp(r'\(.*?\)|\[.*?\]');
+  static final _quotesOrControlRegex = RegExp(r'[`"*\n\r]');
+  static final _punctuationRegex = RegExp(r'[.,;:!?\(\)\[\]\{\}\/\\_\-\+=<>@#$%^&~|]');
+  static final _whitespaceRegex = RegExp(r'\s+');
+
   String _cleanModelOutput(String raw) {
     var text = raw.trim().toLowerCase();
     // Remove parenthesized synonyms if echoed by model
-    text = text.replaceAll(RegExp(r'\(.*?\)|\[.*?\]'), ' ');
+    text = text.replaceAll(_synonymsOrBracketsRegex, ' ');
     // Remove markdown quotes, backticks, asterisks, prefix labels
-    text = text.replaceAll(RegExp(r'[`"*\n\r]'), ' ');
+    text = text.replaceAll(_quotesOrControlRegex, ' ');
     if (text.startsWith('agi command:')) {
       text = text.substring('agi command:'.length).trim();
     }
@@ -288,9 +293,9 @@ class GeminiCommandTranslator {
       text = text.substring('command:'.length).trim();
     }
     // Remove punctuation
-    text = text.replaceAll(RegExp(r'[.,;:!?\(\)\[\]\{\}\/\\_\-\+=<>@#$%^&~|]'), ' ');
+    text = text.replaceAll(_punctuationRegex, ' ');
     // Collapse spaces
-    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    text = text.replaceAll(_whitespaceRegex, ' ').trim();
     return text;
   }
 

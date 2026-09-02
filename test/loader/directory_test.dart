@@ -25,11 +25,13 @@ void main() {
       expect(de0.volume, equals(1));
       expect(de0.offset, equals(0x1234));
 
-      final de1 = rdir.findLogic(1);
-      expect(de1.isPresent, isFalse);
+      expect(rdir.hasLogic(0), isTrue);
+      expect(rdir.hasLogic(1), isFalse);
+      expect(rdir.hasLogic(2), isFalse);
+      expect(rdir.presentLogicNumbers, equals([0]));
     });
 
-    test('V3ResourceDirectory parses offsets and entries correctly', () {
+    test('V3ResourceDirectory parses offsets and entries correctly and reports presence', () {
       // Header: logicOffs=8, picOffs=14, viewOffs=20, soundOffs=26
       // (8, 0), (14, 0), (20, 0), (26, 0)
       // logic entries: 2 entries ((14-8)/3 = 2)
@@ -60,6 +62,23 @@ void main() {
       expect(rdir.picCount, equals(2));
       expect(rdir.viewCount, equals(2));
       expect(rdir.soundCount, equals(1));
+
+      expect(rdir.hasLogic(0), isTrue);
+      expect(rdir.hasLogic(1), isTrue);
+      expect(rdir.hasLogic(2), isFalse);
+      expect(rdir.hasPic(0), isTrue);
+      expect(rdir.hasPic(1), isTrue);
+      expect(rdir.hasPic(2), isFalse);
+      expect(rdir.hasView(0), isTrue);
+      expect(rdir.hasView(1), isTrue);
+      expect(rdir.hasView(2), isFalse);
+      expect(rdir.hasSound(0), isTrue);
+      expect(rdir.hasSound(1), isFalse);
+
+      expect(rdir.presentLogicNumbers, equals([0, 1]));
+      expect(rdir.presentPicNumbers, equals([0, 1]));
+      expect(rdir.presentViewNumbers, equals([0, 1]));
+      expect(rdir.presentSoundNumbers, equals([0]));
 
       expect(rdir.findLogic(0), equals(const DirEntry(0, 0x100)));
       expect(rdir.findLogic(1), equals(const DirEntry(0, 0x200)));

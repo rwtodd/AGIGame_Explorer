@@ -24,7 +24,7 @@ class ObjectViewResolver {
   static int? findBaseOffsetFromBytecode(AgiResourceLoader loader) {
     final candidateLogics = [0, 1, 2, 3, 4, 5];
     for (final logicNum in candidateLogics) {
-      if (!loader.presentLogicNumbers.contains(logicNum)) continue;
+      if (!loader.hasLogic(logicNum)) continue;
       try {
         final logic = loader.loadLogic(logicNum);
         final code = logic.bytecodes;
@@ -70,12 +70,13 @@ class ObjectViewResolver {
   }) {
     final presentViews = loader.presentViewNumbers;
     if (presentViews.isEmpty) return 0;
+    final presentViewsSet = presentViews.toSet();
 
     // 1. Primary Heuristic: Scan LOGIC 0 bytecode for status -> addn -> show.obj.v
     final logicBaseOffset = findBaseOffsetFromBytecode(loader);
     if (logicBaseOffset != null) {
       final expectedView = logicBaseOffset + objectIndex;
-      if (presentViews.contains(expectedView)) {
+      if (presentViewsSet.contains(expectedView)) {
         return expectedView;
       }
     }
@@ -101,7 +102,7 @@ class ObjectViewResolver {
       final expectedView = baseOffset + objectIndex;
 
       // If the expected view is present (or in views with descriptions), it is the primary match.
-      if (viewsWithDesc.containsKey(expectedView) || presentViews.contains(expectedView)) {
+      if (viewsWithDesc.containsKey(expectedView) || presentViewsSet.contains(expectedView)) {
         return expectedView;
       }
 
@@ -120,12 +121,12 @@ class ObjectViewResolver {
 
     // 4. Fallback to 1-based index (e.g. Object #1 -> VIEW 1)
     final oneBasedIndex = objectIndex + 1;
-    if (presentViews.contains(oneBasedIndex)) {
+    if (presentViewsSet.contains(oneBasedIndex)) {
       return oneBasedIndex;
     }
 
     // 5. Fallback to 0-based index
-    if (presentViews.contains(objectIndex)) {
+    if (presentViewsSet.contains(objectIndex)) {
       return objectIndex;
     }
 

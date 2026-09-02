@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// Interactive composite playfield viewport for the running AGI Game Engine.
@@ -43,8 +44,8 @@ class GamePlayfieldWidget extends StatefulWidget {
 }
 
 class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
-  final Map<String, ui.Image> _spriteTextureCache = {};
-  final Set<String> _pendingDecodes = {};
+  final Map<int, ui.Image> _spriteTextureCache = {};
+  final Set<int> _pendingDecodes = {};
   final ValueNotifier<bool> _cursorBlink = ValueNotifier<bool>(true);
   Timer? _blinkTimer;
   late Listenable _repaint;
@@ -461,7 +462,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             atlasMgr.prepareAtlasAsync();
           }
 
-          final cacheKey = 'v${obj.view}_l${obj.loop}_c$safeCel';
+          final cacheKey = AtlasCelEntry.computeKey(obj.view, obj.loop, safeCel);
           final cachedImage = _spriteTextureCache[cacheKey];
 
           actors.add(
@@ -488,7 +489,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   }
 
   void _decodeSpriteCel(
-    String cacheKey,
+    int cacheKey,
     dynamic cel,
     dynamic parentView,
     int celIndex,

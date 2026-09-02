@@ -1,6 +1,6 @@
 # Sierra AGI Game Engine & Diagnostic Workbench
 
-A modern, high-accuracy Sierra On-Line Adventure Game Interpreter (**AGI v2 & v3**) engine and interactive diagnostic workbench built natively in **Dart** and **Flutter** (macOS desktop-first).
+A modern, high-accuracy Sierra On-Line Adventure Game Interpreter (**AGI v2 & v3**) engine and interactive diagnostic workbench built natively in **Dart** and **Flutter** (macOS & Windows desktop).
 
 ---
 
@@ -8,7 +8,7 @@ A modern, high-accuracy Sierra On-Line Adventure Game Interpreter (**AGI v2 & v3
 
 ### 🎮 High-Accuracy AGI v2/v3 Game Interpreter
 - **Broad Game Compatibility**: Runs classic Sierra titles including *Space Quest I & II*, *King's Quest I–IV (including AGI v3)*, *Police Quest I*, *The Black Cauldron*, and *Leisure Suit Larry I*.
-- **Faithful Cycle-Based Engine**: 20 Hz AGI logic cycle timing with authentic motion models (`normal`, `wander`, `followEgo`, `moveObj`), priority depth barrier collisions, water/trigger line detection, and screen boundary transitions.
+- **Faithful Cycle-Based Engine**: 20 Hz AGI logic cycle timing with authentic motion models (`normal`, `wander`, `followEgo`, `moveObj`), priority depth barrier collisions, authentic water physics & baseline surface constraints (Sierra `ANIMATE.C:182` / ScummVM `view.cpp:684`), cross-room Flag 0 handoffs, and screen boundary transitions.
 - **Classic Sierra Menu Bar**: Interactive dropdown menu bar (`ESC` or mouse click) supporting game options, speed controls, sound toggling, and controller shortcuts.
 - **Dynamic Inventory & Dialogs**: Authentic text wrapping, single-line input prompts (`get.string`, `get.num`), `show.obj` item inspections, and TAB-based inventory selector.
 - **Save State System**: JSON `.sav` save state serialization and in-memory rolling checkpoints with state diffing.
@@ -41,7 +41,7 @@ Designed for reverse-engineers, modders, and curious players to inspect and modi
 ---
 
 ### 🔊 Retro Audio Synthesis
-- **Multi-Mode Synthesizer**: Native real-time PCM audio playback via macOS AudioQueue.
+- **Multi-Mode Synthesizer**: Native real-time PCM audio playback via macOS AudioQueue and Windows waveOut (`winmm.dll` Dart FFI).
 - **Selectable Audio Modes**:
   - *PC Speaker*: Authentic 1-channel square wave tone generator.
   - *Tandy 3-Voice / PCjr*: Multi-voice tone generation with configurable periodic/white noise channel.
@@ -61,7 +61,7 @@ Designed for reverse-engineers, modders, and curious players to inspect and modi
 
 ### Prerequisites
 - [Flutter SDK](https://flutter.dev/docs/get-started/install) (3.x or newer)
-- macOS (Primary desktop target)
+- macOS or Windows (macOS primary desktop target)
 
 ### Running the App
 ```bash
@@ -74,11 +74,14 @@ flutter pub get
 
 # Run on macOS desktop
 flutter run -d macos
+
+# Or run on Windows desktop
+flutter run -d windows
 ```
 
 ### Running Tests
 ```bash
-# Run the full test suite (380+ unit and game integration tests)
+# Run the full test suite (570+ unit and game integration tests)
 flutter test
 
 # Run static analysis
