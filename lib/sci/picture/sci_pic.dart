@@ -118,6 +118,7 @@ class SciPic implements SierraPicture {
   ui.Image? _cachedUnditheredVisualImage;
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
+  final List<ui.Image> _detachedGpuImages = [];
   bool _isDisposed = false;
 
   @override
@@ -377,21 +378,39 @@ class SciPic implements SierraPicture {
     ]).then((_) {});
   }
 
-  void invalidateGpuCache() {
-    _cachedFlatVisualImage?.dispose();
+  void _stashGpuImage(ui.Image? image) {
+    if (image != null) _detachedGpuImages.add(image);
+  }
+
+  /// Drops GPU image handles without disposing them so the current frame can
+  /// still paint. Call [disposeDetachedGpuImages] on the next frame.
+  void detachGpuCache() {
+    _stashGpuImage(_cachedFlatVisualImage);
     _cachedFlatVisualImage = null;
-    _cachedUnditheredVisualImage?.dispose();
+    _stashGpuImage(_cachedUnditheredVisualImage);
     _cachedUnditheredVisualImage = null;
-    _cachedPriorityMapImage?.dispose();
+    _stashGpuImage(_cachedPriorityMapImage);
     _cachedPriorityMapImage = null;
-    _cachedControlMapImage?.dispose();
+    _stashGpuImage(_cachedControlMapImage);
     _cachedControlMapImage = null;
     for (final slice in _ditheredSlices.values) {
-      slice.invalidateCachedImage();
+      _stashGpuImage(slice.detachCachedImage());
     }
     for (final slice in _unditheredSlices.values) {
-      slice.invalidateCachedImage();
+      _stashGpuImage(slice.detachCachedImage());
     }
+  }
+
+  void disposeDetachedGpuImages() {
+    for (final image in _detachedGpuImages) {
+      image.dispose();
+    }
+    _detachedGpuImages.clear();
+  }
+
+  void invalidateGpuCache() {
+    detachGpuCache();
+    disposeDetachedGpuImages();
   }
 
   void replaceSlices({
@@ -400,17 +419,17 @@ class SciPic implements SierraPicture {
   }) {
     if (dithered != null) {
       for (final slice in _ditheredSlices.values) {
-        slice.dispose();
+        _stashGpuImage(slice.detachCachedImage());
       }
       _ditheredSlices = dithered;
     }
     if (undithered != null) {
       for (final slice in _unditheredSlices.values) {
-        slice.dispose();
+        _stashGpuImage(slice.detachCachedImage());
       }
       _unditheredSlices = undithered;
     }
-    invalidateGpuCache();
+    detachGpuCache();
   }
 
   void ensureSlices({bool undithered = false}) {
@@ -434,14 +453,22 @@ class SciPic implements SierraPicture {
   }
 
   void bumpRasterEpoch() {
-    invalidateGpuCache();
+    detachGpuCache();
     _rasterEpoch++;
   }
 
   @override
   void dispose() {
     _isDisposed = true;
-    invalidateGpuCache();
+    disposeDetachedGpuImages();
+    _cachedFlatVisualImage?.dispose();
+    _cachedFlatVisualImage = null;
+    _cachedUnditheredVisualImage?.dispose();
+    _cachedUnditheredVisualImage = null;
+    _cachedPriorityMapImage?.dispose();
+    _cachedPriorityMapImage = null;
+    _cachedControlMapImage?.dispose();
+    _cachedControlMapImage = null;
     for (final slice in _ditheredSlices.values) {
       slice.dispose();
     }

@@ -155,6 +155,7 @@ class AgiPicturePainter extends CustomPainter {
   final bool showPixelGrid;
   final bool renderBlackTextBackgrounds;
   final AgiMenuManager? menuManager;
+  final int rasterEpoch;
 
   AgiPicturePainter({
     this.picture,
@@ -177,6 +178,7 @@ class AgiPicturePainter extends CustomPainter {
     this.showPixelGrid = false,
     this.renderBlackTextBackgrounds = false,
     this.menuManager,
+    this.rasterEpoch = 0,
   });
 
   @override
@@ -805,7 +807,7 @@ class AgiPicturePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant AgiPicturePainter oldDelegate) {
     if (oldDelegate.picture != picture ||
-        oldDelegate.picture?.rasterEpoch != picture?.rasterEpoch ||
+        oldDelegate.rasterEpoch != rasterEpoch ||
         oldDelegate.renderMode != renderMode ||
         oldDelegate.isTextScreen != isTextScreen ||
         oldDelegate.textBgColor != textBgColor ||
@@ -1055,6 +1057,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
   ui.Image? _priImage;
   ui.Image? _ctrlImage;
   int _loadToken = 0;
+  int _seenEpoch = 0;
 
   AgiPictureRenderMode get _effectiveMode => widget.showToolbar ? _internalMode : widget.renderMode;
 
@@ -1063,21 +1066,20 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
     super.initState();
     _internalMode = widget.renderMode;
     _displayedPic = widget.picture;
+    _seenEpoch = widget.picture.rasterEpoch;
     _loadAllTexturesFor(widget.picture);
   }
 
   @override
   void didUpdateWidget(covariant AgiPictureWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final epochChanged = oldWidget.picture.rasterEpoch != widget.picture.rasterEpoch;
     if (oldWidget.picture != widget.picture) {
+      _seenEpoch = widget.picture.rasterEpoch;
       _loadAllTexturesFor(widget.picture);
-    } else if (epochChanged) {
-      _flatImage = null;
-      _unditheredImage = null;
-      _priImage = null;
-      _ctrlImage = null;
-      _ensureModeImageLoaded(_effectiveMode);
+    } else if (widget.picture.rasterEpoch != _seenEpoch) {
+      // In-place replay mutates the same SciPic; oldWidget.picture is identical.
+      _seenEpoch = widget.picture.rasterEpoch;
+      _ensureModeImageLoaded(_effectiveMode, force: true);
     } else if (oldWidget.renderMode != widget.renderMode) {
       _internalMode = widget.renderMode;
       _ensureModeImageLoaded(widget.renderMode);
@@ -1112,35 +1114,52 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
       _ctrlImage = results[2] as ui.Image;
       _unditheredImage = unditheredFuture != null ? results[3] as ui.Image : null;
     });
+    _scheduleDisposeDetached(pic);
   }
 
-  Future<void> _ensureModeImageLoaded(AgiPictureRenderMode mode) async {
+  Future<void> _ensureModeImageLoaded(AgiPictureRenderMode mode, {bool force = false}) async {
     final targetPic = widget.picture;
     if (targetPic.isDisposed) return;
+    final token = ++_loadToken;
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
         await targetPic.preloadGpuTextures();
         break;
       case AgiPictureRenderMode.flatVisual:
-        _flatImage ??= await targetPic.toFlatVisualUiImage(undithered: false);
+        if (force || _flatImage == null) {
+          _flatImage = await targetPic.toFlatVisualUiImage(undithered: false);
+        }
         break;
       case AgiPictureRenderMode.unditheredVisual:
         if (targetPic is SciPic) {
-          _unditheredImage ??= await targetPic.toFlatVisualUiImage(undithered: true);
-        } else {
-          _flatImage ??= await targetPic.toFlatVisualUiImage();
+          if (force || _unditheredImage == null) {
+            _unditheredImage = await targetPic.toFlatVisualUiImage(undithered: true);
+          }
+        } else if (force || _flatImage == null) {
+          _flatImage = await targetPic.toFlatVisualUiImage();
         }
         break;
       case AgiPictureRenderMode.priorityMap:
-        _priImage ??= await targetPic.toPriorityMapUiImage();
+        if (force || _priImage == null) {
+          _priImage = await targetPic.toPriorityMapUiImage();
+        }
         break;
       case AgiPictureRenderMode.controlMap:
-        _ctrlImage ??= await targetPic.toControlMapUiImage();
+        if (force || _ctrlImage == null) {
+          _ctrlImage = await targetPic.toControlMapUiImage();
+        }
         break;
     }
-    if (mounted) {
-      setState(() {});
-    }
+    if (!mounted || token != _loadToken || targetPic.isDisposed) return;
+    setState(() {});
+    _scheduleDisposeDetached(targetPic);
+  }
+
+  void _scheduleDisposeDetached(SierraPicture pic) {
+    if (pic is! SciPic) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!pic.isDisposed) pic.disposeDetachedGpuImages();
+    });
   }
 
   void _handlePointerHover(PointerEvent event, Size canvasSize) {
@@ -1227,6 +1246,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,
                         showPixelGrid: widget.showPixelGrid,
                         renderBlackTextBackgrounds: widget.renderBlackTextBackgrounds,
+                        rasterEpoch: widget.picture.rasterEpoch,
                       ),
                     ),
                   ),

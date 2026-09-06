@@ -90,10 +90,16 @@ class PictureSlice {
     return completer.future;
   }
 
+  /// Drops the cached GPU texture without disposing it (caller owns the image).
+  ui.Image? detachCachedImage() {
+    final image = _cachedUiImage;
+    _cachedUiImage = null;
+    return image;
+  }
+
   /// Disposes the cached GPU texture without discarding [rgbaBytes].
   void invalidateCachedImage() {
-    _cachedUiImage?.dispose();
-    _cachedUiImage = null;
+    detachCachedImage()?.dispose();
   }
 
   /// Disposes cached GPU textures.
