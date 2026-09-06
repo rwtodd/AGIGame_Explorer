@@ -3,8 +3,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
-import 'package:flutter_agigame/domain/agi_view.dart';
+import 'package:flutter_agigame/domain/sierra_view.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import 'package:flutter_agigame/sci/loader/resource_type.dart';
+import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 
@@ -33,24 +35,33 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
   Timer? _animTimer;
   Color _canvasBg = const Color(0xFF161B22);
 
-  AgiView? _currentView;
+  SierraView? _currentView;
   ui.Image? _currentCelImage;
   bool _isLoading = false;
   String? _errorMessage;
 
-  AgiResourceLoader? get _loader => widget.loader ?? ref.read(launcherProvider).loader;
+  AgiResourceLoader? get _agiLoader => widget.loader ?? ref.read(launcherProvider).loader;
+
+  List<int> _presentViewNumbers() {
+    final launcherState = ref.read(launcherProvider);
+    if (launcherState.isSci) {
+      final sciVm = launcherState.sciVolumeManager;
+      if (sciVm == null) return const [];
+      return sciVm.resourceMap.numbersForType(SciResourceType.view).toList()..sort();
+    }
+    return _agiLoader?.presentViewNumbers ?? const [];
+  }
 
   @override
   void initState() {
     super.initState();
-    final loader = _loader;
-    if (loader != null) {
-      final present = loader.presentViewNumbers;
-      if (widget.initialViewNumber != null && present.contains(widget.initialViewNumber)) {
-        _selectedViewNumber = widget.initialViewNumber!;
-      } else if (present.isNotEmpty) {
-        _selectedViewNumber = present.first;
-      }
+    final present = _presentViewNumbers();
+    if (widget.initialViewNumber != null && present.contains(widget.initialViewNumber)) {
+      _selectedViewNumber = widget.initialViewNumber!;
+    } else if (present.isNotEmpty) {
+      _selectedViewNumber = present.first;
+    }
+    if (present.isNotEmpty) {
       _loadView(_selectedViewNumber);
     }
   }
@@ -58,6 +69,7 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
   @override
   void dispose() {
     _animTimer?.cancel();
+    _currentCelImage?.dispose();
     super.dispose();
   }
 
@@ -65,8 +77,7 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
     _animTimer?.cancel();
     _isPlaying = false;
 
-    final loader = _loader;
-    if (loader == null) return;
+    final launcherState = ref.read(launcherProvider);
 
     setState(() {
       _isLoading = true;
@@ -74,10 +85,25 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
       _selectedViewNumber = viewNum;
       _selectedLoopIndex = 0;
       _selectedCelIndex = 0;
+      final stale = _currentCelImage;
+      _currentCelImage = null;
+      if (stale != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => stale.dispose());
+      }
     });
 
     try {
-      final view = loader.loadView(viewNum);
+      final SierraView view;
+      if (launcherState.isSci) {
+        final sciVm = launcherState.sciVolumeManager;
+        if (sciVm == null) return;
+        final raw = sciVm.getResource(SciResourceType.view, viewNum);
+        view = SciViewParser.parse(raw, viewNumber: viewNum);
+      } else {
+        final loader = _agiLoader;
+        if (loader == null) return;
+        view = loader.loadView(viewNum);
+      }
       setState(() {
         _currentView = view;
         _isLoading = false;
@@ -98,17 +124,18 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
     if (cel == null) return;
 
     try {
+      final scaleX = view.pixelScaleX;
       final rgba = cel.toRgba(
         parentView: view,
         celIndex: _selectedCelIndex,
-        scaleX: 2, // 2x horizontal scaling for 160->320 aspect
+        scaleX: scaleX,
         scaleY: 1,
       );
 
       final completer = Completer<ui.Image>();
       ui.decodeImageFromPixels(
         rgba,
-        cel.width * 2,
+        cel.width * scaleX,
         cel.height,
         ui.PixelFormat.rgba8888,
         completer.complete,
@@ -116,9 +143,15 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
       final img = await completer.future;
 
       if (mounted) {
+        final old = _currentCelImage;
         setState(() {
           _currentCelImage = img;
         });
+        if (old != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+        }
+      } else {
+        img.dispose();
       }
     } catch (e) {
       // ignore
@@ -152,9 +185,8 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final launcherState = ref.watch(launcherProvider);
-    final loader = widget.loader ?? launcherState.loader;
-    final presentViews = loader?.presentViewNumbers ?? [];
+    ref.watch(launcherProvider);
+    final presentViews = _presentViewNumbers();
 
     return Scaffold(
       backgroundColor: AgiTheme.egaBlack,
@@ -507,9 +539,20 @@ class _ViewBrowserScreenState extends ConsumerState<ViewBrowserScreen> {
               padding: const EdgeInsets.all(14),
               child: Column(
                 children: [
-                  _buildPropertyRow('Resolution', '${cel.width} × ${cel.height} (scaled to ${cel.width * 2} × ${cel.height})'),
-                  _buildPropertyRow('Transparent Color', 'Color ${cel.transparentColor} (${EgaColors.colorNames[cel.transparentColor]})'),
-                  _buildPropertyRow('Mirrored', cel.isMirrored ? 'Yes (from Loop ${cel.mirrorLoop})' : 'No (Forward)'),
+                  _buildPropertyRow(
+                    'Resolution',
+                    '${cel.width} × ${cel.height} (scaled to ${cel.width * (view?.pixelScaleX ?? 1)} × ${cel.height})',
+                  ),
+                  _buildPropertyRow(
+                    'Transparent Color',
+                    'Color ${cel.transparentColor} (${EgaColors.colorNames[cel.transparentColor]})',
+                  ),
+                  _buildPropertyRow(
+                    'Mirrored',
+                    cel.isMirrored ? 'Yes (from Loop ${cel.mirrorLoop})' : 'No (Forward)',
+                  ),
+                  if (cel.displaceX != 0 || cel.displaceY != 0)
+                    _buildPropertyRow('Displacement', '(${cel.displaceX}, ${cel.displaceY})  origin: feet'),
                   if (view?.description != null)
                     _buildPropertyRow('Description', view!.description!),
                 ],

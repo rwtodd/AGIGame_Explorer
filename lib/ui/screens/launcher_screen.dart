@@ -578,6 +578,13 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                             (info.resourceCounts['VIEW Sprites'] ?? 0).toString(),
                             Icons.animation,
                             AgiTheme.egaMagenta,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ViewBrowserScreen(),
+                                ),
+                              );
+                            },
                           ),
                           _buildMetricTile(
                             'SCRIPT Bytecode',

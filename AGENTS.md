@@ -10,7 +10,7 @@ Reference engines, specifications, and test game data are kept in the primary re
   - `sci_specs/`: Curated SCI0/SCI1-EGA notes (resource.map, pic opcodes, views, priority/control, kernel, parser).
   - `original_sierra_sci_src/`: Original Sierra LSL2 and LSL3 game sources (`.SC` scripts).
   - Additional AGI-era trees (NAGI, original Sierra AGI, JAGI, Agile, AGI specs PDF) also live at `/Users/rtodd/Documents/Games/Sierra_AGI_SCI/` on the host.
-- **SCI architecture notes** (git-tracked): `doc/sci0_reference_index.md`, `doc/sci0_graphics_and_priority.md`, `doc/sci0_dual_engine_architecture.md`.
+- **SCI architecture notes** (git-tracked): `doc/sci0_reference_index.md`, `doc/sci0_graphics_and_priority.md`, `doc/sci0_dual_engine_architecture.md`, `doc/sci0_deferred_cleanup.md`.
 - **Reference Java Parser**: `/Users/rtodd/src/org.rwtodd.agi`
   - User's prior modular Java implementation for AGI v2 and v3 parsing.
 - **Reference Game Assets (for testing)**: `/Users/rtodd/src/flutter_agigame/reference_games/` (gitignored)
@@ -23,7 +23,7 @@ Reference engines, specifications, and test game data are kept in the primary re
 
 - **`lib/core/`**: EGA 16-color palette, custom exceptions, LZW 11-bit decompression, Avis Durgan decryption, nibble unpacking.
 - **`lib/loader/`**: V2 & V3 `DIR` / `VOL` container parsers, `WORDS.TOK` vocabulary, `OBJECT` inventory table, LRU caching `VolumeManager`.
-- **`lib/domain/`**: Data models (`Picture`, `PriorityBuffer`, `AgiView`, `AgiSound`, `AgiLogicScript`, `AgiMemory`, `AnimatedObject`, `AgiObject`).
+- **`lib/domain/`**: Data models (`Picture`, `PriorityBuffer`, `SierraView` / `AgiView`, `AgiSound`, `AgiLogicScript`, `AgiMemory`, `AnimatedObject`, `AgiObject`).
 - **`lib/picture/`**: Vector interpreter (`PicVectorInterpreter` + `AgiPicCanvas`, same split as SCI), 16-layer depth slicer (`PictureSlicer`), and `PriorityBuffer` control/priority screen buffer.
 - **`lib/audio/`**: Multi-mode PCM sound synthesizer (PC Speaker, Tandy 3-Voice, PCjr), `AgiSoundPlayer`, macOS AudioQueue sink, Windows waveOut sink, MIDI & CSound exporters.
 - **`lib/logic/`**: Bytecode VM (`AgiLogicInterpreter`), opcode execution, `AgiMemory` (256 flags, 256 vars, strings, controllers), and disassembler with syntax highlighting.
@@ -37,6 +37,7 @@ Reference engines, specifications, and test game data are kept in the primary re
   - `lib/ui/screens/game/game_screen.dart`: Interactive playable game screen with 4:3 EGA playfield viewport, top status line, bottom command prompt, and dialog popup overlays.
   - `lib/ui/widgets/`: Playfield compositor, modal dialogs (`DialogBoxWidget`, `InputPromptDialog`, `InventoryDialog`, `ObjectInspectionDialog`, `SaveLoadDialog`), debug inspector overlay (`DebugInspectorDialog`).
   - `lib/ui/screens/browsers/`: Individual resource browsers (Logic, Picture, View, Sound, Objects, Words) for the diagnostic workbench.
+- **`lib/sci/`**: SCI0 loader (`RESOURCE.MAP`, LZW/Huffman), picture interpreter + canvas, EGA view parser (`kViewEga` behind `SierraView`).
 
 ---
 

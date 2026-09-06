@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
-import 'package:flutter_agigame/domain/agi_view.dart';
+import 'package:flutter_agigame/domain/sierra_view.dart';
 
 /// Metadata for a cel packed inside a [ViewTextureAtlas].
 class AtlasCelEntry {
@@ -78,7 +78,7 @@ class AtlasSpriteDrawCall {
   });
 }
 
-/// Represents a compiled texture atlas containing cels from one or more [AgiView]s.
+/// Represents a compiled texture atlas containing cels from one or more [SierraView]s.
 class ViewTextureAtlas {
   final int width;
   final int height;
@@ -249,7 +249,7 @@ class _CelPackItem {
   final int viewNumber;
   final int loopNumber;
   final int celNumber;
-  final AgiViewCel cel;
+  final SierraViewCel cel;
   final List<AtlasCelEntry> dependentEntries;
 
   _CelPackItem({
@@ -268,7 +268,7 @@ class _CelPackItem {
 class ViewAtlasBuilder {
   final int padding;
   final List<Color> palette;
-  final Map<int, AgiView> _views = {};
+  final Map<int, SierraView> _views = {};
   final List<_CelPackItem> _unmirroredItems = [];
   final List<AtlasCelEntry> _allEntries = [];
 
@@ -277,13 +277,13 @@ class ViewAtlasBuilder {
     List<Color>? palette,
   }) : palette = palette ?? EgaColors.palette;
 
-  /// Add an entire [AgiView] to the atlas.
-  void addView(AgiView view) {
+  /// Add an entire [SierraView] to the atlas.
+  void addView(SierraView view) {
     _views[view.viewNumber] = view;
   }
 
-  /// Add multiple [AgiView]s to the atlas.
-  void addViews(Iterable<AgiView> views) {
+  /// Add multiple [SierraView]s to the atlas.
+  void addViews(Iterable<SierraView> views) {
     for (final v in views) {
       addView(v);
     }
@@ -298,11 +298,12 @@ class ViewAtlasBuilder {
     final sourceMap = <int, _CelPackItem>{};
 
     for (final view in _views.values) {
-      // First pass: collect all forward (unmirrored) cels
+      // First pass: collect cels that own pixel data (forward, or a mirror
+      // with no shared source loop).
       for (final loop in view.loops) {
-        for (var cIdx = 0; cIdx < loop.cels.length; cIdx++) {
-          final cel = loop.cels[cIdx];
-          if (!cel.isMirrored) {
+        for (var cIdx = 0; cIdx < loop.celCount; cIdx++) {
+          final cel = loop.getCel(cIdx)!;
+          if (cel.rawPixels != null) {
             final key = AtlasCelEntry.computeKey(view.viewNumber, loop.loopNumber, cIdx);
             final item = _CelPackItem(
               viewNumber: view.viewNumber,
@@ -321,8 +322,8 @@ class ViewAtlasBuilder {
     // Second pass: handle mirrored cels referencing their sources
     for (final view in _views.values) {
       for (final loop in view.loops) {
-        for (var cIdx = 0; cIdx < loop.cels.length; cIdx++) {
-          final cel = loop.cels[cIdx];
+        for (var cIdx = 0; cIdx < loop.celCount; cIdx++) {
+          final cel = loop.getCel(cIdx)!;
           if (cel.isMirrored) {
             final sourceKey = AtlasCelEntry.computeKey(view.viewNumber, cel.mirrorLoop, cIdx);
             var sourceItem = sourceMap[sourceKey];
@@ -445,14 +446,14 @@ class ViewAtlasBuilder {
         width: item.width,
         height: item.height,
         transparentColor: item.cel.transparentColor,
-        isMirrored: false,
+        isMirrored: item.cel.isMirrored,
         sourceLoop: item.loopNumber,
         sourceCel: item.celNumber,
       );
       resultMap[entry.intKey] = entry;
 
-      // Copy pixels into RGBA buffer
-      final rawPixels = item.cel.getUnflippedPixels();
+      // Copy native pixels into RGBA buffer (scaleX is applied at draw time).
+      final rawPixels = item.cel.rawPixels!;
       for (var y = 0; y < item.height; y++) {
         final srcRowOffset = y * item.width;
         final dstRowOffset = (destY + y) * atlasWidth;
@@ -482,8 +483,8 @@ class ViewAtlasBuilder {
     // Now populate entries for all mirrored cels
     for (final view in _views.values) {
       for (final loop in view.loops) {
-        for (var cIdx = 0; cIdx < loop.cels.length; cIdx++) {
-          final cel = loop.cels[cIdx];
+        for (var cIdx = 0; cIdx < loop.celCount; cIdx++) {
+          final cel = loop.getCel(cIdx)!;
           final key = AtlasCelEntry.computeKey(view.viewNumber, loop.loopNumber, cIdx);
           if (resultMap.containsKey(key)) continue;
 
@@ -528,10 +529,10 @@ class ViewAtlasBuilder {
 
 /// Runtime manager for Sierra AGI VIEW texture atlases.
 ///
-/// Coordinates primary and secondary texture atlases for all loaded [AgiView]s,
+/// Coordinates primary and secondary texture atlases for all loaded [SierraView]s,
 /// ensuring all sprite cels are compiled and pre-warmed on the GPU before render.
 class ViewAtlasManager {
-  final Map<int, AgiView> _registeredViews = {};
+  final Map<int, SierraView> _registeredViews = {};
   ViewTextureAtlas? _primaryAtlas;
   final Map<int, ViewTextureAtlas> _sideAtlases = {};
   bool _isDirty = false;
@@ -539,24 +540,24 @@ class ViewAtlasManager {
   void Function()? onAtlasUpdated;
 
   ViewTextureAtlas? get primaryAtlas => _primaryAtlas;
-  Map<int, AgiView> get registeredViews => Map.unmodifiable(_registeredViews);
+  Map<int, SierraView> get registeredViews => Map.unmodifiable(_registeredViews);
 
-  /// Registers an [AgiView] with the atlas manager.
-  void registerView(AgiView view) {
+  /// Registers a [SierraView] with the atlas manager.
+  void registerView(SierraView view) {
     if (_registeredViews[view.viewNumber] != view) {
       _registeredViews[view.viewNumber] = view;
       _isDirty = true;
     }
   }
 
-  /// Registers multiple [AgiView]s with the atlas manager.
-  void registerViews(Iterable<AgiView> views) {
+  /// Registers multiple [SierraView]s with the atlas manager.
+  void registerViews(Iterable<SierraView> views) {
     for (final v in views) {
       registerView(v);
     }
   }
 
-  /// Removes an [AgiView] from the atlas manager.
+  /// Removes a [SierraView] from the atlas manager.
   void unregisterView(int viewNumber) {
     if (_registeredViews.containsKey(viewNumber)) {
       _registeredViews.remove(viewNumber);
@@ -677,8 +678,8 @@ class ViewAtlasManager {
     }
   }
 
-  /// Immediately creates and preloads a side-atlas for a single [AgiView] if missing from primary.
-  Future<ViewTextureAtlas> ensureSideAtlasAsync(AgiView view) async {
+  /// Immediately creates and preloads a side-atlas for a single [SierraView] if missing from primary.
+  Future<ViewTextureAtlas> ensureSideAtlasAsync(SierraView view) async {
     final existing = _sideAtlases[view.viewNumber];
     if (existing != null && existing.hasImage) {
       return existing;
