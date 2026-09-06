@@ -197,7 +197,7 @@ class AgiPicturePainter extends CustomPainter {
       final pic = picture;
       final ui.Image? effectiveFlat;
       if (renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic) {
-        effectiveFlat = flatVisualImage ?? pic.cachedUnditheredVisualImage ?? pic.cachedFlatVisualImage;
+        effectiveFlat = flatVisualImage ?? pic.cachedUnditheredVisualImage;
       } else {
         effectiveFlat = flatVisualImage ?? pic?.cachedFlatVisualImage;
       }
@@ -1050,6 +1050,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
   late AgiPictureRenderMode _internalMode;
   SierraPicture? _displayedPic;
   ui.Image? _flatImage;
+  ui.Image? _unditheredImage;
   ui.Image? _priImage;
   ui.Image? _ctrlImage;
   int _loadToken = 0;
@@ -1077,15 +1078,18 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
 
   Future<void> _loadAllTexturesFor(SierraPicture pic) async {
     final token = ++_loadToken;
-    final flatFuture = pic.toFlatVisualUiImage();
+    final flatFuture = pic.toFlatVisualUiImage(undithered: false);
+    final unditheredFuture = (pic is SciPic) ? pic.toFlatVisualUiImage(undithered: true) : null;
     final priFuture = pic.toPriorityMapUiImage();
     final ctrlFuture = pic.toControlMapUiImage();
-    final slicesFuture = pic.preloadGpuTextures();
+    pic.preloadGpuTextures();
 
-    if (slicesFuture is Future) {
-      await slicesFuture;
-    }
-    final results = await Future.wait([flatFuture, priFuture, ctrlFuture]);
+    final results = await Future.wait([
+      flatFuture,
+      priFuture,
+      ctrlFuture,
+      ?unditheredFuture,
+    ]);
 
     if (!mounted || token != _loadToken) return;
 
@@ -1094,6 +1098,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
       _flatImage = results[0];
       _priImage = results[1];
       _ctrlImage = results[2];
+      _unditheredImage = (unditheredFuture != null) ? results[3] : null;
     });
   }
 
@@ -1104,11 +1109,11 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
         await targetPic.preloadGpuTextures();
         break;
       case AgiPictureRenderMode.flatVisual:
-        _flatImage ??= await targetPic.toFlatVisualUiImage();
+        _flatImage ??= await targetPic.toFlatVisualUiImage(undithered: false);
         break;
       case AgiPictureRenderMode.unditheredVisual:
         if (targetPic is SciPic) {
-          _flatImage ??= await targetPic.toFlatVisualUiImage(undithered: true);
+          _unditheredImage ??= await targetPic.toFlatVisualUiImage(undithered: true);
         } else {
           _flatImage ??= await targetPic.toFlatVisualUiImage();
         }
@@ -1132,10 +1137,18 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
     final normX = (event.localPosition.dx / canvasSize.width).clamp(0.0, 0.999);
     final normY = (event.localPosition.dy / canvasSize.height).clamp(0.0, 0.999);
 
-    final agiX = (normX * AgiDisplay.nativeWidth).floor().clamp(0, AgiDisplay.nativeWidth - 1);
-    final agiY = (normY * AgiDisplay.screenHeight).floor().clamp(0, AgiDisplay.screenHeight - 1);
+    final pic = _displayedPic ?? widget.picture;
+    final int picX;
+    final int picY;
+    if (pic.isSci) {
+      picX = (normX * pic.width).floor().clamp(0, pic.width - 1);
+      picY = (normY * pic.height).floor().clamp(0, pic.height - 1);
+    } else {
+      picX = (normX * AgiDisplay.nativeWidth).floor().clamp(0, AgiDisplay.nativeWidth - 1);
+      picY = (normY * AgiDisplay.screenHeight).floor().clamp(0, AgiDisplay.screenHeight - 1);
+    }
 
-    widget.onHoverPixel!(agiX, agiY);
+    widget.onHoverPixel!(picX, picY);
   }
 
   @override
@@ -1193,7 +1206,9 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
                         picture: _displayedPic ?? widget.picture,
                         renderMode: _effectiveMode,
                         actors: widget.actors,
-                        flatVisualImage: _flatImage,
+                        flatVisualImage: _effectiveMode == AgiPictureRenderMode.unditheredVisual
+                            ? _unditheredImage
+                            : _flatImage,
                         priorityMapImage: _priImage,
                         controlMapImage: _ctrlImage,
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,

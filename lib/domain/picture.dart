@@ -120,10 +120,10 @@ abstract class SierraPicture {
   Uint8List get visualPixels;
 
   /// Renders a complete 320x200 RGBA flat visual background.
-  Uint8List renderFlatVisualRgba();
+  Uint8List renderFlatVisualRgba({bool? undithered});
 
   /// Decodes and returns the flat visual background as a Flutter [ui.Image].
-  Future<ui.Image> toFlatVisualUiImage();
+  Future<ui.Image> toFlatVisualUiImage({bool? undithered});
 
   /// Renders a 320x200 RGBA buffer visualizing the depth priority map.
   Uint8List renderPriorityMapRgba();
@@ -300,7 +300,7 @@ class AgiPic implements SierraPicture {
 
   /// Renders a complete 320x200 RGBA flat visual background (for diagnostic views or single-texture shaders).
   @override
-  Uint8List renderFlatVisualRgba() {
+  Uint8List renderFlatVisualRgba({bool? undithered}) {
     final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
 
     for (int y = 0; y < nativeHeight; y++) {
@@ -328,13 +328,13 @@ class AgiPic implements SierraPicture {
 
   /// Decodes and returns the flat visual background as a Flutter [ui.Image].
   @override
-  Future<ui.Image> toFlatVisualUiImage() async {
+  Future<ui.Image> toFlatVisualUiImage({bool? undithered}) async {
     if (_isDisposed) {
       throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
     }
     if (_cachedFlatVisualImage != null) return _cachedFlatVisualImage!;
 
-    final flatRgba = renderFlatVisualRgba();
+    final flatRgba = renderFlatVisualRgba(undithered: undithered);
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
       flatRgba,

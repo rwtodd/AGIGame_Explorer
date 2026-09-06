@@ -203,7 +203,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
       String suffix;
       switch (_renderMode) {
         case AgiPictureRenderMode.unditheredVisual:
-          rgba = _currentPic!.renderFlatVisualRgba();
+          rgba = _currentPic!.renderFlatVisualRgba(undithered: true);
           suffix = 'undithered';
           break;
         case AgiPictureRenderMode.priorityMap:
@@ -215,7 +215,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           suffix = 'control';
           break;
         default:
-          rgba = _currentPic!.renderFlatVisualRgba();
+          rgba = _currentPic!.renderFlatVisualRgba(undithered: false);
           suffix = 'visual';
           break;
       }
@@ -604,15 +604,44 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
 
     final isInsidePicture = y < height && x < width;
 
-    final colorIdx = isInsidePicture ? pic.visualPixels[y * width + x] : 0;
-    final color = (_renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic && isInsidePicture)
-        ? SciPic.blendedColorForPair(pic.rawColorPairs[y * width + x])
-        : (colorIdx < EgaColors.palette.length ? EgaColors.palette[colorIdx] : Colors.black);
-    final colorName = isInsidePicture
-        ? (_renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic
-            ? 'Pair 0x${pic.rawColorPairs[y * width + x].toRadixString(16).padLeft(2, '0').toUpperCase()}'
-            : (colorIdx < EgaColors.colorNames.length ? EgaColors.colorNames[colorIdx] : '$colorIdx'))
-        : 'Border';
+    final Color color;
+    final String colorLabel;
+
+    if (!isInsidePicture) {
+      color = Colors.black;
+      colorLabel = 'Border';
+    } else if (pic is SciPic) {
+      final colorIdx = pic.visualPixels[y * width + x];
+      final pairByte = pic.rawColorPairs[y * width + x];
+      final c1 = (pairByte >> 4) & 0x0F;
+      final c2 = pairByte & 0x0F;
+      final c1Name = c1 < EgaColors.colorNames.length ? EgaColors.colorNames[c1] : '$c1';
+      final c2Name = c2 < EgaColors.colorNames.length ? EgaColors.colorNames[c2] : '$c2';
+      final hexPair = '0x${pairByte.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+
+      if (_renderMode == AgiPictureRenderMode.unditheredVisual) {
+        if (c1 == c2) {
+          color = c1 < EgaColors.palette.length ? EgaColors.palette[c1] : Colors.black;
+          colorLabel = 'Color $c1 ($c1Name)';
+        } else {
+          color = SciPic.blendedColorForPair(pairByte);
+          colorLabel = 'Blended: $c1Name + $c2Name ($hexPair)';
+        }
+      } else {
+        color = colorIdx < EgaColors.palette.length ? EgaColors.palette[colorIdx] : Colors.black;
+        final curName = colorIdx < EgaColors.colorNames.length ? EgaColors.colorNames[colorIdx] : '$colorIdx';
+        if (c1 != c2) {
+          colorLabel = 'Color $colorIdx ($curName) • Dither $hexPair ($c1Name + $c2Name)';
+        } else {
+          colorLabel = 'Color $colorIdx ($curName)';
+        }
+      }
+    } else {
+      final colorIdx = pic.visualPixels[y * width + x];
+      color = colorIdx < EgaColors.palette.length ? EgaColors.palette[colorIdx] : Colors.black;
+      final curName = colorIdx < EgaColors.colorNames.length ? EgaColors.colorNames[colorIdx] : '$colorIdx';
+      colorLabel = 'Color $colorIdx ($curName)';
+    }
 
     final rawPri = isInsidePicture ? pic.priorityAtPixel(x, y) : 0;
     final effPri = isInsidePicture ? pic.effectivePriorityAtPixel(x, y) : 0;
@@ -689,9 +718,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           ),
           const SizedBox(width: 6),
           Text(
-            _renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic
-                ? colorName
-                : 'Color $colorIdx ($colorName)',
+            colorLabel,
             style: const TextStyle(color: AgiTheme.egaWhite, fontSize: 12),
           ),
           const SizedBox(width: 14),
