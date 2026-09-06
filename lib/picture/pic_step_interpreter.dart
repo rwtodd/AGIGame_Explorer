@@ -112,6 +112,9 @@ class PicStepInterpreter implements SierraPicStepInterpreter {
   @override
   final List<PicDrawingStep> steps = [];
 
+  PicStepContext? _ctx;
+  int _appliedSteps = 0;
+
   PicStepInterpreter(this.rawData, {this.isV3 = false}) {
     _decodeSteps();
   }
@@ -558,16 +561,18 @@ class PicStepInterpreter implements SierraPicStepInterpreter {
     }
   }
 
-  /// Executes steps from index 0 up to [stepIndex] (inclusive) and returns the resulting [AgiPic].
+  /// Executes steps from index 0 up to [stepIndex] (exclusive) and returns the resulting [AgiPic].
   @override
   AgiPic renderUpToStep(int stepIndex, {bool computeSlices = false, bool isUndithered = false}) {
-    final ctx = PicStepContext(isV3: isV3);
     final limit = stepIndex.clamp(0, steps.length);
-
-    for (var i = 0; i < limit; i++) {
-      steps[i].execute(ctx);
+    if (_ctx == null || limit < _appliedSteps) {
+      _ctx = PicStepContext(isV3: isV3);
+      _appliedSteps = 0;
     }
-
-    return ctx.toAgiPic(computeSlices: computeSlices);
+    for (var i = _appliedSteps; i < limit; i++) {
+      steps[i].execute(_ctx!);
+    }
+    _appliedSteps = limit;
+    return _ctx!.toAgiPic(computeSlices: computeSlices);
   }
 }

@@ -805,6 +805,7 @@ class AgiPicturePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant AgiPicturePainter oldDelegate) {
     if (oldDelegate.picture != picture ||
+        oldDelegate.picture?.rasterEpoch != picture?.rasterEpoch ||
         oldDelegate.renderMode != renderMode ||
         oldDelegate.isTextScreen != isTextScreen ||
         oldDelegate.textBgColor != textBgColor ||
@@ -1068,8 +1069,15 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
   @override
   void didUpdateWidget(covariant AgiPictureWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final epochChanged = oldWidget.picture.rasterEpoch != widget.picture.rasterEpoch;
     if (oldWidget.picture != widget.picture) {
       _loadAllTexturesFor(widget.picture);
+    } else if (epochChanged) {
+      _flatImage = null;
+      _unditheredImage = null;
+      _priImage = null;
+      _ctrlImage = null;
+      _ensureModeImageLoaded(_effectiveMode);
     } else if (oldWidget.renderMode != widget.renderMode) {
       _internalMode = widget.renderMode;
       _ensureModeImageLoaded(widget.renderMode);
@@ -1078,32 +1086,37 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
 
   Future<void> _loadAllTexturesFor(SierraPicture pic) async {
     final token = ++_loadToken;
+    if (pic.isDisposed) return;
+
+    final gpu = pic.preloadGpuTextures();
+    final gpuFuture = gpu is Future<void> ? gpu : Future<void>.value();
     final flatFuture = pic.toFlatVisualUiImage(undithered: false);
     final unditheredFuture = (pic is SciPic) ? pic.toFlatVisualUiImage(undithered: true) : null;
     final priFuture = pic.toPriorityMapUiImage();
     final ctrlFuture = pic.toControlMapUiImage();
-    pic.preloadGpuTextures();
 
     final results = await Future.wait([
       flatFuture,
       priFuture,
       ctrlFuture,
       ?unditheredFuture,
+      gpuFuture,
     ]);
 
-    if (!mounted || token != _loadToken) return;
+    if (!mounted || token != _loadToken || pic.isDisposed) return;
 
     setState(() {
       _displayedPic = pic;
-      _flatImage = results[0];
-      _priImage = results[1];
-      _ctrlImage = results[2];
-      _unditheredImage = (unditheredFuture != null) ? results[3] : null;
+      _flatImage = results[0] as ui.Image;
+      _priImage = results[1] as ui.Image;
+      _ctrlImage = results[2] as ui.Image;
+      _unditheredImage = unditheredFuture != null ? results[3] as ui.Image : null;
     });
   }
 
   Future<void> _ensureModeImageLoaded(AgiPictureRenderMode mode) async {
-    final targetPic = _displayedPic ?? widget.picture;
+    final targetPic = widget.picture;
+    if (targetPic.isDisposed) return;
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
         await targetPic.preloadGpuTextures();

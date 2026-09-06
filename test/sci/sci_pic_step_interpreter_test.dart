@@ -85,5 +85,19 @@ void main() {
         expect(slicedStepPic.unditheredSlices.isNotEmpty, isTrue);
       }
     });
+
+    test('step replay of a right-edge rect pen matches full interpret', () {
+      final data = Uint8List.fromList([
+        0xF0, 33,
+        0xF9, 0x10,
+        0xFA,
+        0x10, 0x3F, 10,
+        0xFF,
+      ]);
+      final full = SciPicInterpreter.interpret(data, portTop: 0);
+      final stepped = SciPicStepInterpreter(data, portTop: 0)
+          .renderUpToStep(1000);
+      expect(stepped.visualPixels, equals(full.visualPixels));
+    });
   });
 }

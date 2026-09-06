@@ -15,6 +15,8 @@ enum LauncherStatus {
 }
 
 class LauncherState {
+  static const Object _unset = Object();
+
   final LauncherStatus status;
   final String? selectedPath;
   final GameInfo? gameInfo;
@@ -38,20 +40,28 @@ class LauncherState {
 
   LauncherState copyWith({
     LauncherStatus? status,
-    String? selectedPath,
-    GameInfo? gameInfo,
-    AgiResourceLoader? loader,
-    SciVolumeManager? sciVolumeManager,
-    String? errorMessage,
+    Object? selectedPath = _unset,
+    Object? gameInfo = _unset,
+    Object? loader = _unset,
+    Object? sciVolumeManager = _unset,
+    Object? errorMessage = _unset,
     List<String>? recentPaths,
   }) {
     return LauncherState(
       status: status ?? this.status,
-      selectedPath: selectedPath ?? this.selectedPath,
-      gameInfo: gameInfo ?? this.gameInfo,
-      loader: loader ?? this.loader,
-      sciVolumeManager: sciVolumeManager ?? this.sciVolumeManager,
-      errorMessage: errorMessage ?? this.errorMessage,
+      selectedPath: identical(selectedPath, _unset)
+          ? this.selectedPath
+          : selectedPath as String?,
+      gameInfo: identical(gameInfo, _unset) ? this.gameInfo : gameInfo as GameInfo?,
+      loader: identical(loader, _unset)
+          ? this.loader
+          : loader as AgiResourceLoader?,
+      sciVolumeManager: identical(sciVolumeManager, _unset)
+          ? this.sciVolumeManager
+          : sciVolumeManager as SciVolumeManager?,
+      errorMessage: identical(errorMessage, _unset)
+          ? this.errorMessage
+          : errorMessage as String?,
       recentPaths: recentPaths ?? this.recentPaths,
     );
   }
@@ -228,14 +238,7 @@ class LauncherNotifier extends Notifier<LauncherState> {
     _currentAgiLoader = null;
     _currentSciManager?.close();
     _currentSciManager = null;
-    state = state.copyWith(
-      status: LauncherStatus.initial,
-      selectedPath: null,
-      gameInfo: null,
-      loader: null,
-      sciVolumeManager: null,
-      errorMessage: null,
-    );
+    state = LauncherState(recentPaths: state.recentPaths);
   }
 }
 

@@ -17,6 +17,7 @@ void main() {
       expect(sciPic1.priorityPixels.length, 320 * 200);
       expect(sciPic1.controlPixels.length, 320 * 200);
       expect(sciPic1.slices.length, 16);
+      sciPic1.ensureSlices(undithered: true);
       expect(sciPic1.unditheredSlices.length, 16);
       expect(sciPic1.activeSlices.isNotEmpty, isTrue);
 

@@ -50,8 +50,10 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
 
   // Active picture cache
   SierraPicture? _currentPic;
+  final List<SierraPicture> _ownedPics = [];
   bool _isLoading = false;
   String? _errorMessage;
+  bool _fullScreenPort = false;
 
   @override
   void initState() {
@@ -82,9 +84,21 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     }
   }
 
+  int get _sciPortTop => _fullScreenPort ? 0 : 10;
+
+  void _replacePic(SierraPicture? next) {
+    if (next != null && !identical(next, _currentPic)) {
+      _ownedPics.add(next);
+    }
+    _currentPic = next;
+  }
+
   @override
   void dispose() {
     _playbackTimer?.cancel();
+    for (final pic in _ownedPics) {
+      pic.dispose();
+    }
     super.dispose();
   }
 
@@ -110,13 +124,27 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
 
       try {
         final rawData = sciVm.getResource(SciResourceType.pic, picNum);
-        final pic = SciPicInterpreter.interpret(rawData, picNumber: picNum);
+        final wantSlices = _renderMode == AgiPictureRenderMode.compositedSlices;
+        final pic = SciPicInterpreter.interpret(
+          rawData,
+          picNumber: picNum,
+          portTop: _sciPortTop,
+          computeSlices: wantSlices && _renderMode != AgiPictureRenderMode.unditheredVisual,
+          computeUnditheredSlices: wantSlices && _renderMode == AgiPictureRenderMode.unditheredVisual,
+        );
         if (_renderMode == AgiPictureRenderMode.unditheredVisual) {
           pic.isUndithered = true;
+          pic.ensureSlices(undithered: true);
+        } else if (wantSlices) {
+          pic.ensureSlices();
         }
-        final stepInterpreter = SciPicStepInterpreter(rawData, picNumber: picNum);
+        final stepInterpreter = SciPicStepInterpreter(
+          rawData,
+          picNumber: picNum,
+          portTop: _sciPortTop,
+        );
         setState(() {
-          _currentPic = pic;
+          _replacePic(pic);
           _stepInterpreter = stepInterpreter;
           _currentStep = stepInterpreter.totalSteps;
           _isLoading = false;
@@ -148,7 +176,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
       final stepInterpreter = PicStepInterpreter(rawData, isV3: loader.meta.isV3);
 
       setState(() {
-        _currentPic = pic;
+        _replacePic(pic);
         _stepInterpreter = stepInterpreter;
         _currentStep = stepInterpreter.totalSteps;
         _isLoading = false;
@@ -164,13 +192,16 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
   void _setStep(int step) {
     if (_stepInterpreter == null) return;
     final clamped = step.clamp(0, _stepInterpreter!.totalSteps);
+    final pic = _stepInterpreter!.renderUpToStep(
+      clamped,
+      computeSlices: _renderMode == AgiPictureRenderMode.compositedSlices,
+      isUndithered: _renderMode == AgiPictureRenderMode.unditheredVisual,
+    );
+    if (!identical(pic, _currentPic)) {
+      _replacePic(pic);
+    }
     setState(() {
       _currentStep = clamped;
-      _currentPic = _stepInterpreter!.renderUpToStep(
-        clamped,
-        computeSlices: _renderMode == AgiPictureRenderMode.compositedSlices,
-        isUndithered: _renderMode == AgiPictureRenderMode.unditheredVisual,
-      );
     });
   }
 
@@ -228,9 +259,11 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           break;
       }
 
-      final exportWidth = _currentPic!.width;
-      final exportHeight = _currentPic!.height;
-      final bmp = _encodeBmp(rgba, exportWidth, exportHeight);
+      final bmp = _encodeBmp(
+        rgba,
+        AgiDisplay.renderedWidth,
+        AgiDisplay.renderedHeight,
+      );
       final fileName = 'pic_${_selectedPicNumber.toString().padLeft(3, '0')}_$suffix.bmp';
 
       final uri = await FilePickerPlatform.instance.saveFile(
@@ -482,8 +515,13 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
                   _renderMode = set.first;
                   _isolatedPrioritySlice = null;
                   if (_currentPic is SciPic) {
-                    (_currentPic as SciPic).isUndithered =
+                    final sci = _currentPic as SciPic;
+                    sci.isUndithered =
                         (_renderMode == AgiPictureRenderMode.unditheredVisual);
+                    if (_renderMode == AgiPictureRenderMode.compositedSlices ||
+                        _renderMode == AgiPictureRenderMode.unditheredVisual) {
+                      sci.ensureSlices(undithered: sci.isUndithered);
+                    }
                   }
                 });
               },
@@ -535,6 +573,22 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
               ),
             ),
             const SizedBox(width: 8),
+            if (launcherState.isSci) ...[
+              FilterChip(
+                label: const Text('Full-screen port'),
+                selected: _fullScreenPort,
+                onSelected: (val) {
+                  setState(() => _fullScreenPort = val);
+                  _loadPicture(_selectedPicNumber);
+                },
+                avatar: Icon(
+                  Icons.crop_landscape,
+                  size: 14,
+                  color: _fullScreenPort ? AgiTheme.egaCyan : AgiTheme.egaMuted,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
             FilterChip(
               label: const Text('Vector Replay'),
               selected: _replayMode,
@@ -657,15 +711,17 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     if (!isInsidePicture) {
       controlDesc = 'Border';
     } else if (pic is SciPic) {
-      if (ctrlVal == 0) {
-        controlDesc = 'None (0)';
+      const names = [
+        'BLACK', 'NAVY', 'GREEN', 'TEAL', 'MAROON', 'PURPLE', 'BROWN', 'SILVER',
+        'GREY', 'BLUE', 'LIME', 'CYAN', 'RED', 'FUCHSIA', 'YELLOW', 'WHITE',
+      ];
+      final name = ctrlVal >= 0 && ctrlVal < names.length ? names[ctrlVal] : '$ctrlVal';
+      if (ctrlVal == 15) {
+        controlDesc = 'ctlWHITE (15, solid)';
+      } else if (ctrlVal == 0) {
+        controlDesc = 'ctlBLACK (0)';
       } else {
-        final bits = <String>[];
-        if (ctrlVal & 0x01 != 0) bits.add('Ctrl-0');
-        if (ctrlVal & 0x02 != 0) bits.add('Ctrl-1');
-        if (ctrlVal & 0x04 != 0) bits.add('Ctrl-2');
-        if (ctrlVal & 0x08 != 0) bits.add('Ctrl-3');
-        controlDesc = bits.isNotEmpty ? bits.join(', ') : 'Val $ctrlVal';
+        controlDesc = 'ctl$name ($ctrlVal)';
       }
     } else {
       if (rawPri == 0) {

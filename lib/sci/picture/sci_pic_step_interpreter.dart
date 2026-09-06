@@ -1,16 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
-import 'package:flutter_agigame/picture/picture_slicer.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
-import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
-
-class _Point {
-  int x;
-  int y;
-  _Point(this.x, this.y);
-}
+import 'package:flutter_agigame/sci/picture/sci_pic_canvas.dart';
 
 /// A discrete drawing operation decoded from an SCI0 PICTURE vector stream.
 class SciPicDrawingStep implements PicStepInfo {
@@ -22,7 +14,7 @@ class SciPicDrawingStep implements PicStepInfo {
   final String commandName;
   @override
   final String description;
-  final void Function(SciPicStepContext ctx) action;
+  final void Function(SciPicCanvas ctx) action;
 
   const SciPicDrawingStep({
     required this.stepIndex,
@@ -32,394 +24,13 @@ class SciPicDrawingStep implements PicStepInfo {
     required this.action,
   });
 
-  void execute(SciPicStepContext ctx) => action(ctx);
+  void execute(SciPicCanvas ctx) => action(ctx);
 
   @override
   String toString() => 'Step #$stepIndex [$commandName]: $description';
 }
 
-/// Execution context for stepping through SCI0 picture drawing opcodes.
-class SciPicStepContext {
-  static const int scriptWidth = 320;
-  static const int scriptHeight = 200;
-
-  final int portTop;
-  final int paletteNo;
-  final bool mirrored;
-
-  final Uint8List visual;
-  final Uint8List priority;
-  final Uint8List control;
-  final Uint8List egaPalettes;
-
-  int picColor = 0; // Black default
-  int picPriority = 255;
-  int picControl = 255;
-  int patternCode = 0;
-
-  SciPicStepContext({
-    this.portTop = 10,
-    this.paletteNo = 0,
-    this.mirrored = false,
-  })  : visual = Uint8List(scriptWidth * scriptHeight),
-        priority = Uint8List(scriptWidth * scriptHeight),
-        control = Uint8List(scriptWidth * scriptHeight),
-        egaPalettes = Uint8List(4 * 40) {
-    const totalPixels = scriptWidth * scriptHeight;
-    final clearStart = portTop * scriptWidth;
-    visual.fillRange(clearStart, totalPixels, 15);
-
-    for (int p = 0; p < 4; p++) {
-      for (int i = 0; i < 40; i++) {
-        egaPalettes[p * 40 + i] = SciPicInterpreter.defaultEgaPalette[i];
-      }
-    }
-  }
-
-  int getPaletteEntry(int colorIndex) {
-    if (colorIndex >= 40) colorIndex = colorIndex & 0x0F;
-    final offset = (paletteNo.clamp(0, 3) * 40) + colorIndex;
-    return egaPalettes[offset];
-  }
-
-  void putPixel(int x, int y, int mask, int col, int pri, int ctl) {
-    if (x < 0 || x >= scriptWidth || y < 0 || y >= scriptHeight) return;
-    final idx = y * scriptWidth + x;
-    if ((mask & 1) != 0) visual[idx] = col;
-    if ((mask & 2) != 0) priority[idx] = pri;
-    if ((mask & 4) != 0) control[idx] = ctl;
-  }
-
-  int getDrawingMask(int col, int pri, int ctl) {
-    int m = 0;
-    if (col != 255) m |= 1;
-    if (pri != 255) m |= 2;
-    if (ctl != 255) m |= 4;
-    return m;
-  }
-
-  void patternBoxPixel(int x, int y, int mask, int col, int pri, int ctl, int maxH) {
-    if (x < 0 || x >= scriptWidth || y < 0 || y >= maxH) return;
-    putPixel(x, y, mask, col, pri, ctl);
-    if (x == 319 && y < maxH - 1) {
-      var wrapCol = col;
-      if (wrapCol != 255) {
-        wrapCol = ((wrapCol << 4) | (wrapCol >> 4)) & 0xFF;
-        wrapCol = (wrapCol ^ (wrapCol << 4)) & 0xFF;
-      }
-      putPixel(0, y + 1, mask, wrapCol, pri, ctl);
-    }
-  }
-
-  void drawPattern(int x, int y, int col, int pri, int ctl, int code, int texture) {
-    final size = code & 0x07;
-    int boxLeft = x - size;
-    int boxTop = y - size;
-    final boxWidth = 2 * size + 2;
-    final boxHeight = 2 * size + 1;
-    int boxRight = boxLeft + boxWidth;
-    int boxBottom = boxTop + boxHeight;
-
-    if (boxLeft < 0) {
-      boxLeft = 0;
-      boxRight = boxWidth;
-    }
-    if (boxTop < 0) {
-      boxTop = 0;
-      boxBottom = boxHeight;
-    }
-
-    boxTop += portTop;
-    boxBottom += portTop;
-
-    if (boxRight > scriptWidth + 1) {
-      final shift = boxRight - (scriptWidth + 1);
-      boxLeft -= shift;
-      boxRight -= shift;
-    }
-    if (boxBottom > scriptHeight) {
-      final shift = boxBottom - scriptHeight;
-      boxTop -= shift;
-      boxBottom -= shift;
-    }
-
-    final mask = getDrawingMask(col, pri, ctl);
-    if (mask == 0) return;
-
-    final isRect = (code & 0x10) != 0;
-    final isTextured = (code & 0x20) != 0;
-    int texOffset = isTextured ? SciPicInterpreter.patternTextureOffset[texture.clamp(0, 127)] : 0;
-
-    if (isRect) {
-      for (int py = boxTop; py < boxBottom; py++) {
-        for (int px = boxLeft; px < boxRight; px++) {
-          if (!isTextured || SciPicInterpreter.patternTextures[texOffset % SciPicInterpreter.patternTextures.length]) {
-            patternBoxPixel(px, py, mask, col, pri, ctl, scriptHeight);
-          }
-          if (isTextured) texOffset++;
-        }
-      }
-    } else {
-      final circleData = SciPicInterpreter.patternCircles[size];
-      int cByteIdx = 0;
-      int bitmap = circleData[0];
-      int bitNo = 0;
-
-      for (int py = boxTop; py < boxBottom; py++) {
-        for (int px = boxLeft; px < boxRight; px++) {
-          if (bitNo == 8) {
-            cByteIdx++;
-            bitmap = cByteIdx < circleData.length ? circleData[cByteIdx] : 0;
-            bitNo = 0;
-          }
-          if ((bitmap & 1) != 0) {
-            if (!isTextured || SciPicInterpreter.patternTextures[texOffset % SciPicInterpreter.patternTextures.length]) {
-              if (px >= 0 && px < scriptWidth && py >= 0 && py < scriptHeight) {
-                putPixel(px, py, mask, col, pri, ctl);
-              }
-            }
-            if (isTextured) texOffset++;
-          }
-          bitNo++;
-          bitmap >>= 1;
-        }
-      }
-    }
-  }
-
-  bool isFillMatch(int x, int y, int matchMask, int sCol, int sPri, int sCtl) {
-    final idx = y * scriptWidth + x;
-    if ((matchMask & 1) != 0) {
-      var egaColor = visual[idx];
-      if (((x ^ y) & 1) != 0) {
-        egaColor = (egaColor ^ (egaColor >> 4)) & 0x0F;
-      } else {
-        egaColor = egaColor & 0x0F;
-      }
-      return egaColor == sCol;
-    }
-    if ((matchMask & 2) != 0) {
-      return priority[idx] == sPri;
-    }
-    if ((matchMask & 4) != 0) {
-      return control[idx] == sCtl;
-    }
-    return false;
-  }
-
-  void floodFill(int startX, int startY, int col, int pri, int ctl) {
-    final px = startX;
-    final py = startY + portTop;
-    if (px < 0 || px >= scriptWidth || py < portTop || py >= scriptHeight) return;
-
-    int screenMask = getDrawingMask(col, pri, ctl);
-    if (screenMask == 0) return;
-
-    final pIdx = py * scriptWidth + px;
-    int searchColor = visual[pIdx];
-    if (((px ^ py) & 1) != 0) {
-      searchColor = (searchColor ^ (searchColor >> 4)) & 0x0F;
-    } else {
-      searchColor = searchColor & 0x0F;
-    }
-    final searchPriority = priority[pIdx];
-    final searchControl = control[pIdx];
-
-    if ((screenMask & 1) != 0) {
-      if (col == 15 || searchColor != 15) return;
-    } else if ((screenMask & 2) != 0) {
-      if (pri == 0 || searchPriority != 0) return;
-    } else if ((screenMask & 4) != 0) {
-      if (ctl == 0 || searchControl != 0) return;
-    }
-
-    if ((screenMask & 1) != 0 && searchColor == col) screenMask &= ~1;
-    if ((screenMask & 2) != 0 && searchPriority == pri) screenMask &= ~2;
-    if ((screenMask & 4) != 0 && searchControl == ctl) screenMask &= ~4;
-    if (screenMask == 0) return;
-
-    final int matchMask;
-    if ((screenMask & 1) != 0) {
-      matchMask = 1;
-    } else if ((screenMask & 2) != 0) {
-      matchMask = 2;
-    } else {
-      matchMask = 4;
-    }
-
-    const borderLeft = 0;
-    final borderTop = portTop;
-    const borderRight = scriptWidth - 1;
-    const borderBottom = scriptHeight - 1;
-
-    final stack = <_Point>[_Point(px, py)];
-    while (stack.isNotEmpty) {
-      final p = stack.removeLast();
-      if (!isFillMatch(p.x, p.y, matchMask, searchColor, searchPriority, searchControl)) continue;
-
-      putPixel(p.x, p.y, screenMask, col, pri, ctl);
-      var curToLeft = p.x;
-      var curToRight = p.x;
-
-      while (curToLeft > borderLeft && isFillMatch(curToLeft - 1, p.y, matchMask, searchColor, searchPriority, searchControl)) {
-        curToLeft--;
-        putPixel(curToLeft, p.y, screenMask, col, pri, ctl);
-      }
-      while (curToRight < borderRight && isFillMatch(curToRight + 1, p.y, matchMask, searchColor, searchPriority, searchControl)) {
-        curToRight++;
-        putPixel(curToRight, p.y, screenMask, col, pri, ctl);
-      }
-
-      int aSet = 0;
-      int bSet = 0;
-      for (int checkX = curToLeft; checkX <= curToRight; checkX++) {
-        if (p.y > borderTop && isFillMatch(checkX, p.y - 1, matchMask, searchColor, searchPriority, searchControl)) {
-          if (aSet == 0) {
-            stack.add(_Point(checkX, p.y - 1));
-            aSet = 1;
-          }
-        } else {
-          aSet = 0;
-        }
-
-        if (p.y < borderBottom && isFillMatch(checkX, p.y + 1, matchMask, searchColor, searchPriority, searchControl)) {
-          if (bSet == 0) {
-            stack.add(_Point(checkX, p.y + 1));
-            bSet = 1;
-          }
-        } else {
-          bSet = 0;
-        }
-      }
-    }
-  }
-
-  void drawLine(int x1, int y1, int x2, int y2, int col, int pri, int ctl) {
-    int left = x1.clamp(0, scriptWidth - 1);
-    int top = y1.clamp(0, scriptHeight - 1);
-    int right = x2.clamp(0, scriptWidth - 1);
-    int bottom = y2.clamp(0, scriptHeight - 1);
-
-    final mask = getDrawingMask(col, pri, ctl);
-    if (mask == 0) return;
-
-    if (top == bottom) {
-      if (right < left) {
-        final tmp = right; right = left; left = tmp;
-      }
-      for (int i = left; i <= right; i++) {
-        putPixel(i, top, mask, col, pri, ctl);
-      }
-      return;
-    }
-    if (left == right) {
-      if (top > bottom) {
-        final tmp = top; top = bottom; bottom = tmp;
-      }
-      for (int i = top; i <= bottom; i++) {
-        putPixel(left, i, mask, col, pri, ctl);
-      }
-      return;
-    }
-
-    int dy = bottom - top;
-    int dx = right - left;
-    final stepy = dy < 0 ? -1 : 1;
-    final stepx = dx < 0 ? -1 : 1;
-    dy = dy.abs() << 1;
-    dx = dx.abs() << 1;
-
-    putPixel(left, top, mask, col, pri, ctl);
-    putPixel(right, bottom, mask, col, pri, ctl);
-
-    if (dx > dy) {
-      int fraction = dy - (dx >> 1);
-      while (left != right) {
-        if (fraction >= 0) {
-          top += stepy;
-          fraction -= dx;
-        }
-        left += stepx;
-        fraction += dy;
-        putPixel(left, top, mask, col, pri, ctl);
-      }
-    } else {
-      int fraction = dx - (dy >> 1);
-      while (top != bottom) {
-        if (fraction >= 0) {
-          left += stepx;
-          fraction -= dy;
-        }
-        top += stepy;
-        fraction += dx;
-        putPixel(left, top, mask, col, pri, ctl);
-      }
-    }
-  }
-
-  SciPic toSciPic({int? picNumber, bool computeSlices = false, bool isUndithered = false}) {
-    const totalPixels = scriptWidth * scriptHeight;
-    final ditheredVisual = Uint8List(totalPixels);
-    final rawColorPairs = Uint8List(totalPixels);
-
-    for (int y = 0; y < scriptHeight; y++) {
-      for (int x = 0; x < scriptWidth; x++) {
-        final idx = y * scriptWidth + x;
-        final c = visual[idx];
-        if ((c & 0xF0) != 0) {
-          final decoded = (c ^ (c << 4)) & 0xFF;
-          final c1 = (decoded >> 4) & 0x0F;
-          final c2 = decoded & 0x0F;
-          rawColorPairs[idx] = (c1 << 4) | c2;
-          ditheredVisual[idx] = (((x ^ y) & 1) != 0) ? c1 : c2;
-        } else {
-          final cVal = c & 0x0F;
-          rawColorPairs[idx] = (cVal << 4) | cVal;
-          ditheredVisual[idx] = cVal;
-        }
-      }
-    }
-
-    final Map<int, PictureSlice> ditheredSlices;
-    final Map<int, PictureSlice> unditheredSlices;
-
-    if (computeSlices) {
-      ditheredSlices = PictureSlicer.slice(
-        visualPixels: ditheredVisual,
-        priorityPixels: priority,
-        profile: DisplayProfile.sci0,
-        paletteRgbaPacked: EgaColors.rgbaPacked,
-      );
-      unditheredSlices = PictureSlicer.slice(
-        visualPixels: rawColorPairs,
-        priorityPixels: priority,
-        profile: DisplayProfile.sci0,
-        paletteRgbaPacked: SciPicInterpreter.unditheredPalette256,
-      );
-    } else {
-      ditheredSlices = <int, PictureSlice>{};
-      unditheredSlices = <int, PictureSlice>{};
-    }
-
-    final pic = SciPic(
-      picNumber: picNumber,
-      visualPixels: ditheredVisual,
-      priorityPixels: priority,
-      controlPixels: control,
-      rawColorPairs: rawColorPairs,
-      slices: ditheredSlices,
-      unditheredSlices: unditheredSlices,
-    );
-    pic.isUndithered = isUndithered;
-    return pic;
-  }
-}
-
 /// Step-by-step vector bytecode interpreter for Sierra SCI0 pictures.
-///
-/// Decodes drawing opcodes into discrete [SciPicDrawingStep] instances,
-/// enabling scrubbable step playback, animated command-by-command rendering,
-/// and live opcode inspection in the workbench UI.
 class SciPicStepInterpreter implements SierraPicStepInterpreter {
   final Uint8List rawData;
   final int? picNumber;
@@ -429,6 +40,10 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
 
   @override
   final List<SciPicDrawingStep> steps = [];
+
+  SciPicCanvas? _canvas;
+  SciPic? _pic;
+  int _appliedSteps = 0;
 
   SciPicStepInterpreter(
     this.rawData, {
@@ -450,11 +65,11 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
     int patternTexture = 0;
     final coords = [0, 0];
 
-    void getAbsCoords(List<int> out) {
+    void getAbsCoords(List<int> out, {bool mirror = true}) {
       final p = rawData[curPos++];
       out[0] = rawData[curPos++] + ((p & 0xF0) << 4);
       out[1] = rawData[curPos++] + ((p & 0x0F) << 8);
-      if (mirrored) out[0] = 319 - out[0];
+      if (mirror && mirrored) out[0] = 319 - out[0];
     }
 
     void getRelCoords(List<int> out) {
@@ -495,7 +110,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
     while (curPos < rawData.length) {
       final op = rawData[curPos++];
       switch (op) {
-        case 0xF0: // Set visual color
+        case 0xF0:
           final rawColor = rawData[curPos++];
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
@@ -508,8 +123,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             },
           ));
           break;
-
-        case 0xF1: // Disable visual
+        case 0xF1:
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xF1,
@@ -518,8 +132,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (ctx) => ctx.picColor = 255,
           ));
           break;
-
-        case 0xF2: // Set priority
+        case 0xF2:
           final pri = rawData[curPos++] & 0x0F;
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
@@ -529,8 +142,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (ctx) => ctx.picPriority = pri,
           ));
           break;
-
-        case 0xF3: // Disable priority
+        case 0xF3:
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xF3,
@@ -539,8 +151,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (ctx) => ctx.picPriority = 255,
           ));
           break;
-
-        case 0xF4: // Short patterns
+        case 0xF4:
           getPatternTexture();
           getAbsCoords(coords);
           final pX0 = coords[0];
@@ -570,8 +181,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xF5: // Medium lines
+        case 0xF5:
           getAbsCoords(coords);
           while (curPos < rawData.length && rawData[curPos] < 0xF0) {
             final oldX = coords[0];
@@ -588,8 +198,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xF6: // Long lines
+        case 0xF6:
           getAbsCoords(coords);
           while (curPos < rawData.length && rawData[curPos] < 0xF0) {
             final oldX = coords[0];
@@ -606,8 +215,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xF7: // Short lines
+        case 0xF7:
           getAbsCoords(coords);
           while (curPos < rawData.length && rawData[curPos] < 0xF0) {
             final oldX = coords[0];
@@ -624,8 +232,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xF8: // Fill
+        case 0xF8:
           while (curPos < rawData.length && rawData[curPos] < 0xF0) {
             getAbsCoords(coords);
             final fX = coords[0];
@@ -639,8 +246,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xF9: // Set pattern
+        case 0xF9:
           final code = rawData[curPos++];
           patternCode = code;
           steps.add(SciPicDrawingStep(
@@ -651,8 +257,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (ctx) => ctx.patternCode = code,
           ));
           break;
-
-        case 0xFA: // Absolute pattern
+        case 0xFA:
           while (curPos < rawData.length && rawData[curPos] < 0xF0) {
             getPatternTexture();
             getAbsCoords(coords);
@@ -669,8 +274,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xFB: // Set control
+        case 0xFB:
           final ctl = rawData[curPos++] & 0x0F;
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
@@ -680,8 +284,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (ctx) => ctx.picControl = ctl,
           ));
           break;
-
-        case 0xFC: // Disable control
+        case 0xFC:
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xFC,
@@ -690,8 +293,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (ctx) => ctx.picControl = 255,
           ));
           break;
-
-        case 0xFD: // Medium patterns
+        case 0xFD:
           getPatternTexture();
           getAbsCoords(coords);
           final mX0 = coords[0];
@@ -721,11 +323,10 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             ));
           }
           break;
-
-        case 0xFE: // Extended opcodes
+        case 0xFE:
           final subOp = rawData[curPos++];
           switch (subOp) {
-            case 0: // Set palette entries
+            case 0:
               final entries = <int, int>{};
               while (curPos < rawData.length && rawData[curPos] < 0xF0) {
                 final pix = rawData[curPos++];
@@ -746,8 +347,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
                 },
               ));
               break;
-
-            case 1: // Set palette (40 bytes)
+            case 1:
               final pIdx = rawData[curPos++];
               final pBytes = (pIdx < 4 && curPos + 40 <= rawData.length)
                   ? Uint8List.fromList(rawData.sublist(curPos, curPos + 40))
@@ -765,40 +365,38 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
                 },
               ));
               break;
-
             case 2:
               curPos += 41;
               break;
-
             case 3:
             case 5:
               curPos++;
               break;
-
             case 4:
             case 6:
               break;
-
-            case 7: // Embedded view
-              getAbsCoords(coords);
+            case 7:
+              getAbsCoords(coords, mirror: false);
               final size = rawData[curPos] | (rawData[curPos + 1] << 8);
-              curPos += 2 + size;
+              curPos += 2;
+              final headerPos = curPos;
+              final vx = coords[0];
+              final vy = coords[1];
+              curPos += size;
               steps.add(SciPicDrawingStep(
                 stepIndex: stepCounter++,
                 opcode: 0xFE,
                 commandName: 'Embedded View',
-                description: 'Embedded sprite view ($size bytes) at (${coords[0]}, ${coords[1]})',
-                action: (_) {},
+                description: 'Embedded sprite view ($size bytes) at ($vx, $vy)',
+                action: (ctx) => ctx.drawEmbeddedView(rawData, headerPos, vx, vy),
               ));
               break;
-
-            case 8: // Priority table
+            case 8:
               curPos += 14;
               break;
           }
           break;
-
-        case 0xFF: // Terminate
+        case 0xFF:
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xFF,
@@ -808,29 +406,43 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
           ));
           break;
       }
-
       if (op == 0xFF) break;
     }
   }
 
-  /// Executes steps from index 0 up to [stepIndex] (exclusive) and returns the resulting [SciPic].
   @override
   SciPic renderUpToStep(int stepIndex, {bool computeSlices = false, bool isUndithered = false}) {
-    final ctx = SciPicStepContext(
-      portTop: portTop,
-      paletteNo: paletteNo,
-      mirrored: mirrored,
-    );
     final limit = stepIndex.clamp(0, steps.length);
-
-    for (var i = 0; i < limit; i++) {
-      steps[i].execute(ctx);
+    if (_canvas == null || limit < _appliedSteps) {
+      _canvas = SciPicCanvas(
+        portTop: portTop,
+        paletteNo: paletteNo,
+        mirrored: mirrored,
+      );
+      _appliedSteps = 0;
+      _pic = null;
     }
+    for (var i = _appliedSteps; i < limit; i++) {
+      steps[i].execute(_canvas!);
+    }
+    _appliedSteps = limit;
 
-    return ctx.toSciPic(
-      picNumber: picNumber,
-      computeSlices: computeSlices,
-      isUndithered: isUndithered,
-    );
+    final wantUnditheredSlices = computeSlices && isUndithered;
+    if (_pic == null) {
+      _pic = _canvas!.toSciPic(
+        picNumber: picNumber,
+        computeSlices: computeSlices && !isUndithered,
+        computeUnditheredSlices: wantUnditheredSlices,
+        isUndithered: isUndithered,
+      );
+    } else {
+      _canvas!.writeInto(
+        _pic!,
+        computeSlices: computeSlices && !isUndithered,
+        computeUnditheredSlices: wantUnditheredSlices,
+        isUndithered: isUndithered,
+      );
+    }
+    return _pic!;
   }
 }

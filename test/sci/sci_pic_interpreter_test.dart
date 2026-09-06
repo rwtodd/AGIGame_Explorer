@@ -140,5 +140,40 @@ void main() {
       expect(g, (col1[1] + col2[1]) >> 1);
       expect(b, (col1[2] + col2[2]) >> 1);
     });
+
+    test('pattern texture table matches ScummVM (510 bits, no modulo wrap)', () {
+      expect(SciPicInterpreter.patternTextures.length, 510);
+      expect(SciPicInterpreter.patternTextureOffset[13], 0xF4);
+    });
+
+    test('rectangle pen at x=319 wraps to (0, y+1) with dither swap', () {
+      // Size-0 rect is 2x1; at x=319 it plots (319,y) and wraps (320,y) -> (0,y+1).
+      final data = Uint8List.fromList([
+        0xF0, 33,
+        0xF9, 0x10,
+        0xFA,
+        0x10, 0x3F, 0x0A,
+        0xFF,
+      ]);
+
+      final pic = SciPicInterpreter.interpret(data, portTop: 0);
+      expect(pic.visualAtPixel(319, 10), isNot(15));
+      expect(pic.visualAtPixel(0, 11), isNot(15));
+    });
+
+    test('FE 07 embedded EGA view blits a solid pixel', () {
+      final data = Uint8List.fromList([
+        0xFE, 0x07,
+        0x00, 10, 10, // (10, 10)
+        0x09, 0x00, // size 9
+        0x01, 0x00, // width 1
+        0x01, 0x00, // height 1
+        0x00, 0x00, 0x00, 0x00, // dx, dy, clear, unused
+        0x11, // run of 1 pixel, color 1
+        0xFF,
+      ]);
+      final pic = SciPicInterpreter.interpret(data, portTop: 0);
+      expect(pic.visualAtPixel(10, 10), 1);
+    });
   });
 }

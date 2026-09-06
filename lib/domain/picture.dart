@@ -90,11 +90,16 @@ class PictureSlice {
     return completer.future;
   }
 
+  /// Disposes the cached GPU texture without discarding [rgbaBytes].
+  void invalidateCachedImage() {
+    _cachedUiImage?.dispose();
+    _cachedUiImage = null;
+  }
+
   /// Disposes cached GPU textures.
   void dispose() {
     _isDisposed = true;
-    _cachedUiImage?.dispose();
-    _cachedUiImage = null;
+    invalidateCachedImage();
   }
 }
 
@@ -158,6 +163,12 @@ abstract class SierraPicture {
   /// Picture pixel height (168 for AGI, 200 for SCI).
   int get height;
 
+  /// Bumped when in-place raster contents change (vector replay).
+  int get rasterEpoch;
+
+  /// Whether [dispose] has been called.
+  bool get isDisposed => false;
+
   /// Gets the raw depth priority at pixel `(x, y)`.
   int priorityAtPixel(int x, int y);
 
@@ -198,6 +209,12 @@ class AgiPic implements SierraPicture {
 
   /// Rendered screen height (200).
   static const int renderedHeight = AgiDisplay.renderedHeight;
+
+  @override
+  int get rasterEpoch => 0;
+
+  @override
+  bool get isDisposed => _isDisposed;
 
   /// Raw visual buffer: 160x168 EGA color indices (0..15).
   @override

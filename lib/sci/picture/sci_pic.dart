@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// Completes a [ui.decodeImageFromPixels] callback without throwing unhandled
 /// exceptions if the owner was disposed while GPU texture upload was in flight.
@@ -38,6 +39,17 @@ void _completeGpuDecode({
 ///    `(c1 << 4) | c2`, supporting non-dithered 40-color visual blending.
 /// 5. [slices] and [unditheredSlices]: 16-layer Impeller compositor textures.
 class SciPic implements SierraPicture {
+  static final List<int> _unditheredPacked = List<int>.generate(256, (byteVal) {
+    final c1 = (byteVal >> 4) & 0x0F;
+    final c2 = byteVal & 0x0F;
+    final p1 = EgaColors.rgbaPacked[c1];
+    final p2 = EgaColors.rgbaPacked[c2];
+    final r = ((p1 & 0xFF) + (p2 & 0xFF)) >> 1;
+    final g = (((p1 >> 8) & 0xFF) + ((p2 >> 8) & 0xFF)) >> 1;
+    final b = (((p1 >> 16) & 0xFF) + ((p2 >> 16) & 0xFF)) >> 1;
+    return 0xFF000000 | (b << 16) | (g << 8) | r;
+  });
+
   static const int nativeWidth = 320;
   static const int nativeHeight = 200;
   static const int renderedWidth = 320;
@@ -48,6 +60,14 @@ class SciPic implements SierraPicture {
 
   @override
   int get height => nativeHeight;
+
+  @override
+  int get rasterEpoch => _rasterEpoch;
+
+  @override
+  bool get isDisposed => _isDisposed;
+
+  int _rasterEpoch = 0;
 
   @override
   int effectivePriorityAtPixel(int x, int y) => priorityAtPixel(x, y);
@@ -83,10 +103,13 @@ class SciPic implements SierraPicture {
   final Uint8List rawColorPairs;
 
   /// Authentic EGA dithered priority slices (0..15).
-  final Map<int, PictureSlice> _ditheredSlices;
+  Map<int, PictureSlice> _ditheredSlices;
 
   /// Blended 40-color non-dithered priority slices (0..15).
-  final Map<int, PictureSlice> unditheredSlices;
+  Map<int, PictureSlice> _unditheredSlices;
+
+  /// Blended 40-color non-dithered priority slices (0..15).
+  Map<int, PictureSlice> get unditheredSlices => _unditheredSlices;
 
   /// Whether undithered visual slices are actively exposed via [slices].
   bool isUndithered;
@@ -115,9 +138,10 @@ class SciPic implements SierraPicture {
     required this.controlPixels,
     required this.rawColorPairs,
     required Map<int, PictureSlice> slices,
-    required this.unditheredSlices,
+    required Map<int, PictureSlice> unditheredSlices,
     this.isUndithered = false,
-  }) : _ditheredSlices = slices {
+  })  : _ditheredSlices = slices,
+        _unditheredSlices = unditheredSlices {
     const totalPixels = nativeWidth * nativeHeight;
     if (visualPixels.length != totalPixels) {
       throw ArgumentError('visualPixels must have $totalPixels bytes');
@@ -353,9 +377,7 @@ class SciPic implements SierraPicture {
     ]).then((_) {});
   }
 
-  @override
-  void dispose() {
-    _isDisposed = true;
+  void invalidateGpuCache() {
     _cachedFlatVisualImage?.dispose();
     _cachedFlatVisualImage = null;
     _cachedUnditheredVisualImage?.dispose();
@@ -365,10 +387,68 @@ class SciPic implements SierraPicture {
     _cachedControlMapImage?.dispose();
     _cachedControlMapImage = null;
     for (final slice in _ditheredSlices.values) {
+      slice.invalidateCachedImage();
+    }
+    for (final slice in _unditheredSlices.values) {
+      slice.invalidateCachedImage();
+    }
+  }
+
+  void replaceSlices({
+    Map<int, PictureSlice>? dithered,
+    Map<int, PictureSlice>? undithered,
+  }) {
+    if (dithered != null) {
+      for (final slice in _ditheredSlices.values) {
+        slice.dispose();
+      }
+      _ditheredSlices = dithered;
+    }
+    if (undithered != null) {
+      for (final slice in _unditheredSlices.values) {
+        slice.dispose();
+      }
+      _unditheredSlices = undithered;
+    }
+    invalidateGpuCache();
+  }
+
+  void ensureSlices({bool undithered = false}) {
+    if (undithered) {
+      if (_unditheredSlices.isEmpty) {
+        _unditheredSlices = PictureSlicer.slice(
+          visualPixels: rawColorPairs,
+          priorityPixels: priorityPixels,
+          profile: DisplayProfile.sci0,
+          paletteRgbaPacked: _unditheredPacked,
+        );
+      }
+    } else if (_ditheredSlices.isEmpty) {
+      _ditheredSlices = PictureSlicer.slice(
+        visualPixels: visualPixels,
+        priorityPixels: priorityPixels,
+        profile: DisplayProfile.sci0,
+        paletteRgbaPacked: EgaColors.rgbaPacked,
+      );
+    }
+  }
+
+  void bumpRasterEpoch() {
+    invalidateGpuCache();
+    _rasterEpoch++;
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    invalidateGpuCache();
+    for (final slice in _ditheredSlices.values) {
       slice.dispose();
     }
-    for (final slice in unditheredSlices.values) {
+    for (final slice in _unditheredSlices.values) {
       slice.dispose();
     }
+    _ditheredSlices = {};
+    _unditheredSlices = {};
   }
 }
