@@ -171,5 +171,117 @@ void main() {
         reason: 'rebuilt slice 8 must be transparent at the lowered pixel',
       );
     });
+
+    test('slices 320x200 SCI0 visual and priority buffers with 1:1 mapping and pure-Z', () {
+      final visual = Uint8List(320 * 200);
+      final priority = Uint8List(320 * 200);
+      priority.fillRange(0, priority.length, 4);
+
+      // In SCI, priority values 0..3 are pure-Z depth slices (NOT AGI control lines).
+      // Place a pixel at (10, 20) with priority 1 (Red)
+      visual[20 * 320 + 10] = 4; // Red
+      priority[20 * 320 + 10] = 1;
+
+      // Place a pixel at (11, 20) with priority 7 (Green)
+      visual[20 * 320 + 11] = 2; // Green
+      priority[20 * 320 + 11] = 7;
+
+      final slices = PictureSlicer.slice(
+        visualPixels: visual,
+        priorityPixels: priority,
+        profile: DisplayProfile.sci0,
+      );
+
+      expect(slices.length, equals(16));
+      expect(slices[1]!.hasVisiblePixels, isTrue);
+      expect(slices[7]!.hasVisiblePixels, isTrue);
+      expect(slices[0]!.hasVisiblePixels, isFalse);
+      expect(slices[4]!.hasVisiblePixels, isTrue);
+
+      final slice1Bytes = slices[1]!.rgbaBytes;
+      final redRgba = EgaColors.rgbaBytes[4];
+
+      // Pixel at (10, 20) must be red
+      final offset10 = (20 * 320 + 10) * 4;
+      expect(slice1Bytes.sublist(offset10, offset10 + 4), equals(redRgba));
+
+      // 1:1 pixel mapping: pixel at (11, 20) must NOT be doubled, must be transparent in slice 1
+      final offset11 = (20 * 320 + 11) * 4;
+      expect(slice1Bytes.sublist(offset11, offset11 + 4), equals([0, 0, 0, 0]));
+
+      // Slice 7 must have the green pixel at (11, 20)
+      final slice7Bytes = slices[7]!.rgbaBytes;
+      final greenRgba = EgaColors.rgbaBytes[2];
+      expect(slice7Bytes.sublist(offset11, offset11 + 4), equals(greenRgba));
+      expect(slice7Bytes.sublist(offset10, offset10 + 4), equals([0, 0, 0, 0]));
+    });
+
+    test('supports custom packed RGBA palette for undithered SCI mode', () {
+      final visual = Uint8List(320 * 200);
+      final priority = Uint8List(320 * 200);
+      priority.fillRange(0, priority.length, 4);
+
+      // Create a 40-color palette where index 25 is a custom 32-bit packed color (e.g. 0xFF112233)
+      final customPalette = List<int>.filled(40, 0);
+      customPalette[25] = 0xFF112233;
+
+      visual[50 * 320 + 100] = 25;
+      priority[50 * 320 + 100] = 9;
+
+      final slices = PictureSlicer.slice(
+        visualPixels: visual,
+        priorityPixels: priority,
+        profile: DisplayProfile.sci0,
+        paletteRgbaPacked: customPalette,
+      );
+
+      final slice9View = ByteData.sublistView(slices[9]!.rgbaBytes);
+      final readPacked = slice9View.getUint32((50 * 320 + 100) * 4, Endian.host);
+      expect(readPacked, equals(0xFF112233));
+    });
+
+    test('sliceSinglePriority works with DisplayProfile.sci0', () {
+      final visual = Uint8List(320 * 200);
+      final priority = Uint8List(320 * 200);
+      priority.fillRange(0, priority.length, 4);
+
+      visual[15 * 320 + 30] = 5; // Magenta
+      priority[15 * 320 + 30] = 3;
+
+      final singleSlice3 = PictureSlicer.sliceSinglePriority(
+        visualPixels: visual,
+        priorityPixels: priority,
+        priority: 3,
+        profile: DisplayProfile.sci0,
+      );
+
+      expect(singleSlice3.hasVisiblePixels, isTrue);
+      final offset = (15 * 320 + 30) * 4;
+      expect(singleSlice3.rgbaBytes.sublist(offset, offset + 4), equals(EgaColors.rgbaBytes[5]));
+
+      // Empty slice returns hasVisiblePixels: false
+      final emptySlice0 = PictureSlicer.sliceSinglePriority(
+        visualPixels: visual,
+        priorityPixels: priority,
+        priority: 0,
+        profile: DisplayProfile.sci0,
+      );
+      expect(emptySlice0.hasVisiblePixels, isFalse);
+    });
+
+    test('throws ArgumentError if neither priorityBuffer nor priorityPixels is provided', () {
+      final visual = Uint8List(160 * 168);
+      expect(
+        () => PictureSlicer.slice(visualPixels: visual),
+        throwsArgumentError,
+      );
+      expect(
+        () => PictureSlicer.sliceSinglePriority(
+          visualPixels: visual,
+          priority: 5,
+        ),
+        throwsArgumentError,
+      );
+    });
   });
 }

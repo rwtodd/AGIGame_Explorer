@@ -48,4 +48,7 @@ Reference engines, specifications, and test game data are kept in the primary re
   - **AGI-only** changes: `flutter test` (existing tree under `test/`, excluding `test/sci/`)
   - **Shared graphics** (`DisplayProfile`, slicer, compositor, atlas, CRT, `EgaColors`): both `flutter test test/sci/` **and** the full AGI `flutter test`
   - Put all new SCI tests under `test/sci/` from the first file. Shared slicer/atlas/compositor tests that feed both 160×168 AGI and 320×200 SCI fixtures belong in `test/graphics/` (or stay in `test/picture/` and count as shared). Do not drop SCI tests into `test/engine/` or `test/loader/` next to AGI room boots.
-- **Terminal Execution**: Use `BypassSandbox: true` for commands requiring host platform toolchains (like `flutter` and `git`).
+- **Terminal Execution**:
+  - The Flutter SDK (`/Users/rtodd/flutter/bin/flutter`, `dart`) and system tools (`git`) reside outside the workspace tree.
+  - In standard sandbox mode (`BypassSandbox: false`), macOS Seatbelt blocks their execution with `operation not permitted: flutter` (exit 127).
+  - **Always set `BypassSandbox: true` on the very first attempt** for all `flutter`, `dart`, and `git` commands. Do not attempt sandboxed execution first.
