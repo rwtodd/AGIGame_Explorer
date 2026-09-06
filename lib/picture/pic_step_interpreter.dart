@@ -1,11 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
-import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/picture/pen_pattern.dart';
-import 'package:flutter_agigame/picture/pic_pen.dart';
-import 'package:flutter_agigame/picture/pic_rasterizer.dart';
-import 'package:flutter_agigame/picture/picture_slicer.dart';
+import 'package:flutter_agigame/picture/pic_canvas.dart';
 
 /// A discrete drawing operation decoded from an AGI PICTURE vector stream.
 class PicDrawingStep implements PicStepInfo {
@@ -17,7 +14,7 @@ class PicDrawingStep implements PicStepInfo {
   final String commandName;
   @override
   final String description;
-  final void Function(PicStepContext ctx) action;
+  final void Function(AgiPicCanvas ctx) action;
 
   const PicDrawingStep({
     required this.stepIndex,
@@ -27,92 +24,21 @@ class PicDrawingStep implements PicStepInfo {
     required this.action,
   });
 
-  void execute(PicStepContext ctx) => action(ctx);
+  void execute(AgiPicCanvas ctx) => action(ctx);
 
   @override
   String toString() => 'Step #$stepIndex [$commandName]: $description';
 }
 
-/// Execution context for stepping through picture drawing opcodes.
-class PicStepContext {
-  final bool isV3;
-  final Uint8List visualBuffer;
-  final PriorityBuffer priorityBuffer;
-  int picColor = -1;
-  int priColor = -1;
-
-  late final RectanglePen rectanglePen;
-  late final PicPen circlePen;
-  late PicPen currentPen;
-
-  late SplatterPattern splatterPattern;
-  late PenPattern currentPattern;
-
-  PicStepContext({required this.isV3})
-      : visualBuffer = Uint8List(AgiDisplay.nativeWidth * AgiDisplay.pictureHeight),
-        priorityBuffer = PriorityBuffer() {
-    visualBuffer.fillRange(0, visualBuffer.length, 15);
-    rectanglePen = RectanglePen()..size = 0;
-    circlePen = (isV3 ? V3CirclePen() : CirclePen())..size = 0;
-    currentPen = rectanglePen;
-    splatterPattern = SplatterPattern();
-    currentPattern = SolidPenPattern.instance;
-  }
-
-  void plotPoint(int x, int y) {
-    if (x < 0 || x >= AgiDisplay.nativeWidth || y < 0 || y >= AgiDisplay.pictureHeight) {
-      return;
-    }
-    final idx = y * AgiDisplay.nativeWidth + x;
-    if (picColor != -1) {
-      visualBuffer[idx] = picColor;
-    }
-    if (priColor != -1) {
-      priorityBuffer.pixels[idx] = priColor;
-    }
-  }
-
-  void drawLine(int x1, int y1, int x2, int y2) {
-    PicRasterizer.drawLine(x1, y1, x2, y2, plotPoint);
-  }
-
-  void fill(int startX, int startY) {
-    PicRasterizer.scanlineFill(
-      startX: startX,
-      startY: startY,
-      visualBuffer: visualBuffer,
-      priorityBuffer: priorityBuffer,
-      picColor: picColor,
-      priColor: priColor,
-      plotPoint: plotPoint,
-    );
-  }
-
-  AgiPic toAgiPic({bool computeSlices = true}) {
-    final slices = computeSlices
-        ? PictureSlicer.slice(
-            visualPixels: visualBuffer,
-            priorityBuffer: priorityBuffer,
-          )
-        : <int, PictureSlice>{};
-
-    return AgiPic(
-      visualPixels: Uint8List.fromList(visualBuffer),
-      priorityBuffer: priorityBuffer.clone(),
-      slices: slices,
-    );
-  }
-}
-
 /// Interpreter that decodes PICTURE vector commands into individual steps
-/// and allows rendering up to any step index.
+/// and allows rendering up to any step index. Counterpart of [SciPicStepInterpreter].
 class PicStepInterpreter implements SierraPicStepInterpreter {
   final Uint8List rawData;
   final bool isV3;
   @override
   final List<PicDrawingStep> steps = [];
 
-  PicStepContext? _ctx;
+  AgiPicCanvas? _ctx;
   int _appliedSteps = 0;
 
   PicStepInterpreter(this.rawData, {this.isV3 = false}) {
@@ -122,8 +48,8 @@ class PicStepInterpreter implements SierraPicStepInterpreter {
   @override
   int get totalSteps => steps.length;
 
-  int _clipX(int x) => x < 0 ? 0 : (x >= AgiDisplay.nativeWidth ? AgiDisplay.nativeWidth - 1 : x);
-  int _clipY(int y) => y < 0 ? 0 : (y >= AgiDisplay.pictureHeight ? AgiDisplay.pictureHeight - 1 : y);
+  int _clipX(int x) => AgiPicCanvas.clipX(x);
+  int _clipY(int y) => AgiPicCanvas.clipY(y);
 
   void _decodeSteps() {
     int idx = 0;
@@ -538,7 +464,7 @@ class PicStepInterpreter implements SierraPicStepInterpreter {
                   if (capturedPatt != null) {
                     ctx.currentPattern.setPattern(capturedPatt);
                   }
-                  ctx.currentPen.drawAt(ctx.plotPoint, ptX, ptY, ctx.currentPattern);
+                  ctx.plotPen(ptX, ptY);
                 },
               ));
             }
@@ -566,7 +492,7 @@ class PicStepInterpreter implements SierraPicStepInterpreter {
   AgiPic renderUpToStep(int stepIndex, {bool computeSlices = false, bool isUndithered = false}) {
     final limit = stepIndex.clamp(0, steps.length);
     if (_ctx == null || limit < _appliedSteps) {
-      _ctx = PicStepContext(isV3: isV3);
+      _ctx = AgiPicCanvas(isV3: isV3);
       _appliedSteps = 0;
     }
     for (var i = _appliedSteps; i < limit; i++) {
