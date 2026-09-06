@@ -6,6 +6,7 @@ Companion architecture docs:
 
 - [sci0_graphics_and_priority.md](sci0_graphics_and_priority.md) — does 16-layer slicing still work?
 - [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) — how AGI and SCI share graphics without sharing a VM
+- [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md) — font resources, selective hi-res typography, and layout metrics
 
 ## What was pulled
 
@@ -43,9 +44,9 @@ Paths relative to `reference_docs/scummvm_sci-2026-09/`.
 
 | Game | Path | Notes |
 |---|---|---|
-| Police Quest 2 | `/Users/rtodd/gog/police-quest-2` | **First playable target.** SCI0 late. `RESOURCE.MAP` + `RESOURCE.001`–`003`. |
-| Quest for Glory 2 | `/Users/rtodd/gog/quest-for-glory-2` | SCI1 EGA (`SCI_VERSION_1_EGA_ONLY`). Same 16-color vector pics, different compression. |
-| LSL2 / LSL3 / QFG1 EGA volumes | — | Not under `/Users/rtodd/gog/` at harvest. LSL2/3 *source* is in `reference_docs/original_sierra_sci_src/`. |
+| Police Quest 2 | `reference_games/police-quest-2/` | **First playable target.** SCI0 late. `RESOURCE.MAP` + `RESOURCE.001`–`003`. |
+| Quest for Glory 2 | `reference_games/quest-for-glory-2/` | SCI1 EGA (`SCI_VERSION_1_EGA_ONLY`). Same 16-color vector pics, different compression. |
+| LSL2 / LSL3 / QFG1 EGA volumes | — | Not linked at harvest. LSL2/3 *source* is in `reference_docs/original_sierra_sci_src/`. |
 
 ## Web sources that fetched cleanly
 

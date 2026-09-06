@@ -25,25 +25,32 @@ That pipeline is the thing we want SCI to reuse.
 
 ## 2. What 16-color SCI actually has
 
-### 2.1 Native 320×200, three maps
+### 2.1 Native 320×200, three maps, and dynamic picture ports
 
 SCI0 pics are vector scripts too, but they paint **three independent 320×200 maps**:
 
 | Map | Role in SCI | AGI analogue |
 |---|---|---|
-| Visual | What the player sees | Visual buffer (160, then doubled) |
+| Visual | What the player sees (40-color dithered or blended EGA) | Visual buffer (160, then doubled) |
 | Priority | Depth 0–15 only | Priority 4–15, minus the control encoding |
 | Control | Walkability + script triggers | Priority 0–3 (packed into the same buffer) |
 
-There is **no horizontal doubling**. A SCI pic pixel is already one EGA display pixel. The picture port is 320×190 under a ~10px menu/status strip; the framebuffer is 320×200.
+There is **no horizontal doubling**. A SCI pic pixel is already one EGA display pixel.
+
+**Coordinate spaces and picture ports (`GfxPort`):**
+- In standard gameplay, a menu bar occupies rows 0..9, so the picture port is (0, 10) to (320, 200) with a height of 190.
+- In cutscenes and title screens (e.g. PQ2 intro) where the menu bar is absent, the port is (0, 0) to (320, 200) with a height of 200.
+- `SciPic` allocates three full **320×200** buffers (`Uint8List` visual, priority, control).
+- During vector rasterization, coordinates are drawn relative to the active port offset: `(x, y + portTop)`.
+- Consequently, all resulting `PictureSlice`s are full **320×200 RGBA textures**. The Impeller compositor requires **no special vertical translation hacks** when rendering SCI backgrounds.
 
 ### 2.2 Priority is a pure Z-buffer
 
-A character at priority P is drawn in front of background pixels whose priority is ≤ P, and behind pixels whose priority is greater. SCI Companion's pic editor and ScummVM `GfxView::draw` / `putPixel` implement that test in software. The GPU translation is exactly the AGI slicer:
+A character at priority P is drawn in front of background pixels whose priority is $\le P$, and behind pixels whose priority is greater. The GPU translation is the Impeller slicer:
 
 > Bucket each visual pixel into `slices[priority[x, y]]`. Composite slices 0..15, inserting actors of priority P after slice P.
 
-Because SCI priority is **not** mixed with control, we do **not** need `effectivePriorityAt` / downward column scans when slicing SCI pics. Control-line pixels in AGI were a special case so actors would still occlude correctly while walking on a trigger. SCI paints the tree trunk's depth on the priority map and the "don't walk here" color on the control map separately.
+Because SCI priority is **not** mixed with control, we do **not** use `effectivePriorityAt` or downward column scans when slicing SCI pics. Control-line pixels in AGI were a special case so actors would occlude correctly while walking on a trigger. In SCI, depth is a pure Z value ($0\text{--}15$), and control is maintained in its own dedicated buffer. `PictureSlicer` uses direct array indexing: `slices[priorityBuffer[idx] & 0x0F]` with `scanControlLines: false`.
 
 ### 2.3 Control is a collision overlay, not a layer
 
@@ -85,31 +92,55 @@ Same 0xF0 family, extra control + palettes, native 320 coordinates.
 | F9 set pattern | F9 set pen | Circle/rect + texture bit |
 | FA / FD pattern plots | FA plot pen | |
 | **FB / FC set/disable control** | — | Third buffer |
-| FE extended | — | Palettes, priority table, embedded view |
-| FF end | FF end | Then `_screen->dither()` on EGA |
+| **FE extended** | — | Sub-op 0/1: 40-byte palette sets; sub-op 8: priority table; sub-op 7: embedded view |
+| FF end | FF end | End of vector stream |
 
 Bresenham/line and flood-fill must match ScummVM `picture.cpp`, not the AGI rasterizer, even though both are "vector pics." Coordinate packing and fill abort rules differ.
 
-## 4. EGA dither palettes
+## 4. EGA dither palettes & non-dithered display mode
 
-SCI0 visual "colors" are 40 slots × 4 palettes. Each slot is a pair of EGA colors. QFG1 uses two palettes of the same pic for day and night. `DrawPic`'s optional 4th argument selects the palette.
+SCI0 visual "colors" are 40 slots × 4 palettes. Each slot is a pair of EGA colors $(c_1, c_2)$. Palettes are configured by picture opcode `FE 01` (40 bytes per palette table). QFG1 uses two palettes of the same pic for day and night. `DrawPic`'s optional 4th argument selects the palette.
 
-ScummVM stores the pair in the visual buffer during vector draw, then dithers to a 16-color checkerboard at `0xFF`.
+ScummVM stores the pair in the visual buffer during vector draw, then resolves them to display pixels at `0xFF`.
 
-**Decision for this engine:** dither to 16 EGA indices **before** slicing, then feed the existing `EgaColors` / `PictureSlice` path. Optional later: an undithered 40-color display (ScummVM `disable_dithering` / `GAMEOPTION_EGA_UNDITHER`). Do not invent a second compositor for dither pairs.
+### 4.1 Two visual presentation modes
+
+Our engine supports both authentic rendering and modern enhanced viewing:
+
+1. **Authentic EGA Dither Mode (Default)**:
+   - Visual buffer stores the 40-entry palette indices during drawing.
+   - At end of pic, checkerboard dither `(x ^ y) & 1` selects color $c_1$ or $c_2$.
+   - Yields authentic 16-color EGA pixel patterns.
+
+2. **Non-Dithered / Undithered Blended Mode (ScummVM `disable_dithering` / `GAMEOPTION_EGA_UNDITHER`)**:
+   - Instead of alternating pixels, each of the 40 color slots maps to the intermediate 24-bit RGB blend of the two EGA colors:
+     ```dart
+     final r = (col1.red + col2.red) ~/ 2;
+     final g = (col1.green + col2.green) ~/ 2;
+     final b = (col1.blue + col2.blue) ~/ 2;
+     ```
+   - Produces a smooth, true 40-color visual presentation without dither artifacts.
+
+### 4.2 Clean GPU integration
+
+Because `PictureSlice` stores standard 32-bit packed RGBA texels, **undithered mode requires zero shader modifications and zero compositor changes**. The selection between authentic dithered and undithered colors is simply a palette translation lookup during slice generation (`PictureSlicer`).
+
+This will be exposed in the video settings dialog (`AvSettingsDialog` / `AgiUserSettings`) as an optional toggle (`sciEnableDithering`, defaulting to true).
 
 ## 5. Slicing recipe (SCI)
 
-1. Rasterize the pic into three `Uint8List` buffers, 320×200. Visual may still hold dither pairs until step 2.
-2. Dither visual → 16 EGA indices (checkerboard `(x ^ y) & 1` selecting the pair, matching ScummVM).
-3. For each pixel, `slices[priority[x,y]].set(x, y, egaColor)` — **no 2× X**. Empty slices stay `hasVisiblePixels: false`.
+1. Rasterize the pic into three `Uint8List` buffers, 320×200. Visual holds 40-color palette indices.
+2. Translate visual pixels to 32-bit RGBA:
+   - If dithering is enabled: resolve `(x ^ y) & 1 ? col2 : col1` -> `EgaColors.rgbaPacked[c]`.
+   - If dithering is disabled: resolve directly to the blended 40-color packed RGBA value.
+3. For each pixel, `slices[priority[x, y] & 0x0F].set(x, y, packedRgba)` — **no 2× X, no downward column scan**. Empty slices stay `hasVisiblePixels: false`.
 4. Upload slices as `ui.Image` (already implemented on `PictureSlice`).
 5. Control buffer is kept beside the pic for `OnControl` and the Control inspector; it is not sliced.
 6. Compositor: identical Painter's Algorithm loop as `AgiPicturePainter._paintCompositedSlices`, with actor `scaleX` 1.0 instead of 2.0.
 
-`PictureSlice` is already 320×200 RGBA. The AGI-specific part is `PictureSlicer`'s 160 source + doubling. Parameterize it with a `DisplayProfile` (see the dual-engine doc) rather than forking a second slice type.
+`PictureSlice` is already 320×200 RGBA. Parameterize `PictureSlicer.slice` with `DisplayProfile` and `scanControlLines: false` rather than forking a second slice type.
 
-## 6. Views / atlas
+## 6. Views, atlas, and actor sprites
 
 SCI0 EGA views are loops of RLE cels at **native 320 pixels**, with:
 
@@ -124,23 +155,52 @@ SCI0 EGA views are loops of RLE cels at **native 320 pixels**, with:
 - AGI: `scaleX: 2.0` (or −2.0 mirrored) because cels are 160-wide
 - SCI: `scaleX: 1.0` (or −1.0 mirrored)
 
-Do not pixel-double SCI cels. QFG2 (SCI1 EGA) may apply an 8×16 EGA mapping table; SCI0 ignores `paletteOffset`.
+### Actor sprite generalization (`PlayfieldActorSprite`)
+
+`AgiActorSprite` in `lib/ui/widgets/agi_picture_canvas.dart` should be generalized to `PlayfieldActorSprite`:
+- **Scale**: `scaleX: 1.0` for SCI vs `2.0` for AGI.
+- **Origin offset**: signed `(displaceX, displaceY)` offsets.
+- **Actor elevation `z`**: In SCI, actors have a `z` property (vertical offset off the floor). Depth sorting baseline is `sortY = y - z`, while visual canvas position is `(x, y)`.
 
 `add.to.pic` analogue is kernel `AddToPic`: burn the cel into the visual+priority maps, then **re-slice**. That is the same invalidate-and-reslice path AGI already uses.
 
-## 7. Things the AGI compositor does not do yet
+## 7. Windows, text, and custom mouse cursors
 
-These are SCI graphics features, not blockers for "does slicing work?":
+### 7.1 Window overlay pass (avoiding slice invalidation)
 
-| Feature | Notes |
-|---|---|
-| Picture transitions | Iris, wipe, dissolve (`DrawPic` showStyle). AGI has almost none. Can start with instant (`showStyle = -1`). |
-| Pic overlay | `DrawPic(..., clearPic: false)` composites vectors onto existing maps; re-slice after. |
-| Ports / windows | Dialogs are clipped ports, not AGI `print` boxes. Status/menu live in the menu port above the picture port. |
-| Embedded views in pics | `FE 07` (more common in SCI1 EGA). Rasterize into the visual/priority maps, then slice. |
-| Text in the playfield | SCI uses FONT resources + ports, not AGI 8×8 cells. The "priority-matched text interleaving" in `doc/text_and_picture_compositing_architecture.md` is AGI-specific; SCI windows usually sit in the window-manager port *above* the pic. |
+In Sierra's original interpreter, dialog windows were drawn directly into the visual buffer, using `kSaveBits` / `kRestoreBits` to save and restore the underlying pixel rectangles.
 
-None of these require abandoning 16-layer slices.
+**Do not burn dialog boxes into the visual buffer and re-slice.** Re-slicing all 16 priority layers on every dialog popup, cursor blink, or input character would destroy performance.
+
+Instead:
+- The 16-layer Impeller compositor renders the room background and actor sprites.
+- Active SCI windows and dialogs are rendered as an **overlay port pass** on top of the 16 composited slices.
+- `kSaveBits` and `kRestoreBits` are emulated by saving/restoring window overlay state, completely avoiding background slice invalidation.
+
+### 7.2 Text & Font Handling: Native Bitmap Fonts vs Hi-Res Overlays
+
+In AGI, text was placed on a rigid 40×25 monospace grid (8×8 pixel cells), which allowed substituting modern hi-res fonts (like SF Mono) by simply centering glyphs within the cells.
+
+SCI text works fundamentally differently:
+1. **Proportional Typography**: Text in SCI is proportionally spaced, not monospace. Games ship bitmap **`FONT` resources** (type 7).
+2. **Game Script Layout Calculations**: Sierra scripts calculate window dimensions, button sizes, word wrapping, and text input positions by querying character metrics from the active font (`TextWidth`, `CelWide`, etc.).
+3. **The Risk of Arbitrary Hi-Res Substitution**: If an arbitrary modern TrueType font (like Arial or SF Pro) were substituted in game dialogs, its character widths would not match the script's calculations. Text would overflow calculated window boundaries, wrap onto unexpected lines, or clip off button borders.
+
+**The Strategy for SCI (see [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md)):**
+- **Selective High-Res Substitution**: Feed scaled vector metrics into `SciFont` for **Font 0 (System)** and **Font 1 (Serif)** so game scripts compute exact window sizes and line breaks using the vector font's advance widths. Render these fonts with anti-aliasing directly at Retina resolution on the overlay pass.
+- **Authentic Bitmaps for Font $\ge$ 2**: Keep authentic 1-bit bitmap rendering for exotic and decorative fonts (Font $\ge$ 2), ensuring game-specific symbols (e.g. SQ3 alien hieroglyphs, QFG2 Arabic calligraphy) are never corrupted or missing.
+- **Outer Engine Chrome**: Modern hi-res vector fonts (SF Pro / SF Mono) continue to be used for the top status bar, menu headers, command prompt history, settings dialogs, and debug inspectors.
+- **Authentic Mode Toggle**: Allow players to toggle 100% authentic bitmap rendering for all fonts via video settings.
+
+### 7.3 Custom Mouse Cursors (`CURSOR` resources)
+
+Unlike keyboard-only AGI, SCI0/SCI1 games incorporate mouse interaction.
+- **Resource Format**: SCI0 `CURSOR` resources (type 8) are 68 bytes, storing 16×16 pixels with two bitmasks (Mask A and Mask B) that map to black, white, and transparent pixels, plus a hotspot coordinate or center flag.
+- **Dynamic Cursors**: Scripts can switch cursors via `kSetCursor` (`SetCursor`) or even use View cels as cursors (e.g. magnifying glasses, crosshairs, icons).
+- **Flutter Implementation**:
+  - In `GamePlayfieldWidget`, when the mouse is within the playfield, set `MouseRegion(cursor: SystemMouseCursors.none)` to hide the host OS pointer.
+  - Draw the active 16×16 cursor texture directly on the canvas overlay at the translated `(x, y)` coordinate.
+  - **Benefits**: The cursor inherits integer pixel scaling and CRT scanline/phosphor shaders naturally, behaves identically across macOS, Windows, Linux, and Web, and updates instantaneously without OS cursor lag.
 
 ## 8. Display profile (graphics-only view)
 
@@ -149,12 +209,12 @@ AGI:  native 160×168, horizontalDouble=true,  picPortTop=8,  bands=AGI table (b
 SCI:  native 320×200, horizontalDouble=false, picPortTop=10, bands=SCI table (top 42, 14 bands)
 ```
 
-Both present a 320×200 EGA playfield to the CRT shader and 4:3 integer scaler. That is why the viewport, shader, and `PictureSlice` size can stay shared.
+Both present a 320×200 EGA playfield to the CRT shader and 4:3 integer scaler. That is why the viewport, shader, and `PictureSlice` size stay shared.
 
 ## 9. Workbench
 
-Pic browser should grow a third diagnostic plane (Control) that is a real buffer for SCI and the existing masked-priority view for AGI. Step-replay of vector opcodes is still valid — SCI pics are the same kind of command stream. View browser should not assume 2× width.
+Pic browser should grow a third diagnostic plane (Control) that is a real buffer for SCI and the existing masked-priority view for AGI. Step-replay of vector opcodes is still valid — SCI pics are the same kind of command stream. The browser will also offer an **Undithered (40-color)** preview toggle. View browser should not assume 2× width.
 
 ## 10. First verification target
 
-Police Quest 2 rooms: load `RESOURCE.MAP`, decompress a PIC, rasterize three maps, dither, slice, display in the pic browser with Visual / Priority / Control toggles. No VM required. If a PQ2 outdoor room occludes ego-sized test sprites at the correct Y bands, the graphics bet is confirmed.
+Police Quest 2 rooms: load `RESOURCE.MAP` from `reference_games/police-quest-2/`, decompress a PIC, rasterize three maps, dither, slice, display in the pic browser with Visual / Priority / Control / Undithered toggles. No VM required. If a PQ2 outdoor room occludes ego-sized test sprites at the correct Y bands, the graphics bet is confirmed.
