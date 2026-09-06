@@ -87,3 +87,12 @@ To resolve all three constraints simultaneously without compromises, the engine 
 - **Police Quest 1 Room 116**: The white newspaper background fill and text glyphs are drawn in band 4, followed by Actor `%o1` (photo of President Hickle). The photo composites cleanly on the white page.
 - **Space Quest 1 Room 65**: Keypad dots `........` are drawn in band 4, followed by Actors `%o2`, `%o3`, `%o4` (detonation banner). The scrolling banner cleanly occludes and draws over the keypad readout.
 - **Status Line & Prompts**: Non-playfield UI text (status bar, bottom prompts) remains crystal clear and unobstructed across all games.
+
+---
+
+## **5. Relationship to SCI0 Typography & `SierraFont`**
+
+Unlike SCI0 (which features proportional standalone `FONT` resources and script-driven dynamic window sizing), AGI operates strictly on this 40×25 cell matrix. As detailed in [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md) §1:
+- AGI does **not** need to adapt to `SierraFont` or `SierraFontGlyph`.
+- Monospace vector substitution is performed by directly centering vector glyphs within each $8 \times 8$ cell.
+- The 16-band depth interleaving described above remains unique to AGI and is preserved as an independent subsystem.

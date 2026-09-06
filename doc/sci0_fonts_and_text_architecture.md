@@ -16,14 +16,48 @@ Companion architecture docs:
 
 ---
 
-## 1. Contrast with AGI Text Handling
+## 1. Contrast with AGI Text Handling & Architectural Boundary
 
-In AGI, text was constrained to a rigid **40-column × 25-row monospace grid** ($8 \times 8$ pixel cells in $320 \times 200$ space). AGI scripts positioned text strictly by cell row ($0\text{--}24$) and cell column ($0\text{--}39$). Because cell bounds were fixed boxes, substituting a modern high-resolution monospace font (like SF Mono) was achieved by simply centering the vector glyphs inside each $8 \times 8$ cell box.
+### 1.1 Structural Comparison
 
-In SCI, text handling is fundamentally different:
-1. **Proportional Typography**: Text is proportionally spaced—not monospace, and not on a cell grid. Each character has its own width in pixels.
-2. **Script-Driven Geometry**: Game scripts dynamically calculate window bounding boxes, word-wrapping breakpoints, button widths (`[ OK ]`, `[ Cancel ]`), and input prompt positions by querying character advance widths from the active font (`kTextWidth`, `kTextSize`, `GetLongest`).
-3. **The Layout Lock-In Risk**: If an engine were to render an arbitrary modern TrueType font without feeding its metrics to the script engine, text would overflow calculated window boundaries, wrap onto unexpected lines, and clip off button edges.
+| Dimension | AGI Text Subsystem | SCI Text Subsystem (`SierraFont`) |
+|---|---|---|
+| **Underlying Layout** | Rigid **40-column × 25-row grid** composed of fixed $8 \times 8$ pixel character cells in $320 \times 200$ screen space. | Fully proportional typography placed at arbitrary $(x, y)$ pixel coordinates. |
+| **Script Interaction** | Scripts have zero font awareness; opcodes position strings exclusively by cell row ($0\text{--}24$) and column ($0\text{--}39$). | Scripts dynamically calculate dialog boxes, input prompt coordinates, word-wrapping breakpoints, and button sizes by querying font metrics (`kTextWidth`, `kTextSize`, `GetLongest`). |
+| **Compositing Model** | **Priority Depth Interleaving**: Each character cell queries the underlying `PriorityBuffer` at `(col * 4, row * 8)` so that text layers *between* 16 Impeller GPU priority slices (e.g. behind foreground rock slices in SQ2 Room 22, behind actor sprites in SQ1 Room 65, or under actor photographs in PQ1 Room 116). | **Window Overlay Pass**: Windows and dialog boxes float on an overlay pass (`SaveBits` / `RestoreBits`, Stage 8) that sits on top of the playfield without burning into or reslicing the 16 layers. |
+| **Resource Packaging** | No font resources exist in game volumes. Character shapes were hardcoded into the interpreter executable or machine BIOS ROM. | Bundled as standalone `FONT` resources (type 7) containing 1-bit monochrome bitmaps and per-character advance tables. |
+
+### 1.2 Why the AGI Engine Does Not Need Adaptation to `SierraFont`
+
+A natural architectural question arises: *Should AGI be adapted to use `SierraFont` and `SierraFontGlyph` so that both engines share a single unified typography pipeline?*
+
+The answer is **no**, and keeping their rendering paths distinct is the superior design for several reasons:
+
+1. **Fundamental Impedance Mismatch**:
+   AGI's `AgiTextScreenBuffer` is not a list of positioned strings; it is a discrete 2D matrix of 1,000 cells (`AgiTextCell`). Adapting AGI to a proportional font pipeline like `SierraFont` would fundamentally violate AGI's cell-grid contract without providing any functional benefit.
+2. **Preserving Critical GPU Priority Interleaving**:
+   AGI's unique text rendering algorithm (detailed in [text_and_picture_compositing_architecture.md](text_and_picture_compositing_architecture.md)) requires rasterizing cells in lockstep with the 16 GPU priority bands to achieve authentic occlusion with scenery and actor sprites. Forcing AGI through SCI's proportional overlay pass would break this priority-band interleaving.
+3. **Zero Regression Risk**:
+   The AGI text pipeline is battle-tested against hundreds of room boot and gameplay tests across eight reference AGI titles (KQ1–KQ4, SQ1–SQ2, PQ1, Black Cauldron). Decoupling SCI's font system ensures AGI remains 100% stable.
+
+### 1.3 How High-Resolution Font Substitution Differs Between Engines
+
+Both engines support modern, anti-aliased high-resolution typography, but the mechanisms reflect their architectural differences:
+
+- **In AGI (Fixed-Box Monospace Centering)**:
+  Because every character slot is guaranteed to occupy an $8 \times 8$ cell on a 40-column grid, substituting a modern vector font (like SF Mono or Courier) is trivial: the renderer simply centers the anti-aliased vector glyph inside each $8 \times 8$ cell rectangle. The scripts cannot break because grid coordinates never shift.
+- **In SCI (Metric Feedback Loop)**:
+  Because SCI scripts measure character widths dynamically to size windows, buttons, and word wrapping, substituting a modern vector font requires a closed feedback loop:
+  1. Vector font glyphs (Chicago / New York) are measured at nominal size.
+  2. Those exact advance widths are supplied to the script engine via `SierraFont.getCharWidth()`.
+  3. Game scripts construct window bounding boxes that precisely accommodate the vector metrics.
+  4. Flutter's `TextPainter` draws the vector font into the calculated box at Retina resolution with zero clipping.
+
+### 1.4 Single Point of Convergence: Optional Authentic 1984 PC Bitmap Mode
+
+The only place where `SierraFont` could conceptually intersect with AGI is if we ever implement an authentic 1984 IBM PC / CGA ROM display toggle for AGI:
+- A built-in 1-bit $8 \times 8$ ROM font (`AgiRomFont implements SierraFont`) could provide original pixel-art glyph bitmaps.
+- Even in that case, `AgiTextScreenBuffer` and its 16-band Impeller depth interleaving would remain the execution engine.
 
 ---
 

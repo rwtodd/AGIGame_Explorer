@@ -63,4 +63,35 @@ void main() {
     expect(find.text('PIC BROWSER'), findsOneWidget);
     expect(find.text('PICTURE 0'), findsWidgets);
   });
+
+  testWidgets('LauncherScreen navigates to FontBrowserScreen when FONT Typography is tapped', (tester) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final container = ProviderContainer();
+    final notifier = container.read(launcherProvider.notifier);
+
+    await notifier.scanDirectory('reference_games/police-quest-2');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: LauncherScreen(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Tap on FONT Typography tile
+    await tester.tap(find.text('FONT Typography'));
+    await tester.pumpAndSettle();
+
+    // Verify FontBrowserScreen is displayed
+    expect(find.text('FONT 0'), findsOneWidget);
+    expect(find.text('SYSFONT / Chicago 12'), findsWidgets);
+    expect(find.text('GLYPH INSPECTION #65 (0x41) \'A\''), findsOneWidget);
+  });
 }

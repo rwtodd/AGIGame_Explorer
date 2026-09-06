@@ -151,7 +151,7 @@ lib/sci/
   loader/     DONE  resource_map, volume, decompressor_lzw, decompressor_huffman
   picture/    DONE  sci_pic, sci_pic_canvas, interpreter, step interpreter
   view/       DONE  sci_view, sci_view_parser (kViewEga)
-  font/       NEXT  sci_font_parser + Font Browser
+  font/       DONE  sci_font, sci_font_parser + Font Browser
   cursor/     NEXT  sci_cursor_parser + Cursor Browser
   engine/     LATER vm, kernel, object heap
   parser/     LATER vocab, said
@@ -190,8 +190,8 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 | 2 | SCI `RESOURCE.MAP` + LZW / Huffman | **Done.** PQ2 volumes in `lib/sci/loader/`. |
 | 3 | SCI pic interpreter + Pic Browser | **Done.** Three 320×200 maps, dither / undithered, vector replay. |
 | 4 | SCI view parser + atlas + View Browser | **Done.** `kViewEga`, `SierraView`, atlas packs native pixels, `pixelScaleX` 1. |
-| 5 | FONT parser + Font Browser | **Next.** Authentic 1-bit glyphs in a browser. Not window overlay (see below). |
-| 6 | CURSOR parser + Cursor Browser | After fonts. 68-byte `CURSOR`; not the playfield pointer yet. |
+| 5 | FONT parser + Font Browser | **Done.** Authentic 1-bit glyphs, PQ2 SYSFONT/USERFONT in workbench. |
+| 6 | CURSOR parser + Cursor Browser | **Next.** 68-byte `CURSOR`; not the playfield pointer yet. |
 | 7 | Launcher detection + workbench | **Done.** Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
 | 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | After 5–6. Actor `scaleX` / displacement; overlay pass (no visual burn-in). |
 | 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | After 8. PQ2 title / boot. Session facade lands here, not earlier. |

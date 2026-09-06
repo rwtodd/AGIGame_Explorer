@@ -6,6 +6,7 @@ import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/providers/settings_provider.dart';
+import 'package:flutter_agigame/ui/screens/browsers/font_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/objects_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
@@ -615,6 +616,13 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                             (info.resourceCounts['FONT Typography'] ?? 0).toString(),
                             Icons.font_download,
                             AgiTheme.egaMagenta,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const FontBrowserScreen(),
+                                ),
+                              );
+                            },
                           ),
                           _buildMetricTile(
                             'CURSOR Sprites',
