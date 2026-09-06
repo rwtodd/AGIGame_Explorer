@@ -9,16 +9,20 @@ import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/shaders/crt_shader_loader.dart';
 
-/// Render modes for visualizing AGI pictures in game and diagnostic views.
+/// Render modes for visualizing AGI and SCI pictures in game and diagnostic views.
 enum AgiPictureRenderMode {
   /// Impeller-driven multi-layer composited priority slices (Painter's Algorithm).
   compositedSlices,
 
   /// Flat visual 16-color EGA background image.
   flatVisual,
+
+  /// Non-dithered 40-color blended EGA visual background image (SCI only).
+  unditheredVisual,
 
   /// Depth priority buffer map (color-coded bands 0 to 14 + base 15).
   priorityMap,
@@ -129,9 +133,9 @@ class AgiActorSprite {
       );
 }
 
-/// Impeller-optimized CustomPainter that renders AGI backgrounds using the Painter's Algorithm across priority slices.
+/// Impeller-optimized CustomPainter that renders AGI and SCI backgrounds using the Painter's Algorithm across priority slices.
 class AgiPicturePainter extends CustomPainter {
-  final AgiPic? picture;
+  final SierraPicture? picture;
   final List<AgiActorSprite> actors;
   final List<AgiDisplayText> displayedTexts;
   final AgiTextScreenBuffer? textScreenBuffer;
@@ -191,13 +195,20 @@ class AgiPicturePainter extends CustomPainter {
       }
     } else {
       final pic = picture;
-      final effectiveFlat = flatVisualImage ?? pic?.cachedFlatVisualImage;
+      final ui.Image? effectiveFlat;
+      if (renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic) {
+        effectiveFlat = flatVisualImage ?? pic.cachedUnditheredVisualImage ?? pic.cachedFlatVisualImage;
+      } else {
+        effectiveFlat = flatVisualImage ?? pic?.cachedFlatVisualImage;
+      }
       final effectivePri = priorityMapImage ?? pic?.cachedPriorityMapImage;
       final effectiveCtrl = controlMapImage ?? pic?.cachedControlMapImage;
 
       if (isolatedPrioritySlice != null && pic != null) {
         canvas.save();
-        canvas.translate(0.0, playfieldRow * 8.0);
+        if (!pic.isSci) {
+          canvas.translate(0.0, playfieldRow * 8.0);
+        }
         final slice = pic.getSlice(isolatedPrioritySlice!);
         if (slice != null && slice.hasVisiblePixels && slice.cachedUiImage != null) {
           canvas.drawImage(slice.cachedUiImage!, Offset.zero, paint);
@@ -205,14 +216,19 @@ class AgiPicturePainter extends CustomPainter {
         canvas.restore();
       } else if (pic != null) {
         canvas.save();
-        canvas.translate(0.0, playfieldRow * 8.0);
-        canvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 168.0));
+        if (!pic.isSci) {
+          canvas.translate(0.0, playfieldRow * 8.0);
+          canvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 168.0));
+        } else {
+          canvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0));
+        }
         switch (renderMode) {
           case AgiPictureRenderMode.compositedSlices:
             _paintCompositedSlices(canvas, paint, effectiveFlat, pic);
             break;
 
           case AgiPictureRenderMode.flatVisual:
+          case AgiPictureRenderMode.unditheredVisual:
             if (effectiveFlat != null) {
               canvas.drawImage(effectiveFlat, Offset.zero, paint);
             }
@@ -448,18 +464,20 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
-  int _getCellPriority(int r, int c, AgiPic? pic) {
-    final pb = pic?.priorityBuffer;
-    if (pb == null) return 4;
-    final px = (c * 4).clamp(0, PriorityBuffer.width - 1);
-    final py = ((r - playfieldRow) * 8).clamp(0, PriorityBuffer.height - 1);
-    final pri = pb.priorityAt(px, py);
-    return pri.clamp(4, 15);
+  int _getCellPriority(int r, int c, SierraPicture? pic) {
+    if (pic is AgiPic) {
+      final pb = pic.priorityBuffer;
+      final px = (c * 4).clamp(0, PriorityBuffer.width - 1);
+      final py = ((r - playfieldRow) * 8).clamp(0, PriorityBuffer.height - 1);
+      final pri = pb.priorityAt(px, py);
+      return pri.clamp(4, 15);
+    }
+    return 4;
   }
 
   /// One 21×40 lookup of picture priority for cells that will actually paint.
   /// Index is `row * columns + col`; 0 means "no text in this cell".
-  Uint8List? _buildPlayfieldCellPriorityMap(AgiPic pic) {
+  Uint8List? _buildPlayfieldCellPriorityMap(SierraPicture pic) {
     final buf = textScreenBuffer;
     if (buf == null || !buf.hasContentInRows(playfieldRow, playfieldRow + 20)) return null;
     final map = Uint8List(AgiTextScreenBuffer.rows * AgiTextScreenBuffer.columns);
@@ -475,7 +493,7 @@ class AgiPicturePainter extends CustomPainter {
     return map;
   }
 
-  int _cellPriorityAt(int r, int c, int? targetPriority, AgiPic? pic, Uint8List? map) {
+  int _cellPriorityAt(int r, int c, int? targetPriority, SierraPicture? pic, Uint8List? map) {
     if (targetPriority == null) return 4;
     if (map != null) {
       return map[r * AgiTextScreenBuffer.columns + c];
@@ -490,7 +508,7 @@ class AgiPicturePainter extends CustomPainter {
     bool excludePlayfield = false,
     int playfieldRow = 1,
     int? targetPriority,
-    AgiPic? pic,
+    SierraPicture? pic,
     Uint8List? cellPriorityMap,
   }) {
     if (textScreenBuffer == null) return;
@@ -548,7 +566,7 @@ class AgiPicturePainter extends CustomPainter {
     bool excludePlayfield = false,
     int playfieldRow = 1,
     int? targetPriority,
-    AgiPic? pic,
+    SierraPicture? pic,
     Uint8List? cellPriorityMap,
   }) {
     if (textScreenBuffer == null) return;
@@ -598,7 +616,7 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
-  void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat, AgiPic pic) {
+  void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat, SierraPicture pic) {
     // Check if we have valid slices ready
     final hasSlices = pic.slices.values.any((s) => s.hasVisiblePixels && s.cachedUiImage != null);
 
@@ -992,9 +1010,9 @@ class CrtShaderOverlayPainter extends CustomPainter {
   }
 }
 
-/// Flutter Widget that renders an [AgiPic] with full view controls, CRT shader, integer scaling, and aspect ratio correction.
+/// Flutter Widget that renders an [AgiPic] or [SciPic] with full view controls, CRT shader, integer scaling, and aspect ratio correction.
 class AgiPictureWidget extends StatefulWidget {
-  final AgiPic picture;
+  final SierraPicture picture;
   final AgiPictureRenderMode renderMode;
   final List<AgiActorSprite> actors;
   final bool showToolbar;
@@ -1030,7 +1048,7 @@ class AgiPictureWidget extends StatefulWidget {
 
 class _AgiPictureWidgetState extends State<AgiPictureWidget> {
   late AgiPictureRenderMode _internalMode;
-  AgiPic? _displayedPic;
+  SierraPicture? _displayedPic;
   ui.Image? _flatImage;
   ui.Image? _priImage;
   ui.Image? _ctrlImage;
@@ -1057,7 +1075,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
     }
   }
 
-  Future<void> _loadAllTexturesFor(AgiPic pic) async {
+  Future<void> _loadAllTexturesFor(SierraPicture pic) async {
     final token = ++_loadToken;
     final flatFuture = pic.toFlatVisualUiImage();
     final priFuture = pic.toPriorityMapUiImage();
@@ -1087,6 +1105,13 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
         break;
       case AgiPictureRenderMode.flatVisual:
         _flatImage ??= await targetPic.toFlatVisualUiImage();
+        break;
+      case AgiPictureRenderMode.unditheredVisual:
+        if (targetPic is SciPic) {
+          _flatImage ??= await targetPic.toFlatVisualUiImage(undithered: true);
+        } else {
+          _flatImage ??= await targetPic.toFlatVisualUiImage();
+        }
         break;
       case AgiPictureRenderMode.priorityMap:
         _priImage ??= await targetPic.toPriorityMapUiImage();

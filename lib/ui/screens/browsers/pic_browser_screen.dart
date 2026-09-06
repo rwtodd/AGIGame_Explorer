@@ -6,6 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/picture/pic_step_interpreter.dart';
+import 'package:flutter_agigame/sci/loader/resource_type.dart';
+import 'package:flutter_agigame/sci/picture/sci_pic.dart';
+import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -45,22 +48,36 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
   double _playbackSpeed = 1.0; // steps per tick multiplier
 
   // Active picture cache
-  AgiPic? _currentPic;
+  SierraPicture? _currentPic;
   bool _isLoading = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    final loader = ref.read(launcherProvider).loader;
-    if (loader != null) {
-      final present = loader.presentPicNumbers;
-      if (widget.initialPicNumber != null && present.contains(widget.initialPicNumber)) {
-        _selectedPicNumber = widget.initialPicNumber!;
-      } else if (present.isNotEmpty) {
-        _selectedPicNumber = present.first;
+    final launcherState = ref.read(launcherProvider);
+    if (launcherState.isSci) {
+      final sciVm = launcherState.sciVolumeManager;
+      if (sciVm != null) {
+        final present = sciVm.resourceMap.numbersForType(SciResourceType.pic).toList()..sort();
+        if (widget.initialPicNumber != null && present.contains(widget.initialPicNumber)) {
+          _selectedPicNumber = widget.initialPicNumber!;
+        } else if (present.isNotEmpty) {
+          _selectedPicNumber = present.first;
+        }
+        _loadPicture(_selectedPicNumber);
       }
-      _loadPicture(_selectedPicNumber);
+    } else {
+      final loader = launcherState.loader;
+      if (loader != null) {
+        final present = loader.presentPicNumbers;
+        if (widget.initialPicNumber != null && present.contains(widget.initialPicNumber)) {
+          _selectedPicNumber = widget.initialPicNumber!;
+        } else if (present.isNotEmpty) {
+          _selectedPicNumber = present.first;
+        }
+        _loadPicture(_selectedPicNumber);
+      }
     }
   }
 
@@ -74,7 +91,42 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     _playbackTimer?.cancel();
     _isPlaying = false;
 
-    final loader = ref.read(launcherProvider).loader;
+    final launcherState = ref.read(launcherProvider);
+    if (launcherState.isSci) {
+      final sciVm = launcherState.sciVolumeManager;
+      if (sciVm == null) return;
+
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+        _selectedPicNumber = picNum;
+        _isolatedPrioritySlice = null;
+        _hoverX = null;
+        _hoverY = null;
+        _stepInterpreter = null;
+        _replayMode = false;
+      });
+
+      try {
+        final rawData = sciVm.getResource(SciResourceType.pic, picNum);
+        final pic = SciPicInterpreter.interpret(rawData, picNumber: picNum);
+        if (_renderMode == AgiPictureRenderMode.unditheredVisual) {
+          pic.isUndithered = true;
+        }
+        setState(() {
+          _currentPic = pic;
+          _isLoading = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = 'Failed to load SCI PICTURE $picNum: $e';
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    final loader = launcherState.loader;
     if (loader == null) return;
 
     setState(() {
@@ -115,15 +167,17 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
   }
 
   void _togglePlayback() {
+    if (_stepInterpreter == null) return;
+
     if (_isPlaying) {
       _playbackTimer?.cancel();
       setState(() => _isPlaying = false);
     } else {
-      if (_stepInterpreter == null) return;
       if (_currentStep >= _stepInterpreter!.totalSteps) {
         _setStep(0);
       }
       setState(() => _isPlaying = true);
+
       _playbackTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
         if (!mounted || _stepInterpreter == null) {
           timer.cancel();
@@ -148,6 +202,10 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
       Uint8List rgba;
       String suffix;
       switch (_renderMode) {
+        case AgiPictureRenderMode.unditheredVisual:
+          rgba = _currentPic!.renderFlatVisualRgba();
+          suffix = 'undithered';
+          break;
         case AgiPictureRenderMode.priorityMap:
           rgba = _currentPic!.renderPriorityMapRgba();
           suffix = 'priority';
@@ -162,7 +220,9 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           break;
       }
 
-      final bmp = _encodeBmp(rgba, AgiPic.renderedWidth, AgiPic.renderedHeight);
+      final exportWidth = _currentPic!.width;
+      final exportHeight = _currentPic!.height;
+      final bmp = _encodeBmp(rgba, exportWidth, exportHeight);
       final fileName = 'pic_${_selectedPicNumber.toString().padLeft(3, '0')}_$suffix.bmp';
 
       final uri = await FilePickerPlatform.instance.saveFile(
@@ -226,7 +286,16 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
   Widget build(BuildContext context) {
     final launcherState = ref.watch(launcherProvider);
     final loader = launcherState.loader;
-    final presentPics = loader?.presentPicNumbers ?? [];
+    final List<int> presentPics;
+    if (launcherState.isSci) {
+      presentPics = launcherState.sciVolumeManager?.resourceMap
+              .numbersForType(SciResourceType.pic)
+              .toList() ??
+          [];
+      presentPics.sort();
+    } else {
+      presentPics = loader?.presentPicNumbers ?? [];
+    }
 
     return Scaffold(
       backgroundColor: AgiTheme.egaBlack,
@@ -237,7 +306,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           Expanded(
             child: Column(
               children: [
-                _buildDisplayControlsBar(),
+                _buildDisplayControlsBar(launcherState),
                 Expanded(
                   child: Stack(
                     children: [
@@ -340,7 +409,8 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           if (_currentPic != null) ...[
             const SizedBox(width: 12),
             Text(
-              '${_currentPic!.activeSlices.length} Active Slices • ${_stepInterpreter?.totalSteps ?? 0} Vector Ops',
+              '${_currentPic!.activeSlices.length} Active Slices'
+              '${_stepInterpreter != null ? " • ${_stepInterpreter!.totalSteps} Vector Ops" : ""}',
               style: const TextStyle(fontSize: 11, color: AgiTheme.egaMuted),
             ),
           ],
@@ -357,7 +427,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     );
   }
 
-  Widget _buildDisplayControlsBar() {
+  Widget _buildDisplayControlsBar(LauncherState launcherState) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: const BoxDecoration(
@@ -370,23 +440,29 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           children: [
             // View Mode Selector
             SegmentedButton<AgiPictureRenderMode>(
-              segments: const [
-                ButtonSegment(
+              segments: [
+                const ButtonSegment(
                   value: AgiPictureRenderMode.flatVisual,
                   label: Text('Visual'),
                   icon: Icon(Icons.image, size: 14),
                 ),
-                ButtonSegment(
+                if (launcherState.isSci)
+                  const ButtonSegment(
+                    value: AgiPictureRenderMode.unditheredVisual,
+                    label: Text('Undithered (40-Color)'),
+                    icon: Icon(Icons.palette, size: 14),
+                  ),
+                const ButtonSegment(
                   value: AgiPictureRenderMode.priorityMap,
                   label: Text('Priority'),
                   icon: Icon(Icons.layers, size: 14),
                 ),
-                ButtonSegment(
+                const ButtonSegment(
                   value: AgiPictureRenderMode.controlMap,
                   label: Text('Control'),
                   icon: Icon(Icons.security, size: 14),
                 ),
-                ButtonSegment(
+                const ButtonSegment(
                   value: AgiPictureRenderMode.compositedSlices,
                   label: Text('Composited'),
                   icon: Icon(Icons.auto_awesome_motion, size: 14),
@@ -397,6 +473,10 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
                 setState(() {
                   _renderMode = set.first;
                   _isolatedPrioritySlice = null;
+                  if (_currentPic is SciPic) {
+                    (_currentPic as SciPic).isUndithered =
+                        (_renderMode == AgiPictureRenderMode.unditheredVisual);
+                  }
                 });
               },
             ),
@@ -446,26 +526,28 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
                 color: _showPixelGrid ? AgiTheme.egaMagenta : AgiTheme.egaMuted,
               ),
             ),
-            const SizedBox(width: 8),
-            FilterChip(
-              label: const Text('Vector Replay'),
-              selected: _replayMode,
-              onSelected: (val) {
-                setState(() {
-                  _replayMode = val;
-                  if (!val) {
-                    _playbackTimer?.cancel();
-                    _isPlaying = false;
-                    _loadPicture(_selectedPicNumber);
-                  }
-                });
-              },
-              avatar: Icon(
-                Icons.draw,
-                size: 14,
-                color: _replayMode ? AgiTheme.egaGreen : AgiTheme.egaMuted,
+            if (!launcherState.isSci) ...[
+              const SizedBox(width: 8),
+              FilterChip(
+                label: const Text('Vector Replay'),
+                selected: _replayMode,
+                onSelected: (val) {
+                  setState(() {
+                    _replayMode = val;
+                    if (!val) {
+                      _playbackTimer?.cancel();
+                      _isPlaying = false;
+                      _loadPicture(_selectedPicNumber);
+                    }
+                  });
+                },
+                avatar: Icon(
+                  Icons.draw,
+                  size: 14,
+                  color: _replayMode ? AgiTheme.egaGreen : AgiTheme.egaMuted,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -517,33 +599,51 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     final x = _hoverX!;
     final y = _hoverY!;
     final pic = _currentPic!;
+    final width = pic.width;
+    final height = pic.height;
 
-    final isInsidePicture = y < AgiPic.nativeHeight && x < AgiPic.nativeWidth;
+    final isInsidePicture = y < height && x < width;
 
-    final colorIdx = isInsidePicture
-        ? pic.visualPixels[y * AgiPic.nativeWidth + x]
-        : 0;
-    final color = colorIdx < EgaColors.palette.length ? EgaColors.palette[colorIdx] : Colors.black;
+    final colorIdx = isInsidePicture ? pic.visualPixels[y * width + x] : 0;
+    final color = (_renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic && isInsidePicture)
+        ? SciPic.blendedColorForPair(pic.rawColorPairs[y * width + x])
+        : (colorIdx < EgaColors.palette.length ? EgaColors.palette[colorIdx] : Colors.black);
     final colorName = isInsidePicture
-        ? (colorIdx < EgaColors.colorNames.length ? EgaColors.colorNames[colorIdx] : '$colorIdx')
+        ? (_renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic
+            ? 'Pair 0x${pic.rawColorPairs[y * width + x].toRadixString(16).padLeft(2, '0').toUpperCase()}'
+            : (colorIdx < EgaColors.colorNames.length ? EgaColors.colorNames[colorIdx] : '$colorIdx'))
         : 'Border';
 
     final rawPri = isInsidePicture ? pic.priorityAtPixel(x, y) : 0;
     final effPri = isInsidePicture ? pic.effectivePriorityAtPixel(x, y) : 0;
+    final ctrlVal = isInsidePicture ? pic.controlAtPixel(x, y) : 0;
 
     String controlDesc;
     if (!isInsidePicture) {
-      controlDesc = 'Text Area / Border';
-    } else if (rawPri == 0) {
-      controlDesc = 'Unconditional Barrier (0)';
-    } else if (rawPri == 1) {
-      controlDesc = 'Conditional Barrier (1)';
-    } else if (rawPri == 2) {
-      controlDesc = 'Trigger / Alarm (2)';
-    } else if (rawPri == 3) {
-      controlDesc = 'Water (3)';
+      controlDesc = 'Border';
+    } else if (pic is SciPic) {
+      if (ctrlVal == 0) {
+        controlDesc = 'None (0)';
+      } else {
+        final bits = <String>[];
+        if (ctrlVal & 0x01 != 0) bits.add('Ctrl-0');
+        if (ctrlVal & 0x02 != 0) bits.add('Ctrl-1');
+        if (ctrlVal & 0x04 != 0) bits.add('Ctrl-2');
+        if (ctrlVal & 0x08 != 0) bits.add('Ctrl-3');
+        controlDesc = bits.isNotEmpty ? bits.join(', ') : 'Val $ctrlVal';
+      }
     } else {
-      controlDesc = 'None (Depth Band $rawPri)';
+      if (rawPri == 0) {
+        controlDesc = 'Unconditional Barrier (0)';
+      } else if (rawPri == 1) {
+        controlDesc = 'Conditional Barrier (1)';
+      } else if (rawPri == 2) {
+        controlDesc = 'Trigger / Alarm (2)';
+      } else if (rawPri == 3) {
+        controlDesc = 'Water (3)';
+      } else {
+        controlDesc = 'None (Depth Band $rawPri)';
+      }
     }
 
     return Container(
@@ -589,7 +689,9 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           ),
           const SizedBox(width: 6),
           Text(
-            'Color $colorIdx ($colorName)',
+            _renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic
+                ? colorName
+                : 'Color $colorIdx ($colorName)',
             style: const TextStyle(color: AgiTheme.egaWhite, fontSize: 12),
           ),
           const SizedBox(width: 14),
@@ -605,7 +707,9 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
           Text(
             'Control: $controlDesc',
             style: TextStyle(
-              color: rawPri < 4 ? AgiTheme.egaGreen : AgiTheme.egaMuted,
+              color: (pic is SciPic ? ctrlVal != 0 : rawPri < 4)
+                  ? AgiTheme.egaGreen
+                  : AgiTheme.egaMuted,
               fontSize: 12,
             ),
           ),

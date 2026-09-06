@@ -101,14 +101,14 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFF003322),
+              color: state.isSci ? const Color(0xFF002244) : const Color(0xFF003322),
               borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: AgiTheme.egaGreen),
+              border: Border.all(color: state.isSci ? AgiTheme.egaCyan : AgiTheme.egaGreen),
             ),
-            child: const Text(
-              'AGI v2/v3',
+            child: Text(
+              state.isSci ? 'SCI0 / SCI1 EGA' : 'AGI v2/v3',
               style: TextStyle(
-                color: AgiTheme.egaGreen,
+                color: state.isSci ? AgiTheme.egaCyan : AgiTheme.egaGreen,
                 fontWeight: FontWeight.bold,
                 fontSize: 12,
                 letterSpacing: 1.0,
@@ -397,16 +397,24 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: info.isV3 ? const Color(0xFF330033) : const Color(0xFF002244),
+                        color: info.isSci
+                            ? const Color(0xFF002244)
+                            : (info.isV3 ? const Color(0xFF330033) : const Color(0xFF002244)),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
-                          color: info.isV3 ? AgiTheme.egaMagenta : AgiTheme.egaCyan,
+                          color: info.isSci
+                              ? AgiTheme.egaCyan
+                              : (info.isV3 ? AgiTheme.egaMagenta : AgiTheme.egaCyan),
                         ),
                       ),
                       child: Text(
-                        'AGI ${info.isV3 ? "v3" : "v2"} • ${info.versionString}',
+                        info.isSci
+                            ? info.versionString
+                            : 'AGI ${info.isV3 ? "v3" : "v2"} • ${info.versionString}',
                         style: TextStyle(
-                          color: info.isV3 ? AgiTheme.egaMagenta : AgiTheme.egaCyan,
+                          color: info.isSci
+                              ? AgiTheme.egaCyan
+                              : (info.isV3 ? AgiTheme.egaMagenta : AgiTheme.egaCyan),
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
@@ -422,29 +430,39 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                     Expanded(
                       flex: 3,
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => GameScreen(
-                                resourceLoader: state.loader,
-                                initialSettings: ref.read(settingsProvider),
-                              ),
-                            ),
-                          );
-                        },
+                        onPressed: info.isSci
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => GameScreen(
+                                      resourceLoader: state.loader,
+                                      initialSettings: ref.read(settingsProvider),
+                                    ),
+                                  ),
+                                );
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF059669), // Emerald EGA Green
                           foregroundColor: Colors.white,
+                          disabledBackgroundColor: const Color(0xFF1E293B),
+                          disabledForegroundColor: Colors.white54,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(6),
-                            side: const BorderSide(color: Color(0xFF34D399), width: 1.5),
+                            side: BorderSide(
+                              color: info.isSci ? Colors.white24 : const Color(0xFF34D399),
+                              width: 1.5,
+                            ),
                           ),
                         ),
-                        icon: const Icon(Icons.play_circle_filled, size: 20),
-                        label: const Text(
-                          'PLAY GAME',
-                          style: TextStyle(
+                        icon: Icon(
+                          info.isSci ? Icons.construction : Icons.play_circle_filled,
+                          size: 20,
+                        ),
+                        label: Text(
+                          info.isSci ? 'PLAY GAME (SCI VM IN DEV)' : 'PLAY GAME',
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 1.0,
@@ -533,106 +551,184 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                GridView.count(
-                  crossAxisCount: 4,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 2.2,
-                  children: [
-                    _buildMetricTile(
-                      'LOGIC Scripts',
-                      info.logicCount.toString(),
-                      Icons.code,
-                      AgiTheme.egaGreen,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const LogicBrowserScreen(),
+                info.isSci
+                    ? GridView.count(
+                        crossAxisCount: 4,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 2.2,
+                        children: [
+                          _buildMetricTile(
+                            'PICTURE Rooms',
+                            (info.resourceCounts['PICTURE Rooms'] ?? 0).toString(),
+                            Icons.image,
+                            AgiTheme.egaCyan,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const PicBrowserScreen(),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-                    _buildMetricTile(
-                      'PICTURE Rooms',
-                      info.picCount.toString(),
-                      Icons.image,
-                      AgiTheme.egaCyan,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const PicBrowserScreen(),
+                          _buildMetricTile(
+                            'VIEW Sprites',
+                            (info.resourceCounts['VIEW Sprites'] ?? 0).toString(),
+                            Icons.animation,
+                            AgiTheme.egaMagenta,
                           ),
-                        );
-                      },
-                    ),
-                    _buildMetricTile(
-                      'VIEW Sprites',
-                      info.viewCount.toString(),
-                      Icons.animation,
-                      AgiTheme.egaMagenta,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const ViewBrowserScreen(),
+                          _buildMetricTile(
+                            'SCRIPT Bytecode',
+                            (info.resourceCounts['SCRIPT Bytecode'] ?? 0).toString(),
+                            Icons.code,
+                            AgiTheme.egaGreen,
                           ),
-                        );
-                      },
-                    ),
-                    _buildMetricTile(
-                      'SOUND Tracks',
-                      info.soundCount.toString(),
-                      Icons.music_note,
-                      AgiTheme.egaAmber,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const SoundBrowserScreen(),
+                          _buildMetricTile(
+                            'TEXT Messages',
+                            (info.resourceCounts['TEXT Messages'] ?? 0).toString(),
+                            Icons.message,
+                            AgiTheme.egaWhite,
                           ),
-                        );
-                      },
-                    ),
-                    _buildMetricTile(
-                      'Inventory Objects',
-                      info.objectCount.toString(),
-                      Icons.inventory_2,
-                      AgiTheme.egaWhite,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const ObjectsBrowserScreen(),
+                          _buildMetricTile(
+                            'SOUND Tracks',
+                            (info.resourceCounts['SOUND Tracks'] ?? 0).toString(),
+                            Icons.music_note,
+                            AgiTheme.egaAmber,
                           ),
-                        );
-                      },
-                    ),
-                    _buildMetricTile(
-                      'WORDS.TOK Vocab',
-                      info.wordCount.toString(),
-                      Icons.menu_book,
-                      AgiTheme.egaCyan,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const WordsBrowserScreen(),
+                          _buildMetricTile(
+                            'VOCAB Dictionary',
+                            (info.resourceCounts['VOCAB Dictionary'] ?? 0).toString(),
+                            Icons.menu_book,
+                            AgiTheme.egaCyan,
                           ),
-                        );
-                      },
-                    ),
-                    _buildMetricTile(
-                      'Max Animated',
-                      info.maxAnimatedObjects.toString(),
-                      Icons.directions_run,
-                      AgiTheme.egaGreen,
-                    ),
-                    _buildMetricTile(
-                      'Container Format',
-                      info.isV3 ? '${info.prefix}VOL.*' : 'VOL.*',
-                      Icons.storage,
-                      AgiTheme.egaMuted,
-                    ),
-                  ],
-                ),
+                          _buildMetricTile(
+                            'FONT Typography',
+                            (info.resourceCounts['FONT Typography'] ?? 0).toString(),
+                            Icons.font_download,
+                            AgiTheme.egaMagenta,
+                          ),
+                          _buildMetricTile(
+                            'CURSOR Sprites',
+                            (info.resourceCounts['CURSOR Sprites'] ?? 0).toString(),
+                            Icons.mouse,
+                            AgiTheme.egaWhite,
+                          ),
+                          _buildMetricTile(
+                            'PATCH Driver Fixes',
+                            (info.resourceCounts['PATCH Driver Fixes'] ?? 0).toString(),
+                            Icons.healing,
+                            AgiTheme.egaRed,
+                          ),
+                          _buildMetricTile(
+                            'Container Format',
+                            'RESOURCE.MAP',
+                            Icons.storage,
+                            AgiTheme.egaMuted,
+                          ),
+                        ],
+                      )
+                    : GridView.count(
+                        crossAxisCount: 4,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 2.2,
+                        children: [
+                          _buildMetricTile(
+                            'LOGIC Scripts',
+                            info.logicCount.toString(),
+                            Icons.code,
+                            AgiTheme.egaGreen,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const LogicBrowserScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildMetricTile(
+                            'PICTURE Rooms',
+                            info.picCount.toString(),
+                            Icons.image,
+                            AgiTheme.egaCyan,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const PicBrowserScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildMetricTile(
+                            'VIEW Sprites',
+                            info.viewCount.toString(),
+                            Icons.animation,
+                            AgiTheme.egaMagenta,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ViewBrowserScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildMetricTile(
+                            'SOUND Tracks',
+                            info.soundCount.toString(),
+                            Icons.music_note,
+                            AgiTheme.egaAmber,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const SoundBrowserScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildMetricTile(
+                            'Inventory Objects',
+                            info.objectCount.toString(),
+                            Icons.inventory_2,
+                            AgiTheme.egaWhite,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ObjectsBrowserScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildMetricTile(
+                            'WORDS.TOK Vocab',
+                            info.wordCount.toString(),
+                            Icons.menu_book,
+                            AgiTheme.egaCyan,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const WordsBrowserScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildMetricTile(
+                            'Max Animated',
+                            info.maxAnimatedObjects.toString(),
+                            Icons.directions_run,
+                            AgiTheme.egaGreen,
+                          ),
+                          _buildMetricTile(
+                            'Container Format',
+                            info.isV3 ? '${info.prefix}VOL.*' : 'VOL.*',
+                            Icons.storage,
+                            AgiTheme.egaMuted,
+                          ),
+                        ],
+                      ),
               ],
             ),
           ),

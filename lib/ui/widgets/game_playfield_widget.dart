@@ -108,6 +108,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           }
         }
         break;
+      case AgiPictureRenderMode.unditheredVisual:
       case AgiPictureRenderMode.flatVisual:
         if (pic.cachedFlatVisualImage == null) {
           pic.toFlatVisualUiImage().then((_) {

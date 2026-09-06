@@ -155,6 +155,10 @@ class SciVolumeManager {
   bool hasResource(SciResourceType type, int number) =>
       resourceMap.contains(type, number);
 
+  /// Finds the resource entry for [type] and [number], or null if not present.
+  SciResourceEntry? findResource(SciResourceType type, int number) =>
+      resourceMap.find(type, number);
+
   /// Reads the 8-byte volume header for the given [entry] without decompressing the payload.
   SciVolumeRecordHeader readHeader(SciResourceEntry entry) {
     if (entry.isPatch) {

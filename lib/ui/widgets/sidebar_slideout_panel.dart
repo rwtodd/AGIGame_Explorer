@@ -867,6 +867,11 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               sub = 'EGA 16-color background screen';
               icon = Icons.palette;
               break;
+            case AgiPictureRenderMode.unditheredVisual:
+              label = 'Undithered Visual (40-Color)';
+              sub = 'Blended EGA color pairs (SCI only)';
+              icon = Icons.gradient;
+              break;
             case AgiPictureRenderMode.priorityMap:
               label = 'Priority Depth Buffer';
               sub = 'Depth layering map (0..15)';

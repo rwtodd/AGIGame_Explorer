@@ -112,6 +112,12 @@ class PriorityBuffer {
   /// Checks if `(x, y)` is any control line (0, 1, 2, or 3).
   bool isControlLine(int x, int y) => priorityAt(x, y) < 4;
 
+  /// Gets the control line value (0..3) at `(x, y)`, or 0 if not a control line.
+  int controlAt(int x, int y) {
+    final p = priorityAt(x, y);
+    return p < 4 ? p : 0;
+  }
+
   /// Standard walkability check: walkable if not blocked by unconditional (0) or conditional (1) barrier.
   bool isWalkable(int x, int y, {bool allowConditional = false}) {
     final p = priorityAt(x, y);

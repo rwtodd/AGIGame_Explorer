@@ -98,18 +98,100 @@ class PictureSlice {
   }
 }
 
+/// Common interface for Sierra background pictures (both AGI and SCI).
+///
+/// Enables UI components (like [PicBrowserScreen] and [AgiPictureCanvas]) to
+/// inspect, composite, and render pictures without coupling to engine-specific
+/// internal buffer layouts.
+abstract class SierraPicture {
+  /// The picture resource number, if known.
+  int? get picNumber;
+
+  /// Map of priority slices keyed by priority level (0..15).
+  Map<int, PictureSlice> get slices;
+
+  /// Gets the priority slice for the given priority level (0..15), if present.
+  PictureSlice? getSlice(int priority);
+
+  /// List of all priority slices that contain visible pixels.
+  List<PictureSlice> get activeSlices;
+
+  /// Raw visual buffer of color indices.
+  Uint8List get visualPixels;
+
+  /// Renders a complete 320x200 RGBA flat visual background.
+  Uint8List renderFlatVisualRgba();
+
+  /// Decodes and returns the flat visual background as a Flutter [ui.Image].
+  Future<ui.Image> toFlatVisualUiImage();
+
+  /// Renders a 320x200 RGBA buffer visualizing the depth priority map.
+  Uint8List renderPriorityMapRgba();
+
+  /// Decodes and returns the depth priority map as a Flutter [ui.Image].
+  Future<ui.Image> toPriorityMapUiImage();
+
+  /// Renders a 320x200 RGBA buffer visualizing the control map.
+  Uint8List renderControlMapRgba();
+
+  /// Decodes and returns the control map as a Flutter [ui.Image].
+  Future<ui.Image> toControlMapUiImage();
+
+  /// Cached Flutter [ui.Image] for the flat visual background, if decoded.
+  ui.Image? get cachedFlatVisualImage;
+
+  /// Cached Flutter [ui.Image] for the depth priority map, if decoded.
+  ui.Image? get cachedPriorityMapImage;
+
+  /// Cached Flutter [ui.Image] for the control barrier map, if decoded.
+  ui.Image? get cachedControlMapImage;
+
+  /// Preloads GPU textures for all active slices asynchronously.
+  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false});
+
+  /// Disposes GPU resources held by this picture.
+  void dispose();
+
+  /// Picture pixel width (160 for AGI, 320 for SCI).
+  int get width;
+
+  /// Picture pixel height (168 for AGI, 200 for SCI).
+  int get height;
+
+  /// Gets the raw depth priority at pixel `(x, y)`.
+  int priorityAtPixel(int x, int y);
+
+  /// Gets the control line/barrier value at pixel `(x, y)`.
+  int controlAtPixel(int x, int y);
+
+  /// Gets the visual EGA color index at pixel `(x, y)`.
+  int visualAtPixel(int x, int y);
+
+  /// Gets the effective depth priority (4..15) at `(x, y)`.
+  int effectivePriorityAtPixel(int x, int y);
+
+  /// Whether this picture is from a 320x200 SCI engine.
+  bool get isSci;
+}
+
 /// Represents an interpreted AGI PICTURE resource.
 ///
 /// Contains:
 /// 1. The raw 160x168 [visualPixels] EGA buffer (colors 0..15).
 /// 2. The 160x168 [priorityBuffer] (depth priorities 0..15 and control barriers).
 /// 3. The pre-sliced [slices] bundle (320x200 transparent RGBA images for Impeller compositing).
-class AgiPic {
+class AgiPic implements SierraPicture {
   /// Native AGI picture width (160).
   static const int nativeWidth = AgiDisplay.nativeWidth;
 
   /// Native AGI picture height (168).
   static const int nativeHeight = AgiDisplay.pictureHeight;
+
+  @override
+  int get width => nativeWidth;
+
+  @override
+  int get height => nativeHeight;
 
   /// Rendered screen width (320).
   static const int renderedWidth = AgiDisplay.renderedWidth;
@@ -118,12 +200,14 @@ class AgiPic {
   static const int renderedHeight = AgiDisplay.renderedHeight;
 
   /// Raw visual buffer: 160x168 EGA color indices (0..15).
+  @override
   final Uint8List visualPixels;
 
   /// Priority screen memory buffer: 160x168 priority & control lines.
   final PriorityBuffer priorityBuffer;
 
   /// Bundle of priority slices (keyed by priority level 0 to 15).
+  @override
   final Map<int, PictureSlice> slices;
 
   ui.Image? _cachedFlatVisualImage;
@@ -132,7 +216,11 @@ class AgiPic {
   bool _isDisposed = false;
 
   /// The AGI picture resource number, if known.
+  @override
   int? picNumber;
+
+  @override
+  bool get isSci => false;
 
   AgiPic({
     this.picNumber,
@@ -142,35 +230,54 @@ class AgiPic {
   }) {
     if (visualPixels.length != nativeWidth * nativeHeight) {
       throw ArgumentError(
-        'AgiPic visualPixels must have ${nativeWidth * nativeHeight} bytes, got ${visualPixels.length}',
+        'Invalid visual buffer size: ${visualPixels.length}. Expected ${nativeWidth * nativeHeight}.',
       );
     }
   }
 
   /// Cached Flutter [ui.Image] for the flat visual background, if decoded.
+  @override
   ui.Image? get cachedFlatVisualImage => _cachedFlatVisualImage;
 
   /// Cached Flutter [ui.Image] for the depth priority map, if decoded.
+  @override
   ui.Image? get cachedPriorityMapImage => _cachedPriorityMapImage;
 
   /// Cached Flutter [ui.Image] for the control barrier map, if decoded.
+  @override
   ui.Image? get cachedControlMapImage => _cachedControlMapImage;
 
   /// Gets the priority slice for the given priority level (0..15), if present.
+  @override
   PictureSlice? getSlice(int priority) => slices[priority];
 
   /// List of all priority slices that contain visible pixels.
+  @override
   List<PictureSlice> get activeSlices =>
       slices.values.where((s) => s.hasVisiblePixels).toList();
 
   /// Gets the raw priority value at `(x, y)`.
+  @override
   int priorityAtPixel(int x, int y) => priorityBuffer.priorityAt(x, y);
 
+  /// Gets the control value at `(x, y)`.
+  @override
+  int controlAtPixel(int x, int y) => priorityBuffer.controlAt(x, y);
+
+  /// Gets the visual EGA color index at `(x, y)`.
+  @override
+  int visualAtPixel(int x, int y) {
+    if (x < 0 || x >= nativeWidth || y < 0 || y >= nativeHeight) return 0;
+    return visualPixels[y * nativeWidth + x];
+  }
+
   /// Gets the effective depth priority (4..15) at `(x, y)`.
+  @override
   int effectivePriorityAtPixel(int x, int y) =>
       priorityBuffer.effectivePriorityAt(x, y);
 
   /// Preloads GPU textures for all active slices asynchronously.
+  @override
   FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false}) {
     final futures = <Future<ui.Image>>[];
     for (final slice in slices.values) {
@@ -192,6 +299,7 @@ class AgiPic {
   }
 
   /// Renders a complete 320x200 RGBA flat visual background (for diagnostic views or single-texture shaders).
+  @override
   Uint8List renderFlatVisualRgba() {
     final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
 
@@ -219,6 +327,7 @@ class AgiPic {
   }
 
   /// Decodes and returns the flat visual background as a Flutter [ui.Image].
+  @override
   Future<ui.Image> toFlatVisualUiImage() async {
     if (_isDisposed) {
       throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
@@ -245,9 +354,11 @@ class AgiPic {
   }
 
   /// Renders the depth priority map as 320x200 RGBA bytes.
+  @override
   Uint8List renderPriorityMapRgba() => priorityBuffer.renderPriorityMapRgba();
 
   /// Decodes and returns the depth priority map as a Flutter [ui.Image].
+  @override
   Future<ui.Image> toPriorityMapUiImage() async {
     if (_isDisposed) {
       throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
@@ -274,9 +385,11 @@ class AgiPic {
   }
 
   /// Renders the control map (triggers and barriers) as 320x200 RGBA bytes.
+  @override
   Uint8List renderControlMapRgba() => priorityBuffer.renderControlMapRgba();
 
   /// Decodes and returns the control map as a Flutter [ui.Image].
+  @override
   Future<ui.Image> toControlMapUiImage() async {
     if (_isDisposed) {
       throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
@@ -303,6 +416,7 @@ class AgiPic {
   }
 
   /// Disposes GPU resources held by this picture and its slices.
+  @override
   void dispose() {
     _isDisposed = true;
     _cachedFlatVisualImage?.dispose();
