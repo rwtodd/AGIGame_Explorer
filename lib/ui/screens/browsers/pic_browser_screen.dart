@@ -9,6 +9,7 @@ import 'package:flutter_agigame/picture/pic_step_interpreter.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
+import 'package:flutter_agigame/sci/picture/sci_pic_step_interpreter.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -41,7 +42,7 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
 
   // Vector Replay State
   bool _replayMode = false;
-  PicStepInterpreter? _stepInterpreter;
+  SierraPicStepInterpreter? _stepInterpreter;
   int _currentStep = 0;
   bool _isPlaying = false;
   Timer? _playbackTimer;
@@ -113,8 +114,11 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
         if (_renderMode == AgiPictureRenderMode.unditheredVisual) {
           pic.isUndithered = true;
         }
+        final stepInterpreter = SciPicStepInterpreter(rawData, picNumber: picNum);
         setState(() {
           _currentPic = pic;
+          _stepInterpreter = stepInterpreter;
+          _currentStep = stepInterpreter.totalSteps;
           _isLoading = false;
         });
       } catch (e) {
@@ -162,7 +166,11 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
     final clamped = step.clamp(0, _stepInterpreter!.totalSteps);
     setState(() {
       _currentStep = clamped;
-      _currentPic = _stepInterpreter!.renderUpToStep(clamped, computeSlices: true);
+      _currentPic = _stepInterpreter!.renderUpToStep(
+        clamped,
+        computeSlices: _renderMode == AgiPictureRenderMode.compositedSlices,
+        isUndithered: _renderMode == AgiPictureRenderMode.unditheredVisual,
+      );
     });
   }
 
@@ -526,28 +534,26 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
                 color: _showPixelGrid ? AgiTheme.egaMagenta : AgiTheme.egaMuted,
               ),
             ),
-            if (!launcherState.isSci) ...[
-              const SizedBox(width: 8),
-              FilterChip(
-                label: const Text('Vector Replay'),
-                selected: _replayMode,
-                onSelected: (val) {
-                  setState(() {
-                    _replayMode = val;
-                    if (!val) {
-                      _playbackTimer?.cancel();
-                      _isPlaying = false;
-                      _loadPicture(_selectedPicNumber);
-                    }
-                  });
-                },
-                avatar: Icon(
-                  Icons.draw,
-                  size: 14,
-                  color: _replayMode ? AgiTheme.egaGreen : AgiTheme.egaMuted,
-                ),
+            const SizedBox(width: 8),
+            FilterChip(
+              label: const Text('Vector Replay'),
+              selected: _replayMode,
+              onSelected: (val) {
+                setState(() {
+                  _replayMode = val;
+                  if (!val) {
+                    _playbackTimer?.cancel();
+                    _isPlaying = false;
+                    _loadPicture(_selectedPicNumber);
+                  }
+                });
+              },
+              avatar: Icon(
+                Icons.draw,
+                size: 14,
+                color: _replayMode ? AgiTheme.egaGreen : AgiTheme.egaMuted,
               ),
-            ],
+            ),
           ],
         ),
       ),

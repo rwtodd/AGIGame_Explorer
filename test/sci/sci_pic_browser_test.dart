@@ -55,12 +55,53 @@ void main() {
     expect(find.text('PIC BROWSER'), findsOneWidget);
     expect(find.text('PICTURE 1'), findsWidgets);
 
-    // Verify that Vector Replay is hidden for SCI
-    expect(find.text('Vector Replay'), findsNothing);
+    // Verify that Vector Replay is available for SCI
+    final replayFinder = find.text('Vector Replay');
+    expect(replayFinder, findsOneWidget);
+
+    // Toggle Vector Replay on
+    await tester.ensureVisible(replayFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(replayFinder);
+    await tester.pumpAndSettle();
+
+    // Verify Replay Bar is displayed
+    expect(find.byIcon(Icons.first_page), findsOneWidget);
+    expect(find.byIcon(Icons.skip_previous), findsOneWidget);
+    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    expect(find.byIcon(Icons.skip_next), findsOneWidget);
+    expect(find.byIcon(Icons.last_page), findsOneWidget);
+    expect(find.textContaining('Step '), findsOneWidget);
+    expect(find.textContaining('Opcode 0x'), findsOneWidget);
+
+    // Reset to beginning (Step 0)
+    await tester.tap(find.byIcon(Icons.first_page));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Step 0 /'), findsOneWidget);
+
+    // Step forward one command
+    await tester.tap(find.byIcon(Icons.skip_next));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Step 1 /'), findsOneWidget);
+
+    // Jump to end
+    await tester.tap(find.byIcon(Icons.last_page));
+    await tester.pumpAndSettle();
+
+    // Toggle Vector Replay off
+    await tester.ensureVisible(replayFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(replayFinder);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.first_page), findsNothing);
 
     // Verify view mode segments
+    final unditheredFinder = find.text('Undithered (40-Color)');
+    await tester.ensureVisible(unditheredFinder);
+    await tester.pumpAndSettle();
+
     expect(find.text('Visual'), findsOneWidget);
-    expect(find.text('Undithered (40-Color)'), findsOneWidget);
+    expect(unditheredFinder, findsOneWidget);
     expect(find.text('Priority'), findsOneWidget);
     expect(find.text('Control'), findsOneWidget);
     expect(find.text('Composited'), findsOneWidget);
@@ -76,24 +117,33 @@ void main() {
     expect(sciPic.isUndithered, isFalse);
 
     // Toggle to Undithered (40-Color)
-    await tester.tap(find.text('Undithered (40-Color)'));
+    await tester.tap(unditheredFinder);
     await tester.pumpAndSettle();
 
     expect(sciPic.isUndithered, isTrue);
 
     // Toggle to Composited mode to inspect Slices sidebar
-    await tester.tap(find.text('Composited'));
+    final compositedFinder = find.text('Composited');
+    await tester.ensureVisible(compositedFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(compositedFinder);
     await tester.pumpAndSettle();
 
     expect(find.text('PRIORITY SLICES'), findsOneWidget);
     expect(find.text('Priority 15 (Foreground)'), findsOneWidget);
 
     // Switch to Priority Map
-    await tester.tap(find.text('Priority'));
+    final priorityFinder = find.text('Priority');
+    await tester.ensureVisible(priorityFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(priorityFinder);
     await tester.pumpAndSettle();
 
     // Switch to Control Map
-    await tester.tap(find.text('Control'));
+    final controlFinder = find.text('Control');
+    await tester.ensureVisible(controlFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(controlFinder);
     await tester.pumpAndSettle();
   });
 

@@ -8,10 +8,14 @@ import 'package:flutter_agigame/picture/pic_rasterizer.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// A discrete drawing operation decoded from an AGI PICTURE vector stream.
-class PicDrawingStep {
+class PicDrawingStep implements PicStepInfo {
+  @override
   final int stepIndex;
+  @override
   final int opcode;
+  @override
   final String commandName;
+  @override
   final String description;
   final void Function(PicStepContext ctx) action;
 
@@ -102,15 +106,17 @@ class PicStepContext {
 
 /// Interpreter that decodes PICTURE vector commands into individual steps
 /// and allows rendering up to any step index.
-class PicStepInterpreter {
+class PicStepInterpreter implements SierraPicStepInterpreter {
   final Uint8List rawData;
   final bool isV3;
+  @override
   final List<PicDrawingStep> steps = [];
 
   PicStepInterpreter(this.rawData, {this.isV3 = false}) {
     _decodeSteps();
   }
 
+  @override
   int get totalSteps => steps.length;
 
   int _clipX(int x) => x < 0 ? 0 : (x >= AgiDisplay.nativeWidth ? AgiDisplay.nativeWidth - 1 : x);
@@ -553,7 +559,8 @@ class PicStepInterpreter {
   }
 
   /// Executes steps from index 0 up to [stepIndex] (inclusive) and returns the resulting [AgiPic].
-  AgiPic renderUpToStep(int stepIndex, {bool computeSlices = false}) {
+  @override
+  AgiPic renderUpToStep(int stepIndex, {bool computeSlices = false, bool isUndithered = false}) {
     final ctx = PicStepContext(isV3: isV3);
     final limit = stepIndex.clamp(0, steps.length);
 

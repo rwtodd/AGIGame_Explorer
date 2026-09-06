@@ -430,3 +430,18 @@ class AgiPic implements SierraPicture {
     }
   }
 }
+
+/// Diagnostic metadata describing a single discrete drawing operation in a vector stream.
+abstract class PicStepInfo {
+  int get stepIndex;
+  int get opcode;
+  String get commandName;
+  String get description;
+}
+
+/// Common interface for step-by-step vector replay across Sierra engine picture formats (AGI and SCI).
+abstract class SierraPicStepInterpreter {
+  int get totalSteps;
+  List<PicStepInfo> get steps;
+  SierraPicture renderUpToStep(int stepIndex, {bool computeSlices = false, bool isUndithered = false});
+}
