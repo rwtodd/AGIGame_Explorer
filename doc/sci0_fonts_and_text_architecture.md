@@ -132,6 +132,29 @@ To achieve crystal-clear, anti-aliased typography without breaking game puzzles 
 2. **Immunity to Broken Puzzles**: Fonts $\ge 2$ frequently contain alien glyphs (SQ3), ornate calligraphy (QFG2), or custom iconography where substituting an off-the-shelf vector font would either fail (missing glyphs) or ruin a visual puzzle.
 3. **Best of Both Worlds**: The player enjoys razor-sharp, readable dialogs and menus, while all game-specific artistic fonts retain their authentic Sierra look.
 
+### 3.2 Special-Casing Proprietary Sierra Symbols in Fonts 0 & 1 (Non-CP437 & Brand Glyphs)
+
+Even within core standard Fonts 0 and 1, Sierra included proprietary non-standard / non-CP437 symbols:
+- **Sierra Mountain Logo**: The multi-pixel Sierra mountain crest logo embedded in copyright dialogs, the "About..." screen, and menu bar corners.
+- **Custom UI and Keycap Symbols (Codes 0x00–0x1F)**:
+  - `0x00`: Solid rectangular block cursor / selection marker.
+  - `0x01`: Bullet point / checkmark / menu item indicator.
+  - `0x02`: `[ALT]` keyboard shortcut keycap badge.
+  - `0x03`: `[CTRL]` keyboard shortcut keycap badge.
+  - `0x04`: Diamond marker / custom bullet.
+  - Arrows, paragraph/section markers, and custom trademark/copyright ligatures.
+
+#### Why Modern Vector Fonts Fail on These Glyphs
+Standard modern TrueType/OpenType fonts (such as Chicago FLF, New York, Inter, or SF Pro) have no concept of the Sierra mountain logo, and standard typography engines treat ASCII $0\text{--}31$ as unprintable control codes. Attempting to render them via a standard vector font produces missing glyph boxes (tofu) or whitespace.
+
+#### The Special-Casing Strategy in Modern High-Res Mode
+When the engine runs in **Modern High-Res** substitution mode:
+1. **Character Code Interception**: The text formatting pass intercepts character codes that map to proprietary Sierra symbols or codes where the vector font provides no glyph.
+2. **Hybrid Inlining**:
+   - **Authentic Bitmap Blitting**: The renderer extracts the authentic 1-bit bitmap glyph directly from `SciFont.getGlyph(c)` and renders it as an inline graphic (e.g. via Flutter's `WidgetSpan` or a custom painter blit), scaled crisply to match the active font's nominal line height.
+   - **Vector Asset Override (Optional)**: For prominent symbols like the Sierra mountain logo, `[ALT]`, `[CTRL]`, and the cursor block, the engine can optionally substitute bespoke high-resolution vector SVG icons.
+3. **Strict Metric Parity**: Whether using the authentic bitmap or a vector asset, the advance width reported to the script engine by `SierraFont.getCharWidth(c)` must match the allocated advance in the layout, guaranteeing that window borders, buttons, and adjacent text never clip or reflow unexpectedly.
+
 ---
 
 ## 4. How High-Res Metric Substitution Works
@@ -179,18 +202,22 @@ Because the SCI VM queries font metrics dynamically, we can feed the substituted
    - The overlay pass renders the text using Flutter's `TextPainter` with anti-aliasing directly at native device/Retina resolution.
    - Because the window boundary was computed from the vector font's own metrics, the text fits the box with mathematical precision: **no clipped buttons, no text spilling outside borders, and no unintended line breaks**.
 
-### 4.2 Formatting Code Tokenization (`TextSpan` Tree)
+### 4.2 Formatting Code Tokenization & Inline Glyphs (`InlineSpan` Tree)
 
-When drawing text containing `|c` or `|f` codes, the renderer parses the string into a Flutter `TextSpan` tree:
+When drawing text containing `|c` or `|f` codes, or strings embedding proprietary Sierra symbols, the renderer parses the string into a Flutter `InlineSpan` tree:
 
 ```dart
-TextSpan parseSciFormattedText(String rawText, int defaultColor, int defaultFontId) {
-  // Tokenize by '|' codes
-  // |c<n>| -> Color(EgaColors.palette[n])
-  // |c|   -> restore defaultColor
-  // |f0|  -> Font 0 family
-  // |f1|  -> Font 1 family
-  // Returns structured TextSpan with mixed styles
+InlineSpan parseSciFormattedText(String rawText, int defaultColor, int defaultFontId) {
+  // 1. Tokenize by '|' formatting codes:
+  //    |c<n>| -> Color(EgaColors.palette[n])
+  //    |c|    -> restore defaultColor
+  //    |f0|   -> Font 0 vector family
+  //    |f1|   -> Font 1 vector family
+  // 2. Intercept proprietary non-CP437 symbols (Sierra logo, [ALT], [CTRL], cursor):
+  //    -> Embed WidgetSpan / inline custom graphic with matching advance width
+  // 3. Standard text:
+  //    -> TextSpan with anti-aliased vector typography
+  // Returns structured InlineSpan (TextSpan / WidgetSpan) tree
 }
 ```
 
