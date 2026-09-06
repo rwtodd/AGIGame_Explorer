@@ -191,9 +191,9 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 | 3 | SCI pic interpreter + Pic Browser | **Done.** Three 320×200 maps, dither / undithered, vector replay. |
 | 4 | SCI view parser + atlas + View Browser | **Done.** `kViewEga`, `SierraView`, atlas packs native pixels, `pixelScaleX` 1. |
 | 5 | FONT parser + Font Browser | **Done.** Authentic 1-bit glyphs, PQ2 SYSFONT/USERFONT in workbench. |
-| 6 | CURSOR parser + Cursor Browser | **Next.** 68-byte `CURSOR`; not the playfield pointer yet. |
+| 6 | CURSOR parser + Cursor Browser | **Done.** 68-byte `CURSOR` (type 8), `SierraCursor` domain interface, workbench Cursor Browser with live sandbox. |
 | 7 | Launcher detection + workbench | **Done.** Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
-| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | After 5–6. Actor `scaleX` / displacement; overlay pass (no visual burn-in). |
+| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Next.** Actor `scaleX` / displacement; overlay pass (no visual burn-in). |
 | 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | After 8. PQ2 title / boot. Session facade lands here, not earlier. |
 | 10 | Kernel Animate + ego motion | After 9. First walkable PQ2 room. |
 | 11 | QFG2 `kCompLZW1` + SCI1-EGA view mapping | After PQ2 rooms look right. |

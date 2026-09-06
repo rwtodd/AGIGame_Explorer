@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
+import 'package:flutter_agigame/ui/screens/browsers/cursor_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/launcher_screen.dart';
 
@@ -93,5 +94,37 @@ void main() {
     expect(find.text('FONT 0'), findsOneWidget);
     expect(find.text('SYSFONT / Chicago 12'), findsWidgets);
     expect(find.text('GLYPH INSPECTION #65 (0x41) \'A\''), findsOneWidget);
+  });
+
+  testWidgets('LauncherScreen navigates to CursorBrowserScreen when CURSOR Sprites is tapped', (tester) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final container = ProviderContainer();
+    final notifier = container.read(launcherProvider.notifier);
+
+    await notifier.scanDirectory('reference_games/police-quest-2');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: LauncherScreen(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Tap on CURSOR Sprites tile
+    await tester.tap(find.text('CURSOR Sprites'));
+    await tester.pumpAndSettle();
+
+    // Verify CursorBrowserScreen is displayed
+    expect(find.byType(CursorBrowserScreen), findsOneWidget);
+    expect(find.text('CURSOR 999'), findsOneWidget);
+    expect(find.text('Arrow Pointer'), findsWidgets);
+    expect(find.text('AVAILABLE CURSORS (2)'), findsOneWidget);
   });
 }

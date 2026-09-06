@@ -6,6 +6,7 @@ import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/providers/settings_provider.dart';
+import 'package:flutter_agigame/ui/screens/browsers/cursor_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/font_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/objects_browser_screen.dart';
@@ -629,6 +630,13 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                             (info.resourceCounts['CURSOR Sprites'] ?? 0).toString(),
                             Icons.mouse,
                             AgiTheme.egaWhite,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const CursorBrowserScreen(),
+                                ),
+                              );
+                            },
                           ),
                           _buildMetricTile(
                             'PATCH Driver Fixes',
