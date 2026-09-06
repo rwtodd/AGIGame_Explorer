@@ -2,6 +2,8 @@
 
 Nits noticed while landing pictures, then views. None of these block the next resource type. Do **not** start another pic-cleanup pass before fonts/cursors unless a bug forces it.
 
+Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–4 + launcher done; FONT parser next).
+
 ## Pictures / raster
 
 - **Redundant undithered palettes.** `SciPic._unditheredPacked` and `SciPicCanvas.unditheredPalette256` are the same 256-entry blended EGA table. Collapse to one shared constant (on `SciPic` or a tiny dither helper) so canvas/slice/flat decode cannot drift.

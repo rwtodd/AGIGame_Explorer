@@ -4,8 +4,15 @@ How text, fonts, and dialogs work in Sierra 16-color SCI (SCI0 / SCI01 / SCI1-EG
 
 Companion architecture docs:
 - [sci0_graphics_and_priority.md](sci0_graphics_and_priority.md) — 16-layer slicing, window overlay pass, custom cursors
-- [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) — dual-engine structure and roadmap
+- [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) — dual-engine structure and roadmap (§8 status)
 - [text_and_picture_compositing_architecture.md](text_and_picture_compositing_architecture.md) — AGI fixed-cell text interleaving
+
+**Implementation order (do not collapse these):**
+
+1. **FONT parser + Font Browser** — authentic 1-bit glyphs, PQ2 `SYSFONT` / `USERFONT` in the workbench. Same pattern as pics/views. No overlay, no vector substitution.
+2. **Window overlay pass** — compositor stage (`PlayfieldPainter`). Emulate `SaveBits`/`RestoreBits` as overlay state, never burn into the visual buffer.
+3. **Kernel `TextWidth` / `GetLongest`** — VM stage. Scripts size windows from font metrics.
+4. **High-res Font 0/1 substitution** — video setting, only after (3). Fonts ≥ 2 stay bitmap forever.
 
 ---
 

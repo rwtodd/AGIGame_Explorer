@@ -5,8 +5,9 @@ Local, gitignored material for implementing Sierra SCI0 / SCI01 / SCI1-EGA suppo
 Companion architecture docs:
 
 - [sci0_graphics_and_priority.md](sci0_graphics_and_priority.md) — does 16-layer slicing still work?
-- [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) — how AGI and SCI share graphics without sharing a VM
+- [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) — how AGI and SCI share graphics without sharing a VM (roadmap status in §8)
 - [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md) — font resources, selective hi-res typography, and layout metrics
+- [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md) — leftover pic/view nits; do not block fonts
 
 ## What was pulled
 

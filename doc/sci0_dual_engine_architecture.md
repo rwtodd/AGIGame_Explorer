@@ -4,7 +4,10 @@ How this Flutter app should grow from "AGI interpreter + workbench" into "Sierra
 
 Graphics details: [sci0_graphics_and_priority.md](sci0_graphics_and_priority.md).  
 Font & typography architecture: [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md).  
-References: [sci0_reference_index.md](sci0_reference_index.md).
+References: [sci0_reference_index.md](sci0_reference_index.md).  
+Leftover nits (do not block the next resource type): [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
+
+**Progress (branch `sci0`):** stages 1–4 and launcher detection are done. Next is FONT (parser + Font Browser), then CURSOR, then compositor decoupling. See [§8](#8-roadmap-status-branch-sci0).
 
 ## 1. Decision summary
 
@@ -30,8 +33,8 @@ References: [sci0_reference_index.md](sci0_reference_index.md).
 | `PictureSlice` | 320×200 RGBA GPU layer + `toUiImage()` | Identical |
 | `PictureSlicer` | Slices visual + priority into 16 RGBA maps | Parameterized: `scanControlLines: false`, `horizontalDouble: false` |
 | Impeller compositor | 16 bands, actors bucketed by priority, Y-sort inside a band | Identical algorithm; SCI skips AGI's control-line scan |
-| `PlayfieldActorSprite` | Actor sprite descriptor (`AgiActorSprite`) | Generalize for `scaleX: 1.0`, `displaceX`/`displaceY`, and elevation `z` |
-| `ViewTextureAtlas` | Pack cels, draw subrects, mirror via negative scaleX | Same; SCI scaleX is ±1 not ±2 |
+| `PlayfieldActorSprite` | Still `AgiActorSprite` with hardcoded `scaleX: 2.0` | Stage 8: `SierraView.pixelScaleX` (AGI 2 / SCI 1), `displaceX`/`displaceY`, elevation `z` |
+| `ViewTextureAtlas` | Packs `SierraView` cels, shared rects for mirrors | Done; playfield draw still passes AGI `scaleX: 2.0` |
 | Custom mouse cursor | Not in AGI (keyboard only) | Hide OS cursor; render 16×16 `CURSOR` or cel sprite on canvas overlay |
 | CRT shader, 4:3, integer scale, pixel grid | `CrtShaderLoader`, `AgiDisplaySettings` | Same 320×200 viewport; add `sciEnableDithering` toggle |
 | Audio sinks | macOS AudioQueue, Windows waveOut | Same PCM out; shared by Tandy, OPL3, and Munt synthesizers |
@@ -68,16 +71,17 @@ Forcing a common "Sierra VM" would be a lie and would slow both engines down.
 ```
 lib/
   core/            EGA palette, DisplayProfile, errors, shared helpers
-  graphics/        NEW home for PictureSlice, slicer, compositor, atlas, CRT
+  graphics/        NOT CREATED — extract in place; no big-bang move
   audio/           shared sinks; agi_sound_player stays AGI-specific
   ui/              launcher, playfield, dialogs; browsers keyed by engine
-  agi/             (later) today's loader / logic / picture / engine / motion
-  sci/             NEW, future PRs
+  agi/             NOT CREATED — AGI stays in lib/loader, lib/logic, lib/engine, lib/picture
+  sci/             loader/, picture/, view/  (font/, cursor/, engine/ still to come)
+  domain/          SierraPicture, SierraView  (shared interfaces; Agi* / Sci* implement)
 ```
 
-**This planning phase does not move files.** AGI stays where it is (`lib/loader`, `lib/logic`, `lib/engine`, `lib/picture`, …) until a SCI feature actually needs the extracted type. When that happens, move the type and leave a thin export or updated import — do not rename every `Agi*` class in the same PR.
+AGI stays where it is until a SCI feature actually needs the extracted type. When that happens, introduce an interface in place (`SierraPicture`, `SierraView`, `DisplayProfile`) — do not rename every `Agi*` class in the same PR, and do not invent `lib/graphics/` as a move-everything PR. That approach is what landed pics and views.
 
-### DisplayProfile (the one extraction worth doing first)
+### DisplayProfile (done — the one extraction that had to go first)
 
 `AgiDisplay` is hardcoded 160 native + 2× (`lib/core/constants/ega_colors.dart`). Introduce a small immutable profile:
 
@@ -103,7 +107,7 @@ class DisplayProfile {
 
 `PictureSlicer.slice` takes `DisplayProfile` (or `horizontalDouble` and `scanControlLines`) instead of hardcoding `AgiDisplay` constants and downward column scans. AGI tests must stay pixel-identical.
 
-## 4. Session facade (later, small)
+## 4. Session facade (still later — when SCI can tick a room)
 
 Today `GameScreen` / `LauncherScreen` take `AgiGameEngine` and `AgiResourceLoader` concretely. When SCI can boot a room, introduce a narrow interface the UI already almost uses:
 
@@ -128,76 +132,95 @@ SCI dialogs, message boxes, and text controls (`kNewWindow`, `kDrawControl`) are
 
 Do **not** put kernel/VM types on this interface.
 
-## 5. Launcher detection
+## 5. Launcher detection — done
 
-`OnDiskMetaData.fromDirectory` currently throws if it cannot find AGI files. Extend detection:
-
-1. If `RESOURCE.MAP` exists (case-insensitive) → SCI. Read map enough to count views/pics/scripts; show "SCI0" / "SCI1 EGA" once version heuristics exist.
-2. Else existing AGI path (`AGIDATA.OVL`, `LOGDIR`, or `*DIR`).
-3. Else error: "Not an AGI or SCI game directory."
-
-Workbench buttons:
+`LauncherNotifier.scanDirectory` forks on `RESOURCE.MAP` (case-insensitive) vs AGI (`AGIDATA.OVL` / `*DIR`). SCI shows resource counts and opens Pic / View browsers. Remaining tiles (Font, Cursor, Sound, Text, Vocab, Script) get `onTap` when that parser exists — not a separate launcher PR.
 
 | AGI | SCI0 |
 |---|---|
 | Logic, Picture, View, Sound, Objects, Words | Script, Picture, View, Sound, Text, Vocab, Font, Cursor |
 
-Picture and View browsers should be the first SCI UI: they prove the shared compositor. Script disassembly can wait for the VM.
+Script disassembly still waits for the VM.
 
-## 6. SCI module sketch (future, not this phase)
+## 6. SCI module sketch
+
+Domain types live next to their parser (same as pictures/views), not in a separate `lib/sci/domain/`. Shared interfaces live in `lib/domain/`.
 
 ```
 lib/sci/
-  loader/     resource_map.dart, volume.dart, decompressor_lzw.dart, decompressor_huffman.dart
-  picture/    sci_pic_interpreter.dart, dither.dart
-  view/       sci_view_parser.dart
-  font/       sci_font_parser.dart
-  cursor/     sci_cursor_parser.dart
-  domain/     sci_pic.dart (visual + priority + control), sci_view.dart, sci_font.dart, sci_cursor.dart
-  engine/     vm, kernel, object heap     // last
-  parser/     vocab, said
-  sound/      sci_sound_sequencer.dart, tandy_driver.dart, opl3_driver.dart, munt_mt32_driver.dart
+  loader/     DONE  resource_map, volume, decompressor_lzw, decompressor_huffman
+  picture/    DONE  sci_pic, sci_pic_canvas, interpreter, step interpreter
+  view/       DONE  sci_view, sci_view_parser (kViewEga)
+  font/       NEXT  sci_font_parser + Font Browser
+  cursor/     NEXT  sci_cursor_parser + Cursor Browser
+  engine/     LATER vm, kernel, object heap
+  parser/     LATER vocab, said
+  sound/      LATER sequencer, tandy, opl3, munt
 ```
 
-`SciPic` holds three `Uint8List`s plus the dithered visual used for slicing. After slice, it can expose the same `Map<int, PictureSlice>` AGI already hands the painter.
+`SciPic` holds three `Uint8List`s plus the dithered visual used for slicing, and exposes the same `Map<int, PictureSlice>` the painter already consumes.
 
 ## 7. Hard couplings to loosen only when SCI needs them
 
-Documented so a later PR does not have to rediscover them:
-
-| Coupling | File | SCI impact |
+| Coupling | File | Status |
 |---|---|---|
-| `AgiDisplay.nativeWidth = 160` | `lib/core/constants/ega_colors.dart` | Slicer, priority buffer, pens all import this |
-| `PriorityBuffer` 160×168 + control-in-band | `lib/domain/priority_buffer.dart` | SCI needs a 320×200 priority **and** a separate control buffer |
-| `PictureSlicer` doubles X + column scans | `lib/picture/picture_slicer.dart` | Parameterize: `horizontalDouble: false`, `scanControlLines: false` |
-| `AgiPic` owns visual + one priority + slices | `lib/domain/picture.dart` | SCI pic is three maps + slices |
-| `AgiViewCel` 8-bit dims, AGI RLE | `lib/domain/agi_view.dart` | SCI 16-bit dims, inverted nibble RLE — new parser, same atlas entry |
-| `AgiActorSprite` 160-wide, 2× scale | `lib/ui/widgets/agi_picture_canvas.dart` | Generalize to `PlayfieldActorSprite` with scaleX 1.0, `displaceX`/`displaceY`, and `z` elevation |
-| `AgiPicturePainter` imports `AgiPic` / `PriorityBuffer` | `lib/ui/widgets/agi_picture_canvas.dart` | Decouple to `PlayfieldPainter` depending on slices + overlay pass + diagnostic images |
-| Dialog boxes burn into visual buffer | `lib/ui/screens/game/game_screen.dart` | Render active windows as an overlay pass on top of slices, avoiding 16-slice reslicing |
-| In-game fonts assume 8×8 monospace | `lib/ui/widgets/agi_picture_canvas.dart` | SCI scripts calculate window sizes via `TextWidth`; render native `FONT` glyphs on overlay |
-| No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | Hide OS cursor on viewport hover; render 16×16 `CURSOR` or cel sprite on canvas overlay |
-| GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | Session facade |
-| `AgiResourceLoader.fromDirectory` | `lib/loader/resource_loader.dart` | Detection fork in launcher, not inside this class |
-| Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | Add `sciEnableDithering` toggle in video settings for undithered 40-color display |
+| `AgiDisplay.nativeWidth = 160` | `lib/core/constants/ega_colors.dart` | **Loosened.** `DisplayProfile` parameterizes slicer/pics. AGI pens still import `AgiDisplay`. |
+| `PriorityBuffer` 160×168 + control-in-band | `lib/domain/priority_buffer.dart` | **SCI side done.** `SciPic` has separate visual / priority / control. AGI still packs control into priority. |
+| `PictureSlicer` doubles X + column scans | `lib/picture/picture_slicer.dart` | **Done.** `horizontalDouble` / `scanControlLines` via `DisplayProfile`. |
+| `AgiPic` owns visual + one priority + slices | `lib/domain/picture.dart` | **Loosened.** `SierraPicture`; `SciPic` is three maps + slices. |
+| `AgiViewCel` 8-bit dims, AGI RLE | `lib/domain/agi_view.dart` | **Loosened.** `SierraView`; SCI parser is inverted-nibble / 16-bit. Atlas packs both. |
+| `AgiActorSprite` 160-wide, 2× scale | `lib/ui/widgets/agi_picture_canvas.dart` | **Still coupled.** Stage 8: `PlayfieldActorSprite` + `pixelScaleX`. |
+| `AgiPicturePainter` name / AGI types | `lib/ui/widgets/agi_picture_canvas.dart` | **Partial.** Already paints `SierraPicture`. Rename + overlay pass in stage 8. |
+| Dialog boxes burn into visual buffer | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Overlay pass in stage 8; needs FONT metrics (stage 5 parser, kernel later). |
+| In-game fonts assume 8×8 monospace | `lib/ui/widgets/agi_picture_canvas.dart` | **Still coupled.** Stage 5 parses `FONT`; overlay draw is stage 8; `TextWidth` is VM. |
+| No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | **Still coupled.** Stage 6 parses `CURSOR`; canvas pointer is playfield / stage 8. |
+| GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Session facade when SCI can tick a room (stage 9+). |
+| `AgiResourceLoader.fromDirectory` | `lib/loader/resource_loader.dart` | **Done.** Detection fork is in the launcher, not this class. |
+| Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Partial.** Pic Browser has undithered toggle. Global `sciEnableDithering` waits for SCI playfield. |
 
-## 8. Suggested PR order after this planning phase
+## 8. Roadmap status (branch `sci0`)
 
-Each PR independently reviewable; AGI tests green throughout.
+Pattern that has worked and should continue: **parse the resource, put it behind a shared interface, open a diagnostic browser.** Do not wait for the VM. Do not rename every `Agi*` class. Extract (`DisplayProfile`, `SierraPicture`, `SierraView`) when the SCI feature needs it.
 
-1. **`DisplayProfile` + parameterized slicer** — pure-Z direct lookup (`scanControlLines: false`), 1:1 X (`horizontalDouble: false`). AGI behavior unchanged (golden tests).
-2. **SCI `RESOURCE.MAP` + decompress** — `kCompLZW` and `kCompHuffman` with unit tests against `reference_games/police-quest-2/` (read-only). No UI.
-3. **SCI pic interpreter & Pic Browser** — three 320×200 buffers, dither palettes (`0xFE 0x01`), port-relative coords, authentic EGA dither + undithered (40-color) mode, Pic Browser with Visual / Priority / Control / Undithered toggles.
-4. **SCI view parser + atlas (scaleX 1)** — `kViewEga` (low-nibble color, 16-bit dims, displacement), `ViewTextureAtlas` (`scaleX: 1.0`), View Browser.
-5. **SCI font parser & window overlay** — `FONT` resources, window port renderer (overlay pass on top of slices, emulating `SaveBits`/`RestoreBits` without reslicing).
-6. **SCI custom cursor parser & canvas pointer** — `CURSOR` (68-byte) resources, canvas mouse overlay.
-7. **Launcher detection & workbench integration** — detect `RESOURCE.MAP` vs AGI, open engine-specific diagnostic browsers.
-8. **Compositor decoupling & session facade** — extract `AgiPicturePainter` into `PlayfieldPainter` and `PlayfieldActorSprite`.
-9. **SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs** — PQ2 title/boot.
-10. **Kernel Animate + ego motion** — first walkable PQ2 room.
-11. **QFG2 compression (`kCompLZW1`) and SCI1-EGA view mapping** — only after PQ2 rooms look right.
-12. **Sound synthesis: Tandy 3-Voice & OPL3 (AdLib FM)** — multi-track MIDI playback through existing audio sinks.
-13. **Sound synthesis: Roland MT-32 via Munt (`libmt32emu`)** — FFI native asset binding for definitive SCI0 audio.
+Each remaining stage independently reviewable; AGI tests green throughout. SCI-only work is `flutter test test/sci/`. Shared graphics (atlas, compositor, slicer) runs both suites.
+
+| # | Stage | Status |
+|---|---|---|
+| 1 | `DisplayProfile` + parameterized slicer | **Done.** Pure-Z / 1:1 X via profile; AGI goldens unchanged. |
+| 2 | SCI `RESOURCE.MAP` + LZW / Huffman | **Done.** PQ2 volumes in `lib/sci/loader/`. |
+| 3 | SCI pic interpreter + Pic Browser | **Done.** Three 320×200 maps, dither / undithered, vector replay. |
+| 4 | SCI view parser + atlas + View Browser | **Done.** `kViewEga`, `SierraView`, atlas packs native pixels, `pixelScaleX` 1. |
+| 5 | FONT parser + Font Browser | **Next.** Authentic 1-bit glyphs in a browser. Not window overlay (see below). |
+| 6 | CURSOR parser + Cursor Browser | After fonts. 68-byte `CURSOR`; not the playfield pointer yet. |
+| 7 | Launcher detection + workbench | **Done.** Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
+| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | After 5–6. Actor `scaleX` / displacement; overlay pass (no visual burn-in). |
+| 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | After 8. PQ2 title / boot. Session facade lands here, not earlier. |
+| 10 | Kernel Animate + ego motion | After 9. First walkable PQ2 room. |
+| 11 | QFG2 `kCompLZW1` + SCI1-EGA view mapping | After PQ2 rooms look right. |
+| 12 | Tandy 3-Voice & OPL3 (AdLib FM) | After a walkable room. Existing PCM sinks. |
+| 13 | Roland MT-32 via Munt (`libmt32emu`) | Last. FFI + user-provided ROMs. |
+
+### Approach notes on what remains
+
+**Still agree**
+
+- Sibling engines, shared graphics, no shared VM.
+- Leave AGI files in place. No `lib/graphics/` or `lib/agi/` move-everything PR.
+- Workbench-first for each resource type (pics, views, then fonts, then cursors).
+- SCI windows stay an **overlay pass**, never burned into the visual buffer (that would reslice all 16 layers on every keystroke).
+- High-res Font 0/1 substitution needs kernel `TextWidth` / `GetLongest`. The Font Browser renders authentic bitmaps. Vector substitution is a video setting once scripts query metrics — see [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md).
+- Session facade (`SierraGameSession`) waits until SCI can tick a room. Browsers already fork on `launcherState.isSci`.
+- QFG2 compression / EGA mapping after PQ2. VGA remains out of scope.
+- Sound after a walkable room; Tandy reuses `PcmSynthesizer`, then OPL3, then Munt.
+
+**Adjusted (learned from pics/views)**
+
+- Old stage 7 (launcher) landed during pics, not after cursors. Keep that: each new parser wires its launcher tile.
+- Original stage 5 bundled `FONT` parsing with `SaveBits`/`RestoreBits` overlay. That would stall fonts behind a painter rename. **Split:** stage 5 is parser + Font Browser; overlay is stage 8 (it needs `PlayfieldPainter`, not the FONT file format).
+- Same split for cursors: parser + Cursor Browser now; hide-OS-cursor + canvas pointer with the playfield / stage 8.
+- `AgiActorSprite.scaleX: 2.0` and the `AgiPicturePainter` rename wait for stage 8. Atlas already packs SCI cels.
+- Global `sciEnableDithering` in `AvSettingsDialog` waits for an SCI playfield. Pic Browser already has the undithered toggle.
+- Leftover pic nits (duplicate undithered palettes, duplicated opcode walkers, `FE 08`) stay in [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). Do not insert a cleanup PR before fonts.
 
 ## 8.1 Sound architecture & synthesizer roadmap
 
@@ -229,22 +252,22 @@ Segregate suites by directory so SCI work does not wait on hundreds of AGI room 
 | Change | Command |
 |---|---|
 | SCI-only (`lib/sci/`, `test/sci/`) | `flutter test test/sci/` |
-| AGI-only | `flutter test` (existing tree; `test/sci/` is empty or skipped by path) |
+| AGI-only | `flutter test` excluding `test/sci/` (path-scoped, not a tag) |
 | Shared graphics (`DisplayProfile`, slicer, compositor, atlas, CRT, `EgaColors`) | **both** `flutter test test/sci/` and full AGI `flutter test` |
 
 Placement:
 
 - All new SCI tests go in `test/sci/` from the first file. Never next to `kq2_*` / `sq2_*` under `test/engine/` or `test/loader/`.
 - Shared slicer/atlas/compositor tests that feed both 160×168 AGI and 320×200 SCI fixtures belong in `test/graphics/` (or remain in `test/picture/` and count as shared).
-- SCI loader/pic/view fixtures come from PQ2 (and later LSL2 source-tree views). Do not check game volumes into git; tests read from `reference_games/police-quest-2/` or an env path, same pattern as AGI.
+- SCI loader/pic/view/font fixtures come from PQ2 (and later LSL2 source-tree views). Do not check game volumes into git; tests read from `reference_games/police-quest-2/` or an env path, same pattern as AGI.
 - Graphics goldens: compare sliced PNG dumps against ScummVM / pic-browser output for a handful of PQ2 rooms (day-room, interior, a pic with dither).
 
 This is also recorded in `AGENTS.md` §3 so agents do not default to a full-suite run on every SCI PR.
 
-## 10. What this planning phase does *not* do
+## 10. Still out of scope
 
-- No SCI interpreter, no `lib/sci/` code, no AGI folder move.
-- No `reference_docs/` in git.
-- No SCI1 VGA.
-
-The committed output of this phase is this document, the graphics note, the reference index, and the `AGENTS.md` pointer at the harvested trees.
+- No `reference_docs/` in git (harvest stays gitignored).
+- No SCI1 VGA (bitmap pics, 256-color palettes, point-and-click).
+- No `lib/agi/` or `lib/graphics/` folder shuffle.
+- No shared "Sierra VM."
+- No QFG2 / SCI1-EGA mapping until PQ2 rooms look right.
