@@ -954,7 +954,8 @@ class PlayfieldPainter extends CustomPainter {
         oldDelegate.displayProfile != displayProfile ||
         oldDelegate.showMouseCursor != showMouseCursor ||
         oldDelegate.mouseCursor != mouseCursor ||
-        oldDelegate.mouseCursorPosition != mouseCursorPosition) {
+        (showMouseCursor &&
+            oldDelegate.mouseCursorPosition != mouseCursorPosition)) {
       return true;
     }
 

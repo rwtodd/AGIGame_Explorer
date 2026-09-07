@@ -85,7 +85,7 @@ void main() {
         fgColor: const Color(0xFFFF0000),
         bgColor: const Color(0xFF000000),
       );
-      expect(rgba.length, (4 + 3) * 8 * 4);
+      expect(rgba.length, (4 + 3) * 4 * 4); // ink height is max glyph height (4), not fontHeight (8)
       // Pixel (0, 0) should be Red (char 0, (0,0) is set)
       expect(rgba[0], 255);
       expect(rgba[1], 0);
@@ -161,6 +161,33 @@ void main() {
         if (greyed[i + 3] > 0) greyedSetCount++;
       }
       expect(greyedSetCount, 8);
+    });
+
+    test('renderTextToRgba keeps glyphs taller than fontHeight', () {
+      // fontHeight 2, one 4x4 solid glyph — ScummVM draws the full bitmap.
+      final bytes = Uint8List(14);
+      final bd = ByteData.sublistView(bytes);
+      bd.setUint16(0, 0, Endian.little);
+      bd.setUint16(2, 1, Endian.little);
+      bd.setUint16(4, 2, Endian.little);
+      bd.setUint16(6, 8, Endian.little);
+      bytes[8] = 4;
+      bytes[9] = 4;
+      bytes[10] = 0xF0;
+      bytes[11] = 0xF0;
+      bytes[12] = 0xF0;
+      bytes[13] = 0xF0;
+
+      final font = SciFontParser.parse(bytes);
+      expect(font.fontHeight, 2);
+      expect(font.getCharHeight(0), 4);
+      expect(font.measureTextHeight(String.fromCharCode(0)), 2);
+      expect(font.measureRenderedTextHeight(String.fromCharCode(0)), 4);
+
+      final rgba = font.renderTextToRgba(String.fromCharCode(0));
+      expect(rgba.length, 4 * 4 * 4);
+      // Bottom row of the glyph (y=3) is ink, not clipped.
+      expect(rgba[(3 * 4 + 0) * 4 + 3], 255);
     });
 
     test('resolves standard font names and descriptions', () {

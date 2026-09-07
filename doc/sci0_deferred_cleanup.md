@@ -1,25 +1,45 @@
 # SCI0 deferred cleanup
 
-Nits noticed while landing pictures, then views. None of these block the next resource type. Do **not** start another pic-cleanup pass before fonts/cursors unless a bug forces it.
+Nits noticed while landing pictures, views, fonts, cursors, and the compositor. None of these block stage 9 (VM skeleton). Do **not** start a drive-by cleanup pass unless a bug forces it.
 
-Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–4 + launcher done; FONT parser next).
+Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–8 done; VM next).
 
 ## Pictures / raster
 
 - **Redundant undithered palettes.** `SciPic._unditheredPacked` and `SciPicCanvas.unditheredPalette256` are the same 256-entry blended EGA table. Collapse to one shared constant (on `SciPic` or a tiny dither helper) so canvas/slice/flat decode cannot drift.
 - **Opcode walkers are still duplicated.** Full interpret vs step-decode walk F0–FF separately in both AGI (`PicVectorInterpreter` / `PicStepInterpreter`) and SCI (`SciPicInterpreter` / `SciPicStepInterpreter`). That split is intentional — same canvas, two walkers — and should stay unless a real opcode divergence bug appears.
 - **`FE 08` priority-band tables** are parsed nowhere yet. Needed when actors/Animate exist; ignore until then.
-- **`AgiPicturePainter` name.** Already paints `SierraPicture`. Rename to `PlayfieldPainter` in the compositor-decoupling PR, not as a drive-by.
 - **Pic Browser GPU lifetime.** Decoded `SierraPicture`s stay in `_ownedPics` until the screen disposes. In-place replay mutates one instance (`rasterEpoch`). Do not dispose-on-replace; that was the use-after-dispose crash.
 
-## Views / compositor (after this PR)
+## Views / actors
 
-- **`AgiActorSprite` still hardcodes `scaleX: 2.0`.** Atlas packing is engine-agnostic native pixels; the playfield draw path is not. Generalize to `PlayfieldActorSprite` using `SierraView.pixelScaleX` (AGI 2, SCI 1) plus `displaceX` / `displaceY` / `z` when rooms actually animate.
+- **`PlayfieldActorSprite.scaleX` still defaults to `2.0`.** Atlas packing is native pixels; View Browser uses `SierraView.pixelScaleX`. `GamePlayfieldWidget._buildActorSprites` never passes `view.pixelScaleX`, so an SCI playfield copied from that constructor will draw 2× wide. Construct with `scaleX: view.pixelScaleX.toDouble()`. Keep `2.0` only as an AGI fallback.
 - **`CelImageWidget` is AGI-only** (`scaleX: 2`, `AgiView`). Inventory/object inspection can switch to `SierraView` later.
 - **SCI1 EGA `paletteOffset` 8×16 mapping** (QFG2) is ignored, matching ScummVM’s “only when `SCI_VERSION_1_EGA_ONLY`”. Honor it only after PQ2 rooms look right.
 - **SCI0 early bottom-rect −1** (`_adjustForSci0Early`) is a placement quirk, not a parser issue. PQ2 is SCI0 late.
+
+## Overlay / compositor (pre-VM polish)
+
+- **Title and button chrome still use Courier `TextPainter`.** `SciWindowOverlay` title bar is Courier even when `font` is set. `SciButtonControl` ignores `isPressed` (no invert/inset) and vertically centers with a hardcoded `8.0` instead of `font.fontHeight` (PQ2 FONT 1 is 12px). Line advance in `SciTextControl` is `fontHeight + 2.0` while `measureTextHeight` defaults to `lineSpacing: 1`. Paint titles/buttons with the window’s `SierraFont`; leave `|c`/`|f` and `GetLongest` for the VM.
+- **`sciEnableDithering` is a no-op.** Stored, serialized, and shown in `AvSettingsDialog`, but never read by `SciPic`, Pic Browser, or `PlayfieldPainter`. Architecture §7 currently marks this Done. Either wire it to SCI pic/playfield `unditheredVisual` (and have Pic Browser honor the global default) or stop calling it done. Pic Browser still has its own undithered switch.
+- **Cursor gray mapping keys off `DisplayProfile.isSci`.** `_paintMouseCursor` uses `displayProfile?.isSci` as a stand-in for SCI0 vs SCI1 gray. SCI1 EGA gray should be EGA 7, matching `SierraCursor.toRgba(isSci0: false)`. Drive this from engine version, not `horizontalDouble`.
+- **`DisplayProfile.isAgi` / `isSci` are `horizontalDouble` aliases.** Any future custom profile (e.g. AGI without doubling) will mis-classify. Use an explicit engine flag if these getters keep driving color and layout.
+- **`SciWindowOverlay` has no value `==` / `hashCode`.** The overlay test “equality and hashCode” passes only because both windows are `const` (canonicalized identity). `PlayfieldPainter.shouldRepaint` therefore uses identity; a new equal window object always repaints. Either implement value equality or drop the test. Add one compositor assertion that painting windows does not bump `rasterEpoch` / slice GPU images, and that the cursor origin is `position - hotspot`.
+- **Cache cursor/glyph `ui.Image`s** instead of 1×1 `drawRect` blits (same pattern as slices/atlas). Do **not** allocate GPU images inside `CustomPainter.paint` (that was the `SciTextControl` leak).
+- **Verbose overlay comments.** Class doc retells SaveBits vs overlay; `SciTextControl` had WHAT comments above the glyph loops; window paint numbered “white inset” that is not drawn (both strokes are `penColor`). Drop WHAT / history comments; fix or delete the white-inset claim.
 
 ## Loader / UI leftovers
 
 - **Launcher `copyWith` sentinel** for `sciVolumeManager` is already fixed; keep using `_unset`, never `??`.
 - **VGA-in-EGA views** (`flags == 0x80`) and **SCI1.1 views** (`version == 1`) should keep failing closed in the EGA parser.
+
+## Correctly wait for the VM (stage 9+)
+
+- `SierraGameSession` / `GameScreen(AgiGameEngine)`.
+- SaveBits/RestoreBits as an overlay *stack* (`kNewWindow` / `kDisposeWindow`).
+- Kernel `TextWidth` / `GetLongest`.
+- `|c` / `|f` tokenization.
+- High-res Font 0/1 substitution (video setting; fonts ≥ 2 stay bitmap).
+- SCI playfield `obj.x` mapping vs AGI cell tap mapping.
+- Hit-testing on overlay controls.
+- QFG2 SCI1-EGA gray cursors and view `paletteOffset`.

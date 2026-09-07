@@ -59,6 +59,25 @@ void main() {
       expect(picture, isNotNull);
     });
 
+    test('missing glyphs advance 0, matching measureTextWidth', () {
+      expect(testFont.getCharWidth(200), 0);
+      expect(
+        testFont.measureTextWidth('A${String.fromCharCode(200)}A'),
+        testFont.measureTextWidth('AA'),
+      );
+
+      final control = SciTextControl(
+        rect: const Rect.fromLTWH(0, 0, 100, 20),
+        text: 'A${String.fromCharCode(200)}A',
+        font: testFont,
+        align: TextAlign.left,
+      );
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      control.paint(canvas, windowTopLeft: Offset.zero);
+      expect(recorder.endRecording(), isNotNull);
+    });
+
     test('SciButtonControl pressed vs unpressed state and focus', () {
       final buttonNormal = SciButtonControl(
         rect: const Rect.fromLTWH(20, 40, 60, 16),

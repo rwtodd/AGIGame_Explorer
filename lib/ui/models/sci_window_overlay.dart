@@ -48,62 +48,39 @@ class SciTextControl extends SciControlItem {
     final drawPos = windowTopLeft + rect.topLeft;
 
     if (effectiveFont != null) {
-      // Use authentic Sierra bitmap font rendering
       final lines = text.split('\n');
       var yOffset = drawPos.dy;
+      final glyphPaint = Paint()
+        ..color = EgaColors.palette[fg.clamp(0, 15)]
+        ..style = PaintingStyle.fill;
 
       for (final line in lines) {
         if (line.isNotEmpty) {
           final lineWidth = effectiveFont.measureTextWidth(line);
-          double xOffset = drawPos.dx;
+          var xOffset = drawPos.dx;
           if (align == TextAlign.center) {
             xOffset += (rect.width - lineWidth) / 2.0;
           } else if (align == TextAlign.right) {
             xOffset += rect.width - lineWidth;
           }
 
-          final rgba = effectiveFont.renderTextToRgba(
-            line,
-            fgColor: EgaColors.palette[fg.clamp(0, 15)],
-          );
-
-          final outWidth = lineWidth;
-          final outHeight = effectiveFont.fontHeight;
-
-          ui.decodeImageFromPixels(
-            rgba,
-            outWidth,
-            outHeight,
-            ui.PixelFormat.rgba8888,
-            (img) {
-              // Synchronously drawn if already resolved or cached
-            },
-          );
-
-          // Render glyphs directly using individual character offsets for immediate painting
           var currentX = xOffset;
           for (var i = 0; i < line.length; i++) {
-            final charCode = line.codeUnitAt(i);
-            final glyph = effectiveFont.getGlyph(charCode);
-            if (glyph != null) {
-              final glyphPaint = Paint()
-                ..color = EgaColors.palette[fg.clamp(0, 15)]
-                ..style = PaintingStyle.fill;
-
-              for (var gy = 0; gy < glyph.height; gy++) {
-                for (var gx = 0; gx < glyph.width; gx++) {
-                  if (glyph.isPixelSet(gx, gy)) {
-                    canvas.drawRect(
-                      Rect.fromLTWH(currentX + gx, yOffset + gy, 1.0, 1.0),
-                      glyphPaint,
-                    );
-                  }
+            final glyph = effectiveFont.getGlyph(line.codeUnitAt(i));
+            if (glyph == null) {
+              continue;
+            }
+            for (var gy = 0; gy < glyph.height; gy++) {
+              for (var gx = 0; gx < glyph.width; gx++) {
+                if (glyph.isPixelSet(gx, gy)) {
+                  canvas.drawRect(
+                    Rect.fromLTWH(currentX + gx, yOffset + gy, 1.0, 1.0),
+                    glyphPaint,
+                  );
                 }
               }
-              currentX += glyph.width;
-            } else {
-              currentX += 4.0; // fallback width for missing glyph
             }
+            currentX += glyph.width;
           }
         }
         yOffset += effectiveFont.fontHeight + 2.0;

@@ -159,6 +159,19 @@ void main() {
         showMouseCursor: true,
       );
       expect(basePainter.shouldRepaint(diffProfilePainter), isTrue);
+
+      // Mouse motion must not full-repaint when the cursor overlay is off (AGI play).
+      final agiBase = PlayfieldPainter(
+        displayProfile: DisplayProfile.agi,
+        mouseCursorPosition: const Offset(10, 10),
+        showMouseCursor: false,
+      );
+      final agiMoved = PlayfieldPainter(
+        displayProfile: DisplayProfile.agi,
+        mouseCursorPosition: const Offset(200, 150),
+        showMouseCursor: false,
+      );
+      expect(agiBase.shouldRepaint(agiMoved), isFalse);
     });
   });
 }

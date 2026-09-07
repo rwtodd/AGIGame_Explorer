@@ -104,7 +104,9 @@ void main() {
       expect(width, lessThan(150));
 
       final rgba = font.renderTextToRgba(message);
-      expect(rgba.length, width * font.fontHeight * 4);
+      final renderHeight = font.measureRenderedTextHeight(message);
+      expect(renderHeight, greaterThan(font.fontHeight)); // FONT 0 glyphs are 9px, advance is 8
+      expect(rgba.length, width * renderHeight * 4);
 
       // Multi-line text
       const multiLine = 'Lytton Police Department\nOfficer Sonny Bonds';

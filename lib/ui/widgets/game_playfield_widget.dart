@@ -218,18 +218,22 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             child: MouseRegion(
               cursor: widget.showMouseCursor ? SystemMouseCursors.none : MouseCursor.defer,
               onHover: (event) {
+                if (!widget.showMouseCursor) return;
                 if (playfieldWidth > 0 && playfieldHeight > 0) {
                   final normX = event.localPosition.dx / playfieldWidth;
                   final normY = event.localPosition.dy / playfieldHeight;
+                  final next = Offset(
+                    (normX * AgiDisplay.renderedWidth).floorToDouble(),
+                    (normY * AgiDisplay.renderedHeight).floorToDouble(),
+                  );
+                  if (_mousePosition == next) return;
                   setState(() {
-                    _mousePosition = Offset(
-                      normX * AgiDisplay.renderedWidth,
-                      normY * AgiDisplay.renderedHeight,
-                    );
+                    _mousePosition = next;
                   });
                 }
               },
               onExit: (_) {
+                if (!widget.showMouseCursor) return;
                 if (_mousePosition != null) {
                   setState(() {
                     _mousePosition = null;
@@ -653,7 +657,8 @@ class _GamePlayfieldPainter extends CustomPainter {
         oldDelegate.displayProfile != displayProfile ||
         oldDelegate.showMouseCursor != showMouseCursor ||
         oldDelegate.mouseCursor != mouseCursor ||
-        oldDelegate.mouseCursorPosition != mouseCursorPosition ||
+        (showMouseCursor &&
+            oldDelegate.mouseCursorPosition != mouseCursorPosition) ||
         oldDelegate.sciWindows != sciWindows;
   }
 }

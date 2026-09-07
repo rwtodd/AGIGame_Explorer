@@ -103,10 +103,34 @@ abstract class SierraFont {
   }
 
   /// Measures total height in pixels of a string, taking into account `\n` line breaks.
+  ///
+  /// Uses [fontHeight] as the line advance (kernel `TextWidth` / `GetLongest`
+  /// layout). Glyphs may ink past this; see [measureRenderedTextHeight].
   int measureTextHeight(String text, {int lineSpacing = 1}) {
     if (text.isEmpty) return 0;
     final lines = text.split('\n');
     return lines.length * fontHeight + (lines.length - 1) * lineSpacing;
+  }
+
+  /// Pixel height of [text] as drawn by [renderTextToRgba].
+  ///
+  /// Line advance is still [fontHeight]; this is taller when a glyph's bitmap
+  /// extends past the nominal advance (PQ2 FONT 0: `fontHeight` 8, `'A'` 9).
+  int measureRenderedTextHeight(String text, {int lineSpacing = 1}) {
+    final lines = text.isEmpty ? const [''] : text.split('\n');
+    var y = 0;
+    var bottom = 0;
+    for (final line in lines) {
+      var ink = 0;
+      for (var i = 0; i < line.length; i++) {
+        final h = getCharHeight(line.codeUnitAt(i));
+        if (h > ink) ink = h;
+      }
+      final lineBottom = y + ink;
+      if (lineBottom > bottom) bottom = lineBottom;
+      y += fontHeight + lineSpacing;
+    }
+    return math.max(1, bottom);
   }
 
   /// Renders [text] into a 320-pixel (or fitted) 32-bit RGBA pixel byte array.
@@ -133,7 +157,7 @@ abstract class SierraFont {
     }
 
     final nativeWidth = fitWidth ? math.max(1, maxLineWidth) : 320;
-    final nativeHeight = math.max(1, lines.length * fontHeight + (lines.length - 1) * lineSpacing);
+    final nativeHeight = measureRenderedTextHeight(text, lineSpacing: lineSpacing);
 
     final outWidth = nativeWidth * effectiveScale;
     final outHeight = nativeHeight * effectiveScale;

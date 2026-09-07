@@ -5,7 +5,7 @@ How this Flutter app should grow from "AGI interpreter + workbench" into "Sierra
 Graphics details: [sci0_graphics_and_priority.md](sci0_graphics_and_priority.md).  
 Font & typography architecture: [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md).  
 References: [sci0_reference_index.md](sci0_reference_index.md).  
-Leftover nits (do not block the next resource type): [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
+Leftover nits (do not block the VM): [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
 
 **Progress (branch `sci0`):** stages 1–4 and launcher detection are done. Next is FONT (parser + Font Browser), then CURSOR, then compositor decoupling. See [§8](#8-roadmap-status-branch-sci0).
 
@@ -176,7 +176,7 @@ lib/sci/
 | No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | **Done.** Custom in-game Sierra cursor rendering and mouse tracking in `PlayfieldPainter` and `GamePlayfieldWidget`. |
 | GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Session facade when SCI can tick a room (stage 9+). |
 | `AgiResourceLoader.fromDirectory` | `lib/loader/resource_loader.dart` | **Done.** Detection fork is in the launcher, not this class. |
-| Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Done.** Global `sciEnableDithering` toggle in `AgiDisplaySettings`, `settings_provider`, and video settings tab. |
+| Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Partial.** Toggle exists in settings; nothing reads it yet. See [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). |
 
 ## 8. Roadmap status (branch `sci0`)
 
@@ -218,9 +218,7 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 - Old stage 7 (launcher) landed during pics, not after cursors. Keep that: each new parser wires its launcher tile.
 - Original stage 5 bundled `FONT` parsing with `SaveBits`/`RestoreBits` overlay. That would stall fonts behind a painter rename. **Split:** stage 5 is parser + Font Browser; overlay is stage 8 (it needs `PlayfieldPainter`, not the FONT file format).
 - Same split for cursors: parser + Cursor Browser now; hide-OS-cursor + canvas pointer with the playfield / stage 8.
-- `AgiActorSprite.scaleX: 2.0` and the `AgiPicturePainter` rename wait for stage 8. Atlas already packs SCI cels.
-- Global `sciEnableDithering` in `AvSettingsDialog` waits for an SCI playfield. Pic Browser already has the undithered toggle.
-- Leftover pic nits (duplicate undithered palettes, duplicated opcode walkers, `FE 08`) stay in [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). Do not insert a cleanup PR before fonts.
+- Stage 8 landed `PlayfieldPainter` / overlay / cursor. Leftover compositor polish (Courier titles, unused `isPressed`, `pixelScaleX` on actors, no-op dither toggle) is in [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). Do not insert a cleanup PR before the VM unless a bug forces it.
 
 ## 8.1 Sound architecture & synthesizer roadmap
 
