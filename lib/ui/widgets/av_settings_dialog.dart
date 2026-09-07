@@ -915,6 +915,21 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
         _buildSectionHeader('DEFAULT RENDER MODE'),
         const SizedBox(height: 10),
         _buildRenderModeSelector(display, notifier),
+
+        const SizedBox(height: 20),
+        const Divider(color: AgiTheme.egaBorder),
+        const SizedBox(height: 14),
+        _buildSectionHeader('SIERRA SCI GRAPHICS'),
+        const SizedBox(height: 10),
+        _buildSwitchOption(
+          title: 'SCI0 256-Color Pseudo-Dithering',
+          subtitle: display.sciEnableDithering
+              ? 'Render authentic 4x4 checkerboard EGA dither patterns to simulate 256 colors'
+              : 'Show solid EGA visual fills without dither patterns',
+          value: display.sciEnableDithering,
+          icon: Icons.grain,
+          onChanged: (val) => notifier.updateDisplay(sciEnableDithering: val),
+        ),
       ],
     );
   }

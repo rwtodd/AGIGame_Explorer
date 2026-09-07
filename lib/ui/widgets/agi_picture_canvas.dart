@@ -4,13 +4,16 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
+import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/menu/agi_menu.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
+import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/shaders/crt_shader_loader.dart';
 
 /// Render modes for visualizing AGI and SCI pictures in game and diagnostic views.
@@ -31,8 +34,8 @@ enum AgiPictureRenderMode {
   controlMap,
 }
 
-/// Simple descriptor for an active actor/sprite in the Z-order stack.
-class AgiActorSprite {
+/// Active actor/sprite in the Z-order playfield stack for both AGI and SCI engines.
+class PlayfieldActorSprite {
   final int priority;
   final int baselineY;
   final int objectNumber;
@@ -51,7 +54,23 @@ class AgiActorSprite {
   /// it is omitted from [==] / [hashCode].
   final AtlasCelEntry? celEntry;
 
-  const AgiActorSprite({
+  /// Horizontal scale factor. Defaults to 2.0 for AGI (160 native to 320 rendered) and 1.0 for SCI.
+  final double scaleX;
+
+  /// Vertical scale factor (defaults to 1.0).
+  final double scaleY;
+
+  /// Signed placement displacement offsets from cel origin.
+  /// (AGI is always 0; SCI views define signed displaceX and displaceY).
+  final int displaceX;
+  final int displaceY;
+
+  /// Actor vertical elevation above the floor in SCI.
+  /// Depth sorting uses sortY = baselineY - z, while visual rendering uses
+  /// position + (displaceX, displaceY - z).
+  final int z;
+
+  const PlayfieldActorSprite({
     required this.priority,
     required this.baselineY,
     this.objectNumber = 0,
@@ -63,7 +82,21 @@ class AgiActorSprite {
     this.celNumber = 0,
     this.atlas,
     this.celEntry,
+    this.scaleX = 2.0,
+    this.scaleY = 1.0,
+    this.displaceX = 0,
+    this.displaceY = 0,
+    this.z = 0,
   });
+
+  /// Effective depth sorting baseline Y (accounting for elevation z in SCI).
+  int get sortY => baselineY - z;
+
+  /// Effective visual top-left position on the canvas.
+  Offset get renderPosition => Offset(
+        position.dx + displaceX,
+        position.dy + displaceY - z,
+      );
 
   /// Draws this sprite cel using the texture atlas or direct ui.Image.
   void draw(Canvas canvas, Paint paint) {
@@ -74,28 +107,36 @@ class AgiActorSprite {
         atlas.drawEntry(
           canvas,
           entry,
-          position: position,
-          scaleX: 2.0,
-          scaleY: 1.0,
+          position: renderPosition,
+          scaleX: scaleX,
+          scaleY: scaleY,
           paint: paint,
         );
         return;
       }
     }
     if (image != null) {
-      canvas.drawImage(image!, position, paint);
+      if (scaleX == 1.0 && scaleY == 1.0) {
+        canvas.drawImage(image!, renderPosition, paint);
+      } else {
+        canvas.save();
+        canvas.translate(renderPosition.dx, renderPosition.dy);
+        canvas.scale(scaleX, scaleY);
+        canvas.drawImage(image!, Offset.zero, paint);
+        canvas.restore();
+      }
     }
   }
 
   /// Sierra blit order within a picture-priority band:
   /// static (`stop.update`) sprites first, then sort-Y, then Ego last.
-  static int compareDrawOrder(AgiActorSprite a, AgiActorSprite b) {
+  static int compareDrawOrder(PlayfieldActorSprite a, PlayfieldActorSprite b) {
     final pri = a.priority.compareTo(b.priority);
     if (pri != 0) return pri;
     if (a.isUpdating != b.isUpdating) {
       return a.isUpdating ? 1 : -1;
     }
-    final y = a.baselineY.compareTo(b.baselineY);
+    final y = a.sortY.compareTo(b.sortY);
     if (y != 0) return y;
     if (a.objectNumber == 0) return 1;
     if (b.objectNumber == 0) return -1;
@@ -105,7 +146,7 @@ class AgiActorSprite {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    return other is AgiActorSprite &&
+    return other is PlayfieldActorSprite &&
         other.priority == priority &&
         other.baselineY == baselineY &&
         other.objectNumber == objectNumber &&
@@ -115,7 +156,12 @@ class AgiActorSprite {
         other.viewNumber == viewNumber &&
         other.loopNumber == loopNumber &&
         other.celNumber == celNumber &&
-        other.atlas == atlas;
+        other.atlas == atlas &&
+        other.scaleX == scaleX &&
+        other.scaleY == scaleY &&
+        other.displaceX == displaceX &&
+        other.displaceY == displaceY &&
+        other.z == z;
   }
 
   @override
@@ -130,13 +176,22 @@ class AgiActorSprite {
         loopNumber,
         celNumber,
         atlas,
+        scaleX,
+        scaleY,
+        displaceX,
+        displaceY,
+        z,
       );
 }
 
-/// Impeller-optimized CustomPainter that renders AGI and SCI backgrounds using the Painter's Algorithm across priority slices.
-class AgiPicturePainter extends CustomPainter {
+/// Backwards-compatibility alias for AGI engine code.
+typedef AgiActorSprite = PlayfieldActorSprite;
+
+/// Impeller-optimized CustomPainter that renders AGI and SCI backgrounds using the Painter's Algorithm across priority slices,
+/// interleaved with actors, text, active dialog window overlays, and in-game cursors.
+class PlayfieldPainter extends CustomPainter {
   final SierraPicture? picture;
-  final List<AgiActorSprite> actors;
+  final List<PlayfieldActorSprite> actors;
   final List<AgiDisplayText> displayedTexts;
   final AgiTextScreenBuffer? textScreenBuffer;
   final bool isTextScreen;
@@ -157,7 +212,22 @@ class AgiPicturePainter extends CustomPainter {
   final AgiMenuManager? menuManager;
   final int rasterEpoch;
 
-  AgiPicturePainter({
+  /// Display resolution, viewport, and priority geometry profile.
+  final DisplayProfile? displayProfile;
+
+  /// Top-level SCI Window overlays (dialog boxes, message boxes, text controls).
+  final List<SciWindowOverlay> sciWindows;
+
+  /// Active Sierra in-game mouse cursor.
+  final SierraCursor? mouseCursor;
+
+  /// Position of the in-game mouse cursor in 320x200 screen coordinates.
+  final Offset? mouseCursorPosition;
+
+  /// Whether to render the in-game mouse cursor overlay on the canvas.
+  final bool showMouseCursor;
+
+  PlayfieldPainter({
     this.picture,
     this.actors = const [],
     this.displayedTexts = const [],
@@ -179,6 +249,11 @@ class AgiPicturePainter extends CustomPainter {
     this.renderBlackTextBackgrounds = false,
     this.menuManager,
     this.rasterEpoch = 0,
+    this.displayProfile,
+    this.sciWindows = const [],
+    this.mouseCursor,
+    this.mouseCursorPosition,
+    this.showMouseCursor = false,
   });
 
   @override
@@ -294,8 +369,20 @@ class AgiPicturePainter extends CustomPainter {
       _paintMenu(canvas, menuManager!);
     }
 
+    if (sciWindows.isNotEmpty) {
+      final sortedWindows = List<SciWindowOverlay>.from(sciWindows)
+        ..sort((a, b) => a.priority.compareTo(b.priority));
+      for (final win in sortedWindows) {
+        win.paint(canvas);
+      }
+    }
+
     if (showPixelGrid) {
       _paintGrid(canvas);
+    }
+
+    if (showMouseCursor && mouseCursor != null && mouseCursorPosition != null) {
+      _paintMouseCursor(canvas);
     }
 
     canvas.restore();
@@ -710,6 +797,40 @@ class AgiPicturePainter extends CustomPainter {
     }
   }
 
+  void _paintMouseCursor(Canvas canvas) {
+    if (mouseCursor == null || mouseCursorPosition == null) return;
+    final cursor = mouseCursor!;
+    final originX = mouseCursorPosition!.dx - cursor.hotspotX;
+    final originY = mouseCursorPosition!.dy - cursor.hotspotY;
+    final blackPaint = Paint()..color = const Color(0xFF000000);
+    final whitePaint = Paint()..color = const Color(0xFFFFFFFF);
+    final grayPaint = Paint()..color = const Color(0xFFAAAAAA);
+
+    for (int y = 0; y < cursor.height; y++) {
+      for (int x = 0; x < cursor.width; x++) {
+        final pixel = cursor.getPixel(x, y);
+        Paint? p;
+        switch (pixel) {
+          case SierraCursorPixel.black:
+            p = blackPaint;
+            break;
+          case SierraCursorPixel.white:
+            p = whitePaint;
+            break;
+          case SierraCursorPixel.gray:
+            p = (displayProfile?.isSci ?? true) ? whitePaint : grayPaint;
+            break;
+          case SierraCursorPixel.transparent:
+            p = null;
+            break;
+        }
+        if (p != null) {
+          canvas.drawRect(Rect.fromLTWH(originX + x, originY + y, 1.0, 1.0), p);
+        }
+      }
+    }
+  }
+
   void _paintMenu(Canvas canvas, AgiMenuManager menuMgr) {
     // 1. Menu Bar Header across top line (Row 0: 320x8 pixels)
     final barBgPaint = Paint()
@@ -805,7 +926,7 @@ class AgiPicturePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant AgiPicturePainter oldDelegate) {
+  bool shouldRepaint(covariant PlayfieldPainter oldDelegate) {
     if (oldDelegate.picture != picture ||
         oldDelegate.rasterEpoch != rasterEpoch ||
         oldDelegate.renderMode != renderMode ||
@@ -829,8 +950,17 @@ class AgiPicturePainter extends CustomPainter {
         oldDelegate.renderBlackTextBackgrounds != renderBlackTextBackgrounds ||
         oldDelegate.menuManager?.isOpen != menuManager?.isOpen ||
         oldDelegate.menuManager?.activeMenuIndex != menuManager?.activeMenuIndex ||
-        oldDelegate.menuManager?.activeMenu?.selectedItemIndex != menuManager?.activeMenu?.selectedItemIndex) {
+        oldDelegate.menuManager?.activeMenu?.selectedItemIndex != menuManager?.activeMenu?.selectedItemIndex ||
+        oldDelegate.displayProfile != displayProfile ||
+        oldDelegate.showMouseCursor != showMouseCursor ||
+        oldDelegate.mouseCursor != mouseCursor ||
+        oldDelegate.mouseCursorPosition != mouseCursorPosition) {
       return true;
+    }
+
+    if (oldDelegate.sciWindows.length != sciWindows.length) return true;
+    for (int i = 0; i < sciWindows.length; i++) {
+      if (oldDelegate.sciWindows[i] != sciWindows[i]) return true;
     }
 
     if (oldDelegate.actors.length != actors.length) return true;
@@ -841,6 +971,9 @@ class AgiPicturePainter extends CustomPainter {
     return false;
   }
 }
+
+/// Backwards-compatibility alias for AGI engine code.
+typedef AgiPicturePainter = PlayfieldPainter;
 
 /// Owns a single CRT [ui.FragmentShader] for the lifetime of the overlay.
 ///

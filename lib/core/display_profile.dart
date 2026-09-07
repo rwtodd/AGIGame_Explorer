@@ -41,6 +41,12 @@ class DisplayProfile {
     required this.scanControlLines,
   });
 
+  /// True if this profile represents an AGI display (horizontally doubled).
+  bool get isAgi => horizontalDouble;
+
+  /// True if this profile represents an SCI display (1:1 aspect, separate control buffer).
+  bool get isSci => !horizontalDouble;
+
   /// Standard Sierra AGI display profile:
   /// - 160x168 native picture playfield
   /// - 320x200 rendered framebuffer (horizontal 2x doubling)

@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
+import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// Interactive composite playfield viewport for the running AGI Game Engine.
@@ -25,6 +28,18 @@ class GamePlayfieldWidget extends StatefulWidget {
   final String currentInputText;
   final ValueChanged<Offset>? onCanvasTap;
 
+  /// Display resolution, viewport, and priority geometry profile.
+  final DisplayProfile? displayProfile;
+
+  /// Active Sierra in-game mouse cursor.
+  final SierraCursor? mouseCursor;
+
+  /// Whether to render the custom in-game mouse cursor on the playfield.
+  final bool showMouseCursor;
+
+  /// Top-level SCI Window overlays (dialog boxes, message boxes, text controls).
+  final List<SciWindowOverlay> sciWindows;
+
   const GamePlayfieldWidget({
     super.key,
     required this.engine,
@@ -37,6 +52,10 @@ class GamePlayfieldWidget extends StatefulWidget {
     this.isolatedPrioritySlice,
     this.currentInputText = '',
     this.onCanvasTap,
+    this.displayProfile,
+    this.mouseCursor,
+    this.showMouseCursor = false,
+    this.sciWindows = const [],
   });
 
   @override
@@ -51,6 +70,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   late Listenable _repaint;
   AgiPic? _trackedPic;
   AgiPictureRenderMode? _trackedMode;
+  Offset? _mousePosition;
 
   @override
   void initState() {
@@ -195,7 +215,28 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           child: SizedBox(
             width: playfieldWidth,
             height: playfieldHeight,
-            child: GestureDetector(
+            child: MouseRegion(
+              cursor: widget.showMouseCursor ? SystemMouseCursors.none : MouseCursor.defer,
+              onHover: (event) {
+                if (playfieldWidth > 0 && playfieldHeight > 0) {
+                  final normX = event.localPosition.dx / playfieldWidth;
+                  final normY = event.localPosition.dy / playfieldHeight;
+                  setState(() {
+                    _mousePosition = Offset(
+                      normX * AgiDisplay.renderedWidth,
+                      normY * AgiDisplay.renderedHeight,
+                    );
+                  });
+                }
+              },
+              onExit: (_) {
+                if (_mousePosition != null) {
+                  setState(() {
+                    _mousePosition = null;
+                  });
+                }
+              },
+              child: GestureDetector(
               onTapUp: (details) {
                 if (playfieldWidth > 0 && playfieldHeight > 0) {
                   // 0. If full text screen is active (e.g. Help or About screen), tap dismisses it
@@ -300,6 +341,11 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           isolatedPrioritySlice: widget.isolatedPrioritySlice,
                           cursorBlink: _cursorBlink,
                           buildActors: _buildActorSprites,
+                          displayProfile: widget.displayProfile,
+                          sciWindows: widget.sciWindows,
+                          mouseCursor: widget.mouseCursor,
+                          mouseCursorPosition: _mousePosition,
+                          showMouseCursor: widget.showMouseCursor,
                           repaint: _repaint,
                         ),
                         isComplex: true,
@@ -323,6 +369,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           top: (widget.engine.inputRow.clamp(0, 24) / 25.0) * playfieldHeight,
                           left: (1.0 / 40.0) * playfieldWidth,
                           right: (1.0 / 40.0) * playfieldWidth,
+                          height: math.max(16.0, playfieldHeight / 25.0 * 1.4),
                           child: _buildIntegratedPrompt(
                             prompt: widget.engine.memory.getString(0).isNotEmpty
                                 ? widget.engine.memory.getString(0)
@@ -338,6 +385,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                   ],
                 ),
               ),
+            ),
             ),
           ),
         );
@@ -534,6 +582,11 @@ class _GamePlayfieldPainter extends CustomPainter {
   final int? isolatedPrioritySlice;
   final ValueNotifier<bool> cursorBlink;
   final List<AgiActorSprite> Function() buildActors;
+  final DisplayProfile? displayProfile;
+  final List<SciWindowOverlay> sciWindows;
+  final SierraCursor? mouseCursor;
+  final Offset? mouseCursorPosition;
+  final bool showMouseCursor;
 
   _GamePlayfieldPainter({
     required this.engine,
@@ -543,6 +596,11 @@ class _GamePlayfieldPainter extends CustomPainter {
     required this.isolatedPrioritySlice,
     required this.cursorBlink,
     required this.buildActors,
+    this.displayProfile,
+    this.sciWindows = const [],
+    this.mouseCursor,
+    this.mouseCursorPosition,
+    this.showMouseCursor = false,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -576,6 +634,11 @@ class _GamePlayfieldPainter extends CustomPainter {
       showPixelGrid: showPixelGrid,
       renderBlackTextBackgrounds: renderBlackTextBackgrounds,
       menuManager: engine.menuManager,
+      displayProfile: displayProfile,
+      sciWindows: sciWindows,
+      mouseCursor: mouseCursor,
+      mouseCursorPosition: mouseCursorPosition,
+      showMouseCursor: showMouseCursor,
     ).paint(canvas, size);
     canvas.restore();
   }
@@ -586,6 +649,11 @@ class _GamePlayfieldPainter extends CustomPainter {
         oldDelegate.renderMode != renderMode ||
         oldDelegate.showPixelGrid != showPixelGrid ||
         oldDelegate.renderBlackTextBackgrounds != renderBlackTextBackgrounds ||
-        oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice;
+        oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||
+        oldDelegate.displayProfile != displayProfile ||
+        oldDelegate.showMouseCursor != showMouseCursor ||
+        oldDelegate.mouseCursor != mouseCursor ||
+        oldDelegate.mouseCursorPosition != mouseCursorPosition ||
+        oldDelegate.sciWindows != sciWindows;
   }
 }

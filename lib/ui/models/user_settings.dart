@@ -10,6 +10,7 @@ class AgiDisplaySettings {
   final bool showPixelGrid;
   final bool renderBlackTextBackgrounds;
   final AgiPictureRenderMode renderMode;
+  final bool sciEnableDithering;
 
   const AgiDisplaySettings({
     this.correctAspectRatio = true,
@@ -18,6 +19,7 @@ class AgiDisplaySettings {
     this.showPixelGrid = false,
     this.renderBlackTextBackgrounds = false,
     this.renderMode = AgiPictureRenderMode.compositedSlices,
+    this.sciEnableDithering = true,
   });
 
   AgiDisplaySettings copyWith({
@@ -27,6 +29,7 @@ class AgiDisplaySettings {
     bool? showPixelGrid,
     bool? renderBlackTextBackgrounds,
     AgiPictureRenderMode? renderMode,
+    bool? sciEnableDithering,
   }) {
     return AgiDisplaySettings(
       correctAspectRatio: correctAspectRatio ?? this.correctAspectRatio,
@@ -36,6 +39,7 @@ class AgiDisplaySettings {
       renderBlackTextBackgrounds:
           renderBlackTextBackgrounds ?? this.renderBlackTextBackgrounds,
       renderMode: renderMode ?? this.renderMode,
+      sciEnableDithering: sciEnableDithering ?? this.sciEnableDithering,
     );
   }
 
@@ -46,6 +50,7 @@ class AgiDisplaySettings {
         'showPixelGrid': showPixelGrid,
         'renderBlackTextBackgrounds': renderBlackTextBackgrounds,
         'renderMode': renderMode.name,
+        'sciEnableDithering': sciEnableDithering,
       };
 
   factory AgiDisplaySettings.fromJson(Map<String, dynamic>? json) {
@@ -68,6 +73,7 @@ class AgiDisplaySettings {
       renderBlackTextBackgrounds:
           json['renderBlackTextBackgrounds'] as bool? ?? false,
       renderMode: mode,
+      sciEnableDithering: json['sciEnableDithering'] as bool? ?? true,
     );
   }
 }

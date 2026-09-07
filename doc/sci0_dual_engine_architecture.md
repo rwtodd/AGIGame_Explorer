@@ -152,8 +152,8 @@ lib/sci/
   picture/    DONE  sci_pic, sci_pic_canvas, interpreter, step interpreter
   view/       DONE  sci_view, sci_view_parser (kViewEga)
   font/       DONE  sci_font, sci_font_parser + Font Browser
-  cursor/     NEXT  sci_cursor_parser + Cursor Browser
-  engine/     LATER vm, kernel, object heap
+  cursor/     DONE  sci_cursor, sci_cursor_parser + Cursor Browser
+  engine/     NEXT  vm, kernel, object heap
   parser/     LATER vocab, said
   sound/      LATER sequencer, tandy, opl3, munt
 ```
@@ -169,14 +169,14 @@ lib/sci/
 | `PictureSlicer` doubles X + column scans | `lib/picture/picture_slicer.dart` | **Done.** `horizontalDouble` / `scanControlLines` via `DisplayProfile`. |
 | `AgiPic` owns visual + one priority + slices | `lib/domain/picture.dart` | **Loosened.** `SierraPicture`; `SciPic` is three maps + slices. |
 | `AgiViewCel` 8-bit dims, AGI RLE | `lib/domain/agi_view.dart` | **Loosened.** `SierraView`; SCI parser is inverted-nibble / 16-bit. Atlas packs both. |
-| `AgiActorSprite` 160-wide, 2× scale | `lib/ui/widgets/agi_picture_canvas.dart` | **Still coupled.** Stage 8: `PlayfieldActorSprite` + `pixelScaleX`. |
-| `AgiPicturePainter` name / AGI types | `lib/ui/widgets/agi_picture_canvas.dart` | **Partial.** Already paints `SierraPicture`. Rename + overlay pass in stage 8. |
-| Dialog boxes burn into visual buffer | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Overlay pass in stage 8; needs FONT metrics (stage 5 parser, kernel later). |
-| In-game fonts assume 8×8 monospace | `lib/ui/widgets/agi_picture_canvas.dart` | **Still coupled.** Stage 5 parses `FONT`; overlay draw is stage 8; `TextWidth` is VM. |
-| No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | **Still coupled.** Stage 6 parses `CURSOR`; canvas pointer is playfield / stage 8. |
+| `AgiActorSprite` 160-wide, 2× scale | `lib/ui/widgets/agi_picture_canvas.dart` | **Done.** `PlayfieldActorSprite` supports `scaleX`, `scaleY`, `displaceX`, `displaceY`, elevation `z`. Backward-compatible typedef. |
+| `AgiPicturePainter` name / AGI types | `lib/ui/widgets/agi_picture_canvas.dart` | **Done.** `PlayfieldPainter` with backward-compatible typedef, `sciWindows` overlay pass, and `mouseCursor` overlay pass. |
+| Dialog boxes burn into visual buffer | `lib/ui/screens/game/game_screen.dart` | **Done.** `SciWindowOverlay` pass renders on top of composited slices without GPU slice invalidation. |
+| In-game fonts assume 8×8 monospace | `lib/ui/widgets/agi_picture_canvas.dart` | **Done.** `SciWindowOverlay` uses `SierraFont` bitmap text rendering. |
+| No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | **Done.** Custom in-game Sierra cursor rendering and mouse tracking in `PlayfieldPainter` and `GamePlayfieldWidget`. |
 | GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Session facade when SCI can tick a room (stage 9+). |
 | `AgiResourceLoader.fromDirectory` | `lib/loader/resource_loader.dart` | **Done.** Detection fork is in the launcher, not this class. |
-| Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Partial.** Pic Browser has undithered toggle. Global `sciEnableDithering` waits for SCI playfield. |
+| Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Done.** Global `sciEnableDithering` toggle in `AgiDisplaySettings`, `settings_provider`, and video settings tab. |
 
 ## 8. Roadmap status (branch `sci0`)
 
@@ -193,8 +193,8 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 | 5 | FONT parser + Font Browser | **Done.** Authentic 1-bit glyphs, PQ2 SYSFONT/USERFONT in workbench. |
 | 6 | CURSOR parser + Cursor Browser | **Done.** 68-byte `CURSOR` (type 8), `SierraCursor` domain interface, workbench Cursor Browser with live sandbox. |
 | 7 | Launcher detection + workbench | **Done.** Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
-| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Next.** Actor `scaleX` / displacement; overlay pass (no visual burn-in). |
-| 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | After 8. PQ2 title / boot. Session facade lands here, not earlier. |
+| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Done.** Actor `scaleX` / displacement / elevation `z`; `SciWindowOverlay` pass; in-game cursor overlay; `sciEnableDithering` setting. |
+| 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | **Next.** PQ2 title / boot. Session facade lands here, not earlier. |
 | 10 | Kernel Animate + ego motion | After 9. First walkable PQ2 room. |
 | 11 | QFG2 `kCompLZW1` + SCI1-EGA view mapping | After PQ2 rooms look right. |
 | 12 | Tandy 3-Voice & OPL3 (AdLib FM) | After a walkable room. Existing PCM sinks. |

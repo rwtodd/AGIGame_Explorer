@@ -125,6 +125,7 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
     bool? showPixelGrid,
     bool? renderBlackTextBackgrounds,
     AgiPictureRenderMode? renderMode,
+    bool? sciEnableDithering,
   }) {
     state = state.copyWith(
       display: state.display.copyWith(
@@ -134,6 +135,7 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
         showPixelGrid: showPixelGrid,
         renderBlackTextBackgrounds: renderBlackTextBackgrounds,
         renderMode: renderMode,
+        sciEnableDithering: sciEnableDithering,
       ),
     );
     _saveSettings();
