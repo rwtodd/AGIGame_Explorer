@@ -33,7 +33,7 @@ Leftover nits (do not block the VM): [sci0_deferred_cleanup.md](sci0_deferred_cl
 | `PictureSlice` | 320×200 RGBA GPU layer + `toUiImage()` | Identical |
 | `PictureSlicer` | Slices visual + priority into 16 RGBA maps | Parameterized: `scanControlLines: false`, `horizontalDouble: false` |
 | Impeller compositor | 16 bands, actors bucketed by priority, Y-sort inside a band | Identical algorithm; SCI skips AGI's control-line scan |
-| `PlayfieldActorSprite` | Still `AgiActorSprite` with hardcoded `scaleX: 2.0` | Stage 8: `SierraView.pixelScaleX` (AGI 2 / SCI 1), `displaceX`/`displaceY`, elevation `z` |
+| `PlayfieldActorSprite` | Parameterized `PlayfieldActorSprite` | **Done in Stage 8:** `SierraView.pixelScaleX` (AGI 2 / SCI 1), `displaceX`/`displaceY`, elevation `z` |
 | `ViewTextureAtlas` | Packs `SierraView` cels, shared rects for mirrors | Done; playfield draw still passes AGI `scaleX: 2.0` |
 | Custom mouse cursor | Not in AGI (keyboard only) | Hide OS cursor; render 16×16 `CURSOR` or cel sprite on canvas overlay |
 | CRT shader, 4:3, integer scale, pixel grid | `CrtShaderLoader`, `AgiDisplaySettings` | Same 320×200 viewport; add `sciEnableDithering` toggle |
@@ -174,7 +174,7 @@ lib/sci/
 | Dialog boxes burn into visual buffer | `lib/ui/screens/game/game_screen.dart` | **Done.** `SciWindowOverlay` pass renders on top of composited slices without GPU slice invalidation. |
 | In-game fonts assume 8×8 monospace | `lib/ui/widgets/agi_picture_canvas.dart` | **Done.** `SciWindowOverlay` uses `SierraFont` bitmap text rendering. |
 | No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | **Done.** Custom in-game Sierra cursor rendering and mouse tracking in `PlayfieldPainter` and `GamePlayfieldWidget`. |
-| GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Session facade when SCI can tick a room (stage 9+). |
+| GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Session facade when SCI can tick a room (Stage 10). |
 | `AgiResourceLoader.fromDirectory` | `lib/loader/resource_loader.dart` | **Done.** Detection fork is in the launcher, not this class. |
 | Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Partial.** Toggle exists in settings; nothing reads it yet. See [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). |
 
@@ -184,21 +184,136 @@ Pattern that has worked and should continue: **parse the resource, put it behind
 
 Each remaining stage independently reviewable; AGI tests green throughout. SCI-only work is `flutter test test/sci/`. Shared graphics (atlas, compositor, slicer) runs both suites.
 
-| # | Stage | Status |
-|---|---|---|
-| 1 | `DisplayProfile` + parameterized slicer | **Done.** Pure-Z / 1:1 X via profile; AGI goldens unchanged. |
-| 2 | SCI `RESOURCE.MAP` + LZW / Huffman | **Done.** PQ2 volumes in `lib/sci/loader/`. |
-| 3 | SCI pic interpreter + Pic Browser | **Done.** Three 320×200 maps, dither / undithered, vector replay. |
-| 4 | SCI view parser + atlas + View Browser | **Done.** `kViewEga`, `SierraView`, atlas packs native pixels, `pixelScaleX` 1. |
-| 5 | FONT parser + Font Browser | **Done.** Authentic 1-bit glyphs, PQ2 SYSFONT/USERFONT in workbench. |
-| 6 | CURSOR parser + Cursor Browser | **Done.** 68-byte `CURSOR` (type 8), `SierraCursor` domain interface, workbench Cursor Browser with live sandbox. |
-| 7 | Launcher detection + workbench | **Done.** Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
-| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Done.** Actor `scaleX` / displacement / elevation `z`; `SciWindowOverlay` pass; in-game cursor overlay; `sciEnableDithering` setting. |
-| 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | **Done.** PMachine VM (128 opcodes), SegManager, VOCAB.996/997, 0x00..0x71 kernel table, SciVmObserver hooks, PQ2 boot test. |
-| 10 | Kernel Animate + ego motion | **Next.** First walkable PQ2 room. |
-| 11 | QFG2 `kCompLZW1` + SCI1-EGA view mapping | After PQ2 rooms look right. |
-| 12 | Tandy 3-Voice & OPL3 (AdLib FM) | After a walkable room. Existing PCM sinks. |
-| 13 | Roland MT-32 via Munt (`libmt32emu`) | Last. FFI + user-provided ROMs. |
+| # | Stage | Status | Deliverables / Milestone |
+|---|---|---|---|
+| 1 | `DisplayProfile` + parameterized slicer | **Done.** | Pure-Z / 1:1 X via profile; AGI goldens unchanged. |
+| 2 | SCI `RESOURCE.MAP` + LZW / Huffman | **Done.** | PQ2 volumes in `lib/sci/loader/`. |
+| 3 | SCI pic interpreter + Pic Browser | **Done.** | Three 320×200 maps, dither / undithered, vector replay. |
+| 4 | SCI view parser + atlas + View Browser | **Done.** | `kViewEga`, `SierraView`, atlas packs native pixels, `pixelScaleX` 1. |
+| 5 | FONT parser + Font Browser | **Done.** | Authentic 1-bit glyphs, PQ2 SYSFONT/USERFONT in workbench. |
+| 6 | CURSOR parser + Cursor Browser | **Done.** | 68-byte `CURSOR` (type 8), `SierraCursor` domain interface, workbench Cursor Browser with live sandbox. |
+| 7 | Launcher detection + workbench | **Done.** | Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
+| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Done.** | Actor `scaleX` / displacement / elevation `z`; `SciWindowOverlay` pass; in-game cursor overlay; `sciEnableDithering` setting. |
+| 9 | SCI VM skeleton + PMachine pipeline | **Done.** | PMachine VM (128 opcodes), SegManager, VOCAB.996/997, 0x00..0x71 kernel table, SciVmObserver hooks, PQ2 boot test. |
+| 10 | Kernel `Animate`, Ego Motion & Game Session Facade | **Next.** | First walkable PQ2 room! Real-time cast drawing, room lifecycle, input events, barrier collision, `SierraGameSession`. |
+| 11 | Text Parser, `Said` Matcher, Command Prompt & Menu Bar | Planned. | `VOCAB.000` tokenizer, `kParse`, `kSaid` bytecode matcher, `kDrawStatus`, interactive text prompt, top menu bar. |
+| 12 | Dialog Windows, Text Layout, Controls & Hi-Res Typography | Planned. | `kNewWindow`, `kDisposeWindow`, `kDrawControl`, `kTextWidth`, modal dialog overlays, closed-loop vector Font 0/1. |
+| 13 | Save/Load State & Inventory System | Planned. | SCI heap serialization, `kSaveGame`/`kRestoreGame`, item inspection dialogs, Tab inventory browser. |
+| 14 | SCI0 Audio Tier 1 & 2 (Tandy 3-Voice & OPL3 FM Synthesis) | Planned. | SCI0 MIDI sequencer, `PcmSynthesizer` Tandy playback, AdLib/OPL3 2-op FM synth, shared PCM sinks. |
+| 15 | QFG2 Support (`kCompLZW1` Decompression & SCI1-EGA Views) | Planned. | 1.5-pass LZW1 decompression, `paletteOffset` 8×16 EGA color mapping, QFG2 room exploration. |
+| 16 | Roland MT-32 Synthesis via Munt (`libmt32emu`) | Planned. | Native C/C++ asset via Dart Native Assets, user ROM loader, 32kHz studio orchestral playback. |
+
+---
+
+### 8.1 Detailed Roadmap for Upcoming Stages
+
+#### Stage 10: Kernel `Animate`, Ego Motion & Game Session Facade (Active Next Step)
+- **Goal**: Render the first walkable room in Police Quest 2 directly in `GameScreen` using `SierraGameSession`.
+- **Key Deliverables**:
+  1. **Kernel `Animate(cast, cycle)` (`0x0B`)**:
+     - Iterates through the `cast` list from `SciSegManager` (`SciList`).
+     - Inspects actor properties: `view`, `loop`, `cel`, `x`, `y`, `z`, `priority`, `signal`, `nsTop`, `nsLeft`, `nsBottom`, `nsRight`.
+     - Processes Sierra `signal` bitfield flags: `kSignalStopUpdate (0x0001)`, `kSignalViewHidden (0x0008)`, `kSignalFixedPriority (0x0010)`, `kSignalNoUpdate (0x0002)`, `kSignalIgnoreActor (0x4000)`.
+     - Maps baseline Y to priority band using the 14-band table (`bands[y]` for Y in 42..190).
+     - Updates bounding box extents (`nsTop`, `nsLeft`, `nsBottom`, `nsRight`) on the object (`SetNowSeen`).
+     - Emits sorted `PlayfieldActorSprite` instances (`scaleX: 1.0`, `scaleY: 1.0`, `displaceX`, `displaceY`, `z`, priority).
+     - Forwards sprite list to `PlayfieldPainter`.
+  2. **Room & Picture Lifecycle**:
+     - `kDrawPic(picNum, style, clearPic, palette)` (`0x08`): Loads and rasterizes `PICTURE` resources via `SciPicInterpreter`, setting visual, priority, and control buffers.
+     - `kPicNotValid` (`0x0A`) and `kShow` (`0x09`): Controls deferral and presentation of newly drawn rooms.
+  3. **Collision & Space Testing**:
+     - `kOnControl(screen, x, y, x2, y2)` (`0x3E`): Samples control buffer values under points or rectangles.
+     - `kCanBeHere(actor, cast)` (`0x3F`) / `kCantBeHere`: Validates actor position against control map barrier lines (`ctlWHITE` / 15) and other non-ignored actors.
+  4. **Input Event Translation**:
+     - `kGetEvent(mask, eventObj)` (`0x48`): Translates Flutter keyboard inputs (arrow keys, Enter, Esc) and mouse movement/clicks into SCI event object properties (`type`, `message`, `modifiers`).
+  5. **Session Facade (`SierraGameSession`)**:
+     - Abstract interface uniting `AgiGameEngine` and `SciGameEngine` behind `GameScreen`.
+     - `SciGameEngine`: Drives the 60 Hz tick / 20 Hz script cycle:
+       1. Polls user events into `kGetEvent`.
+       2. Executes `(gGame doit:)` in the VM.
+       3. `kAnimate` builds and updates the actor sprite list.
+       4. Passes the active `SciPic` and `PlayfieldActorSprite` list to `GamePlayfieldWidget`.
+- **Verification**: `test/sci/sci_walkable_room_test.dart` and booting PQ2 into a room where Sonny Bonds walks and animates.
+
+#### Stage 11: Text Parser, `Said` Matcher, Command Prompt & Menu Bar
+- **Goal**: Full command-line text input ("look around", "open locker", "talk to marie") and top menu bar navigation.
+- **Key Deliverables**:
+  1. **`VOCAB.000` Vocabulary Subsystem**:
+     - Binary parser for vocabulary word groups, word classes, synonyms, and group IDs.
+  2. **Kernel `Parse(inputString, eventObj)` (`0x49`)**:
+     - Strips punctuation and noise words.
+     - Tokenizes text into word group IDs matching `VOCAB.000`.
+     - Identifies unknown words and flags them for the game script's response.
+  3. **Kernel `Said(saidSpecPointer)` (`0x4A`)**:
+     - Evaluates compiled Sierra `Said` specs (sequence of word group IDs, `ANYWORD` wildcard 1, `ROL` wildcard 9999, operators like `,`, `/`, `&`, `[]`).
+     - Matches parsed event tokens against script `Said` expressions.
+  4. **Status & Menu Bar**:
+     - `kDrawStatus(text)` (`0x1F`): Draws or updates the top status bar (score, sound status, room title).
+     - `kAddMenu(title, text)` (`0x24`), `kSetMenu(item, ...)` (`0x25`), `kGetMenu(item, ...)` (`0x26`): Populates and updates standard Sierra pull-down menus.
+  5. **UI Integration**:
+     - Connects bottom command line in `GameScreen` to `kParse`, providing history and auto-focus.
+- **Verification**: `test/sci/sci_parser_test.dart` verifying `VOCAB.000` tokenization and `Said` expression evaluation.
+
+#### Stage 12: Dialog Windows, Text Layout, Controls & Hi-Res Typography
+- **Goal**: Authentic modal dialogs, item inspection boxes, input prompt dialogs, and high-resolution typography.
+- **Key Deliverables**:
+  1. **Window Stack Management**:
+     - `kNewWindow(rect, title, type, pri, bg, fg)` (`0x13`): Creates a window record, pushing it to the overlay window stack.
+     - `kDisposeWindow(windowHandle)` (`0x16`): Pops and disposes the window.
+     - `kDrawControl(controlObj)` (`0x17`), `kHiliteControl(controlObj)` (`0x18`), `kEditControl(controlObj)` (`0x19`): Renders dialog buttons, text controls, and editable fields.
+  2. **Text Metrics & Word Wrapping**:
+     - `kTextSize(rect, text, font, maxWidth)` (`0x28`): Measures multiline text dimensions for window sizing.
+     - `kTextWidth(text, font)`: Character advance width metrics.
+  3. **Overlay & Typography Integration**:
+     - Connects active windows to `SciWindowOverlay` on `PlayfieldPainter`.
+     - Tokenizes embedded format codes: `|c` (color changes) and `|f` (font switching).
+     - High-res vector typography substitution for Font 0 and Font 1: closed feedback loop supplying vector metrics to `kTextWidth`/`kTextSize` so scripts construct perfectly proportioned windows without text clipping. Authentic bitmap fallback available via video settings.
+- **Verification**: `test/sci/sci_dialog_overlay_test.dart` asserting modal dialog rendering, button bevels, and typography metrics.
+
+#### Stage 13: Save/Load State & Inventory System
+- **Goal**: Full game persistence, checkpoint restoration, and inventory management.
+- **Key Deliverables**:
+  1. **SCI0 Heap State Serialization**:
+     - `kSaveGame(desc, slot, version)` (`0x43`): Serializes dynamic SCI0 heap (modified object properties, global variables, script instances, node lists).
+     - `kRestoreGame(slot, version)` (`0x44`): Deserializes and restores game state.
+     - `kCheckFreeSpace(path)` (`0x45`), `kRestartGame()` (`0x46`).
+  2. **Inventory Subsystem**:
+     - Standard inventory browser dialog triggered by `(gInventory showSelf:)` or Tab key.
+     - Item view cel rendering in `SciIconControl`.
+- **Verification**: `test/sci/sci_save_load_test.dart` validating state serialization round-trip.
+
+#### Stage 14: SCI0 Audio Tier 1 & 2 (Tandy 3-Voice & OPL3 FM Synthesis)
+- **Goal**: Authentic soundtrack and sound effects playback on macOS and Windows.
+- **Key Deliverables**:
+  1. **Sound Resource Format & Sequencer**:
+     - `SOUND` (type 4) multi-track MIDI format parser.
+     - Loop points, priority channels, track markers.
+     - `kDoSound` (`0x40`): Sub-ops for `MasterVol`, `SoundOn`, `Restore`, `Init`, `Play`, `Stop`, `Pause`, `Resume`, `Fade`, `CheckDriver`.
+  2. **Synthesizers**:
+     - **Tier 1 (Tandy 1000 / PCjr 3-Voice)**: Reuses existing `PcmSynthesizer` square wave generator.
+     - **Tier 2 (OPL3 / AdLib FM)**: 2-operator Yamaha FM synthesis emulation using Sierra `PATCH.001` instrument banks.
+     - Directly streams synthesized 44.1kHz stereo PCM into `AudioQueueSink` (macOS) and `WaveOutSink` (Windows).
+- **Verification**: `test/sci/sci_sound_sequencer_test.dart` and live audio playback in PQ2.
+
+#### Stage 15: QFG2 Support (`kCompLZW1` Decompression & SCI1-EGA Views)
+- **Goal**: Full support for Quest for Glory 2: Trial by Fire.
+- **Key Deliverables**:
+  1. **Decompression Algorithm**:
+     - 1.5-pass `kCompLZW1` dictionary decompressor for SCI1-EGA volumes.
+  2. **Graphics Translation**:
+     - SCI1-EGA view decoding with `paletteOffset` 8×16 color translation.
+- **Verification**: `test/sci/sci_qfg2_boot_test.dart` verifying QFG2 resource loading, room exploration, and character portraits.
+
+#### Stage 16: Roland MT-32 Synthesis via Munt (`libmt32emu`)
+- **Goal**: Studio-quality Roland MT-32 orchestral synthesis.
+- **Key Deliverables**:
+  1. **Native Integration**:
+     - C ABI dynamic library integration using Dart Native Assets (`hook/build.dart`).
+     - User-supplied MT-32 ROM loader (`MT32_CONTROL.ROM`, `MT32_PCM.ROM`).
+     - Real-time 32kHz stereo PCM rendering into platform audio sinks.
+- **Verification**: `test/sci/sci_mt32_synth_test.dart` validating Munt initialization and MIDI stream synthesis.
+
+---
 
 ### Approach notes on what remains
 
@@ -206,42 +321,12 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 
 - Sibling engines, shared graphics, no shared VM.
 - Leave AGI files in place. No `lib/graphics/` or `lib/agi/` move-everything PR.
-- Workbench-first for each resource type (pics, views, then fonts, then cursors).
-- SCI windows stay an **overlay pass**, never burned into the visual buffer (that would reslice all 16 layers on every keystroke).
-- High-res Font 0/1 substitution needs kernel `TextWidth` / `GetLongest`. The Font Browser renders authentic bitmaps. Vector substitution is a video setting once scripts query metrics — see [sci0_fonts_and_text_architecture.md](sci0_fonts_and_text_architecture.md).
-- Session facade (`SierraGameSession`) waits until SCI can tick a room. Browsers already fork on `launcherState.isSci`.
-- QFG2 compression / EGA mapping after PQ2. VGA remains out of scope.
-- Sound after a walkable room; Tandy reuses `PcmSynthesizer`, then OPL3, then Munt.
-
-**Adjusted (learned from pics/views)**
-
-- Old stage 7 (launcher) landed during pics, not after cursors. Keep that: each new parser wires its launcher tile.
-- Original stage 5 bundled `FONT` parsing with `SaveBits`/`RestoreBits` overlay. That would stall fonts behind a painter rename. **Split:** stage 5 is parser + Font Browser; overlay is stage 8 (it needs `PlayfieldPainter`, not the FONT file format).
-- Same split for cursors: parser + Cursor Browser now; hide-OS-cursor + canvas pointer with the playfield / stage 8.
-- Stage 8 landed `PlayfieldPainter` / overlay / cursor. Leftover compositor polish (Courier titles, unused `isPressed`, `pixelScaleX` on actors, no-op dither toggle) is in [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). Do not insert a cleanup PR before the VM unless a bug forces it.
-
-## 8.1 Sound architecture & synthesizer roadmap
-
-Unlike AGI's fixed 4-channel PSG chip, SCI0 audio resources (`SOUND`, type 4) are multi-track MIDI sequences with device-specific track mappings and proprietary control loops. The sound subsystem will implement a multi-tiered architecture that renders Linear PCM into the shared `AudioQueueSink` (macOS) and `WaveOutSink` (Windows):
-
-### Tier 1: Tandy 1000 / PCjr 3-Voice (Immediate / Low Effort)
-- SCI0 sound resources contain tracks tagged specifically for Tandy/PCjr sound hardware.
-- Can be driven directly by reusing the engine's existing `PcmSynthesizer` 3-voice square-wave generator.
-
-### Tier 2: OPL3 / AdLib FM Synthesis (Authentic PC Sound)
-- Emulates the Yamaha YMF262 (OPL3) / YM3812 (OPL2) sound chips (e.g. Nuked OPL3 or Woody's OPL).
-- Reads Sierra's AdLib instrument patch banks (`PATCH.001` or embedded patch tables in sound resources) to program the 2-operator FM synthesis registers.
-- Synthesizes 44.1kHz stereo PCM directly into the shared audio sinks.
-
-### Tier 3: Roland MT-32 Synthesis via Munt / `libmt32emu` (The Definitive Experience)
-- The gold standard for Sierra SCI0 adventures: Sierra composers composed the original soundtracks specifically on Roland MT-32 hardware.
-- **Implementation**:
-  - Bind the open-source `libmt32emu` C++ library via Dart FFI and Native Assets (`dart-setup-ffi-assets`).
-  - Minimal C ABI: initialize synth, send MIDI events from the SCI sequencer, render 32kHz (or resampled 44.1kHz/48kHz) stereo 16-bit PCM chunks into `AudioQueueSink`/`WaveOutSink`.
-  - Requires user-provided Roland MT-32 ROMs (`MT32_CONTROL.ROM` and `MT32_PCM.ROM`).
-
-### Tier 4: General MIDI & SoundFonts (Optional Modern Alternative)
-- Optional playback via platform CoreAudio DLS on macOS or fluidsynth via FFI for SoundFont (.sf2) support.
+- Workbench-first for each resource type (pics, views, fonts, cursors).
+- SCI windows stay an **overlay pass**, never burned into the visual buffer.
+- High-res Font 0/1 substitution requires the closed-loop metrics feedback in Stage 12.
+- Session facade (`SierraGameSession`) connects in Stage 10 when SCI can tick a room.
+- QFG2 compression / EGA mapping follows PQ2 completion.
+- Sound progression: Tandy 3-Voice & OPL3 first (Stage 14), Munt MT-32 last (Stage 16).
 
 ## 9. Testing policy
 

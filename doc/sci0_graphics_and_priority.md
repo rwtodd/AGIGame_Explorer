@@ -2,7 +2,7 @@
 
 **Headline: the existing 16-layer Impeller compositor still works for SCI0 / SCI01 / SCI1-EGA, and it fits SCI better than it fits AGI.**
 
-This document maps Sierra's 16-color SCI graphics onto the Flutter pipeline already used for AGI (`PictureSlice`, `PictureSlicer`, `AgiPicturePainter`, `ViewTextureAtlas`). Pics, views, `DisplayProfile`, and the parameterized slicer are implemented; actor `scaleX`, window overlay, and cursors are not. Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8.
+This document maps Sierra's 16-color SCI graphics onto the Flutter pipeline already used for AGI (`PictureSlice`, `PictureSlicer`, `PlayfieldPainter`, `ViewTextureAtlas`). Pics, views, fonts, cursors, `DisplayProfile`, the parameterized slicer, `PlayfieldActorSprite`, window overlays, and the SCI PMachine VM are implemented (Stages 1–9). Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8.
 
 Reference: ScummVM `graphics/picture.cpp`, `screen.h`, `ports.cpp`, `view.cpp`; SCI Companion pic/view docs; `doc/picture_rendering_strategy.md` for the AGI side.
 

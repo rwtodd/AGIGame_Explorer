@@ -1,8 +1,8 @@
 # SCI0 deferred cleanup
 
-Nits noticed while landing pictures, views, fonts, cursors, and the compositor. None of these block stage 9 (VM skeleton). Do **not** start a drive-by cleanup pass unless a bug forces it.
+Nits noticed while landing pictures, views, fonts, cursors, the compositor, and the VM skeleton. None of these block Stage 10 (Kernel Animate & Ego Motion). Do **not** start a drive-by cleanup pass unless a bug forces it.
 
-Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–8 done; VM next).
+Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–9 done; Stage 10 Animate & Ego Motion next).
 
 ## Pictures / raster
 
@@ -33,13 +33,18 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 - **Launcher `copyWith` sentinel** for `sciVolumeManager` is already fixed; keep using `_unset`, never `??`.
 - **VGA-in-EGA views** (`flags == 0x80`) and **SCI1.1 views** (`version == 1`) should keep failing closed in the EGA parser.
 
-## Correctly wait for the VM (stage 9+)
+## Roadmap mapping for remaining items (Stages 10–15)
 
-- `SierraGameSession` / `GameScreen(AgiGameEngine)`.
-- SaveBits/RestoreBits as an overlay *stack* (`kNewWindow` / `kDisposeWindow`).
-- Kernel `TextWidth` / `GetLongest`.
-- `|c` / `|f` tokenization.
-- High-res Font 0/1 substitution (video setting; fonts ≥ 2 stay bitmap).
-- SCI playfield `obj.x` mapping vs AGI cell tap mapping.
-- Hit-testing on overlay controls.
-- QFG2 SCI1-EGA gray cursors and view `paletteOffset`.
+- **Stage 10 (Kernel Animate & Ego Motion)**:
+  - `SierraGameSession` / `GameScreen(SierraGameSession)` session facade.
+  - `FE 08` priority-band table parsing and dynamic priority mapping.
+  - Actor `nsTop`/`nsLeft`/`nsBottom`/`nsRight` coordinate bounding boxes.
+- **Stage 11 (Text Parser & Menu Bar)**:
+  - Status bar and menu bar item hit-testing.
+- **Stage 12 (Dialog Windows & Typography)**:
+  - SaveBits/RestoreBits as an overlay *stack* (`kNewWindow` / `kDisposeWindow`).
+  - Kernel `TextWidth` / `GetLongest` and `|c` / `|f` tokenization.
+  - High-res Font 0/1 substitution (video setting; fonts ≥ 2 stay bitmap).
+  - Hit-testing on overlay controls.
+- **Stage 15 (QFG2 & SCI1-EGA)**:
+  - QFG2 SCI1-EGA gray cursors and view `paletteOffset` 8×16 translation.
