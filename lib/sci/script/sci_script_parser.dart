@@ -153,9 +153,12 @@ class SciScriptParser {
     int blockSize,
     List<int> relocationOffsets,
   ) {
-    final count = (blockSize - 4) >> 1;
-    for (var i = 0; i < count; i++) {
-      final reloc = byteData.getUint16(pos + 4 + i * 2, Endian.little);
+    if (blockSize < 6) return;
+    final count = byteData.getUint16(pos + 4, Endian.little);
+    final maxCount = (blockSize - 6) >> 1;
+    final actualCount = count < maxCount ? count : maxCount;
+    for (var i = 0; i < actualCount; i++) {
+      final reloc = byteData.getUint16(pos + 6 + i * 2, Endian.little);
       relocationOffsets.add(reloc);
     }
   }

@@ -82,7 +82,7 @@ void main() {
 
       // Toggle CRT scanlines on
       final switches = find.byType(Switch);
-      expect(switches, findsNWidgets(5));
+      expect(switches, findsNWidgets(6));
 
       // Switch 0 = Aspect ratio (starts true)
       // Switch 1 = Strict integer (starts false)

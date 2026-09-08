@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
@@ -432,18 +433,31 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                     Expanded(
                       flex: 3,
                       child: ElevatedButton.icon(
-                        onPressed: info.isSci
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => GameScreen(
-                                      resourceLoader: state.loader,
-                                      initialSettings: ref.read(settingsProvider),
-                                    ),
-                                  ),
-                                );
-                              },
+                        onPressed: () {
+                          if (info.isSci) {
+                            final sciVm = state.sciVolumeManager;
+                            if (sciVm == null) return;
+                            final engine = SciGameEngine(volumeManager: sciVm);
+                            engine.initializeGame();
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => GameScreen(
+                                  session: engine,
+                                  initialSettings: ref.read(settingsProvider),
+                                ),
+                              ),
+                            );
+                          } else {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => GameScreen(
+                                  resourceLoader: state.loader,
+                                  initialSettings: ref.read(settingsProvider),
+                                ),
+                              ),
+                            );
+                          }
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF059669), // Emerald EGA Green
                           foregroundColor: Colors.white,
@@ -452,19 +466,19 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(6),
-                            side: BorderSide(
-                              color: info.isSci ? Colors.white24 : const Color(0xFF34D399),
+                            side: const BorderSide(
+                              color: Color(0xFF34D399),
                               width: 1.5,
                             ),
                           ),
                         ),
-                        icon: Icon(
-                          info.isSci ? Icons.construction : Icons.play_circle_filled,
+                        icon: const Icon(
+                          Icons.play_circle_filled,
                           size: 20,
                         ),
-                        label: Text(
-                          info.isSci ? 'PLAY GAME (SCI VM IN DEV)' : 'PLAY GAME',
-                          style: const TextStyle(
+                        label: const Text(
+                          'PLAY GAME',
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 1.0,

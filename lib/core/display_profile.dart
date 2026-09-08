@@ -47,6 +47,12 @@ class DisplayProfile {
   /// True if this profile represents an SCI display (1:1 aspect, separate control buffer).
   bool get isSci => !horizontalDouble;
 
+  /// Native playfield width in engine coordinates (AGI: 160, SCI: 320).
+  int get width => nativeWidth;
+
+  /// Native playfield height in engine coordinates (AGI: 168, SCI: 200).
+  int get height => nativeHeight;
+
   /// Standard Sierra AGI display profile:
   /// - 160x168 native picture playfield
   /// - 320x200 rendered framebuffer (horizontal 2x doubling)

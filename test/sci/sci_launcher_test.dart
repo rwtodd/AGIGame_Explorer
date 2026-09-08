@@ -52,8 +52,8 @@ void main() {
     // Verify PICTURE Rooms count is 78
     expect(find.text('78'), findsOneWidget);
 
-    // Verify play button is disabled or marked in dev for SCI
-    expect(find.text('PLAY GAME (SCI VM IN DEV)'), findsOneWidget);
+    // Verify play button is enabled for SCI
+    expect(find.text('PLAY GAME'), findsOneWidget);
 
     // Tap on PICTURE Rooms tile to navigate to PicBrowserScreen
     await tester.tap(find.text('PICTURE Rooms'));

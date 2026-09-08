@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
@@ -16,8 +17,10 @@ import 'package:flutter_agigame/ui/widgets/inventory_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/save_load_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/sidebar_slideout_panel.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
+import 'package:flutter_agigame/ui/widgets/sci_debug_inspector_dialog.dart';
 
-/// Main Playable Game Screen for Sierra AGI games.
+/// Main Playable Game Screen for Sierra AGI & SCI games.
 ///
 /// Features:
 /// - Top Status Bar (Score, Max Score, Sound Status)
@@ -29,6 +32,7 @@ import 'package:flutter_agigame/ui/widgets/sidebar_slideout_panel.dart';
 class GameScreen extends ConsumerStatefulWidget {
   final AgiResourceLoader? resourceLoader;
   final AgiGameEngine? engine;
+  final SierraGameSession? session;
   final int startingRoom;
   final AgiUserSettings? initialSettings;
 
@@ -36,6 +40,7 @@ class GameScreen extends ConsumerStatefulWidget {
     super.key,
     this.resourceLoader,
     this.engine,
+    this.session,
     this.startingRoom = 0,
     this.initialSettings,
   });
@@ -45,7 +50,9 @@ class GameScreen extends ConsumerStatefulWidget {
 }
 
 class _GameScreenState extends ConsumerState<GameScreen> {
-  late final AgiGameEngine _engine;
+  late final SierraGameSession _session;
+  AgiGameEngine? _agiEngine;
+  SciGameEngine? _sciEngine;
   final FocusNode _gameFocusNode = FocusNode();
   String _currentInputText = '';
 
@@ -75,44 +82,53 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _renderMode = initSettings.display.renderMode;
     }
 
-    if (widget.engine != null) {
-      _engine = widget.engine!;
-      if (initSettings != null) {
-        _engine.setSoundMode(initSettings.audio.soundMode);
-        _engine.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
-        _engine.isAiEnabled = initSettings.ai.enabled;
-        _engine.aiApiKey = initSettings.ai.apiKey;
-        _engine.aiModel = initSettings.ai.model;
+    if (widget.session != null) {
+      _session = widget.session!;
+      if (_session is AgiGameEngine) {
+        _agiEngine = _session;
+      } else if (_session is SciGameEngine) {
+        _sciEngine = _session;
       }
+    } else if (widget.engine != null) {
+      _agiEngine = widget.engine!;
+      _session = _agiEngine!;
     } else {
       final soundPlayer = AgiSoundPlayer();
-      _engine = AgiGameEngine(
+      _agiEngine = AgiGameEngine(
         resourceLoader: widget.resourceLoader,
         soundPlayer: soundPlayer,
       );
-
-      if (initSettings != null) {
-        _engine.setSoundMode(initSettings.audio.soundMode);
-        _engine.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
-        _engine.isAiEnabled = initSettings.ai.enabled;
-        _engine.aiApiKey = initSettings.ai.apiKey;
-        _engine.aiModel = initSettings.ai.model;
-      }
-
-      _engine.initializeGame(startingRoom: widget.startingRoom);
-      _engine.start();
+      _session = _agiEngine!;
     }
 
-    _engine.onSaveGameRequested = () => SaveLoadDialog.showSave(context, _engine);
-    _engine.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, _engine);
-    _engine.onRestartGameRequested = () => SaveLoadDialog.showRestartConfirmation(context, _engine);
+    if (_agiEngine != null) {
+      final agi = _agiEngine!;
+      if (initSettings != null) {
+        agi.setSoundMode(initSettings.audio.soundMode);
+        agi.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+        agi.isAiEnabled = initSettings.ai.enabled;
+        agi.aiApiKey = initSettings.ai.apiKey;
+        agi.aiModel = initSettings.ai.model;
+      }
+
+      if (widget.engine == null && widget.session == null) {
+        agi.initializeGame(startingRoom: widget.startingRoom);
+        agi.start();
+      }
+
+      agi.onSaveGameRequested = () => SaveLoadDialog.showSave(context, agi);
+      agi.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, agi);
+      agi.onRestartGameRequested = () => SaveLoadDialog.showRestartConfirmation(context, agi);
+    } else {
+      _session.start();
+    }
   }
 
   @override
   void dispose() {
-    if (widget.engine == null) {
-      _engine.dispose();
-      _engine.soundPlayer.dispose();
+    if (widget.engine == null && widget.session == null) {
+      _session.dispose();
+      _agiEngine?.soundPlayer.dispose();
     }
     _gameFocusNode.dispose();
     super.dispose();
@@ -125,32 +141,35 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _commandHistory.add(cmd);
       _historyIndex = _commandHistory.length;
 
-      // Debug warp: intercepted here, before WORDS.TOK / said().
-      // Bang-prefix so it can never collide with a real vocabulary word.
-      final lower = cmd.toLowerCase();
-      if (lower.startsWith('!tp')) {
-        final rest = cmd.substring(3).trim();
-        final targetRoom = int.tryParse(rest.split(RegExp(r'\s+')).first);
-        if (targetRoom != null && targetRoom >= 0 && targetRoom <= 255) {
-          _engine.changeRoom(targetRoom);
-          _engine.tick();
-          _engine.recordCheckpoint(label: 'Teleport to Room $targetRoom');
-          setState(() {
-            _currentInputText = '';
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('🚀 Teleported to Room $targetRoom',
-                  style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
-              backgroundColor: const Color(0xFF0284C7),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-          return;
+      final agi = _agiEngine;
+      if (agi != null) {
+        // Debug warp: intercepted here, before WORDS.TOK / said().
+        // Bang-prefix so it can never collide with a real vocabulary word.
+        final lower = cmd.toLowerCase();
+        if (lower.startsWith('!tp')) {
+          final rest = cmd.substring(3).trim();
+          final targetRoom = int.tryParse(rest.split(RegExp(r'\s+')).first);
+          if (targetRoom != null && targetRoom >= 0 && targetRoom <= 255) {
+            agi.changeRoom(targetRoom);
+            agi.tick();
+            agi.recordCheckpoint(label: 'Teleport to Room $targetRoom');
+            setState(() {
+              _currentInputText = '';
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🚀 Teleported to Room $targetRoom',
+                    style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
+                backgroundColor: const Color(0xFF0284C7),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            return;
+          }
         }
       }
 
-      _engine.submitCommand(cmd);
+      _session.submitCommand(cmd);
       setState(() {
         _currentInputText = '';
       });
@@ -193,210 +212,225 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.handled;
 
-    // 0. If interactive input prompt is open (e.g. get.string / get.num), handle typing and submission regardless of focus
-    if (_engine.activeInputPrompt != null) {
-      final prompt = _engine.activeInputPrompt!;
-      if (event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-        _engine.submitInputPrompt(prompt.currentText);
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.escape) {
-        _engine.cancelInputPrompt();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.backspace) {
-        if (prompt.currentText.isNotEmpty) {
-          final newText = prompt.currentText.substring(0, prompt.currentText.length - 1);
-          _engine.updateInputPrompt(newText);
+    final agi = _agiEngine;
+    if (agi != null) {
+      // 0. If interactive input prompt is open (e.g. get.string / get.num), handle typing and submission regardless of focus
+      if (agi.activeInputPrompt != null) {
+        final prompt = agi.activeInputPrompt!;
+        if (event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+          agi.submitInputPrompt(prompt.currentText);
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.escape) {
+          agi.cancelInputPrompt();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.backspace) {
+          if (prompt.currentText.isNotEmpty) {
+            final newText = prompt.currentText.substring(0, prompt.currentText.length - 1);
+            agi.updateInputPrompt(newText);
+          }
+          return KeyEventResult.handled;
+        }
+        if (event.character != null &&
+            event.character!.isNotEmpty &&
+            !HardwareKeyboard.instance.isControlPressed &&
+            !HardwareKeyboard.instance.isMetaPressed &&
+            !HardwareKeyboard.instance.isAltPressed) {
+          final char = event.character!;
+          final code = char.codeUnitAt(0);
+          if (code >= 32 && code <= 126) {
+            if (prompt.type == AgiInputPromptType.number && (code < 48 || code > 57)) {
+              return KeyEventResult.handled; // ignore non-digit for numeric prompts
+            }
+            if (prompt.maxLen > 0 && prompt.currentText.length >= prompt.maxLen) {
+              return KeyEventResult.handled; // ignore when at max length
+            }
+            agi.updateInputPrompt(prompt.currentText + char);
+            return KeyEventResult.handled;
+          }
         }
         return KeyEventResult.handled;
       }
-      if (event.character != null &&
-          event.character!.isNotEmpty &&
-          !HardwareKeyboard.instance.isControlPressed &&
-          !HardwareKeyboard.instance.isMetaPressed &&
-          !HardwareKeyboard.instance.isAltPressed) {
-        final char = event.character!;
-        final code = char.codeUnitAt(0);
-        if (code >= 32 && code <= 126) {
-          if (prompt.type == AgiInputPromptType.number && (code < 48 || code > 57)) {
-            return KeyEventResult.handled; // ignore non-digit for numeric prompts
+
+      // 1. If modal text dialog is open, Enter/Space/Escape dismisses it
+      if (agi.activeDialog != null && agi.activeDialog!.isModal) {
+        if (event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+            event.logicalKey == LogicalKeyboardKey.space ||
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          final now = DateTime.now();
+          if (_lastDialogDismissTime == null || now.difference(_lastDialogDismissTime!).inMilliseconds > 150) {
+            _lastDialogDismissTime = now;
+            agi.dismissDialog();
           }
-          if (prompt.maxLen > 0 && prompt.currentText.length >= prompt.maxLen) {
-            return KeyEventResult.handled; // ignore when at max length
-          }
-          _engine.updateInputPrompt(prompt.currentText + char);
+        }
+        return KeyEventResult.handled;
+      }
+
+      // 2. If object inspection modal is open, Enter/Space/Escape dismisses it
+      if (agi.inspectingObjectNumber != null) {
+        if (event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+            event.logicalKey == LogicalKeyboardKey.space ||
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          agi.closeObjectInspection();
+        }
+        return KeyEventResult.handled;
+      }
+
+      // 3. If inventory dialog is open, Tab or Escape dismisses it; other keys handled by dialog
+      if (agi.isInventoryOpen) {
+        if (event.logicalKey == LogicalKeyboardKey.tab ||
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          agi.closeInventory();
+        }
+        return KeyEventResult.handled;
+      }
+
+      // 4. If full text screen is active (e.g. Help or About screen), any key sends keypress and ticks engine
+      if (agi.isTextScreen) {
+        agi.handleKeyPress(_getKeyCode(event));
+        agi.tick();
+        return KeyEventResult.handled;
+      }
+
+      // 4. If Menu system is open, route navigation and item selection
+      if (agi.isMenuOpen) {
+        if (event.logicalKey == LogicalKeyboardKey.escape) {
+          agi.closeMenu();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          agi.navigateMenuLeft();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          agi.navigateMenuRight();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+          agi.navigateMenuUp();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          agi.navigateMenuDown();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.home) {
+          agi.menuManager.navigateHome();
+          setState(() {});
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.end) {
+          agi.menuManager.navigateEnd();
+          setState(() {});
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.pageUp) {
+          agi.menuManager.navigatePageUp();
+          setState(() {});
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.pageDown) {
+          agi.menuManager.navigatePageDown();
+          setState(() {});
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+            event.logicalKey == LogicalKeyboardKey.space) {
+          agi.selectMenuItem();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.handled;
+      }
+
+      // 5. ESC opens Menu Bar (if menu is available and enabled)
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        if (_currentInputText.isNotEmpty) {
+          setState(() {
+            _currentInputText = '';
+          });
+          return KeyEventResult.handled;
+        } else if (agi.menuManager.isAvailable && agi.memory.getFlag(14)) {
+          agi.openMenu();
           return KeyEventResult.handled;
         }
       }
-      return KeyEventResult.handled;
-    }
 
-    // 1. If modal text dialog is open, Enter/Space/Escape dismisses it
-    if (_engine.activeDialog != null && _engine.activeDialog!.isModal) {
-      if (event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
-          event.logicalKey == LogicalKeyboardKey.space ||
-          event.logicalKey == LogicalKeyboardKey.escape) {
-        final now = DateTime.now();
-        if (_lastDialogDismissTime == null || now.difference(_lastDialogDismissTime!).inMilliseconds > 150) {
-          _lastDialogDismissTime = now;
-          _engine.dismissDialog();
-        }
+      // 6. Tab opens Inventory screen
+      if (event.logicalKey == LogicalKeyboardKey.tab) {
+        agi.openInventory();
+        return KeyEventResult.handled;
       }
-      return KeyEventResult.handled;
-    }
 
-    // 2. If object inspection modal is open, Enter/Space/Escape dismisses it
-    if (_engine.inspectingObjectNumber != null) {
-      if (event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
-          event.logicalKey == LogicalKeyboardKey.space ||
-          event.logicalKey == LogicalKeyboardKey.escape) {
-        _engine.closeObjectInspection();
-      }
-      return KeyEventResult.handled;
-    }
-
-    // 3. If inventory dialog is open, Tab or Escape dismisses it; other keys handled by dialog
-    if (_engine.isInventoryOpen) {
-      if (event.logicalKey == LogicalKeyboardKey.tab ||
-          event.logicalKey == LogicalKeyboardKey.escape) {
-        _engine.closeInventory();
-      }
-      return KeyEventResult.handled;
-    }
-
-    // 4. If full text screen is active (e.g. Help or About screen), any key sends keypress and ticks engine
-    if (_engine.isTextScreen) {
-      _engine.handleKeyPress(_getKeyCode(event));
-      _engine.tick();
-      return KeyEventResult.handled;
-    }
-
-    // 4. If Menu system is open, route navigation and item selection
-    if (_engine.isMenuOpen) {
-      if (event.logicalKey == LogicalKeyboardKey.escape) {
-        _engine.closeMenu();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        _engine.navigateMenuLeft();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        _engine.navigateMenuRight();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        _engine.navigateMenuUp();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        _engine.navigateMenuDown();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.home) {
-        _engine.menuManager.navigateHome();
-        setState(() {});
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.end) {
-        _engine.menuManager.navigateEnd();
-        setState(() {});
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.pageUp) {
-        _engine.menuManager.navigatePageUp();
-        setState(() {});
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.pageDown) {
-        _engine.menuManager.navigatePageDown();
-        setState(() {});
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
-          event.logicalKey == LogicalKeyboardKey.space) {
-        _engine.selectMenuItem();
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.handled;
-    }
-
-    // 5. ESC opens Menu Bar (if menu is available and enabled)
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      if (_currentInputText.isNotEmpty) {
-        setState(() {
-          _currentInputText = '';
-        });
-        return KeyEventResult.handled;
-      } else if (_engine.menuManager.isAvailable && _engine.memory.getFlag(14)) {
-        _engine.openMenu();
+      // Trigger registered controller shortcuts via set.key mappings
+      final controllerTriggered = agi.controllerManager.handleKeyEvent(event, agi.memory);
+      if (controllerTriggered) {
         return KeyEventResult.handled;
       }
     }
 
-    // 6. Tab opens Inventory screen
-    if (event.logicalKey == LogicalKeyboardKey.tab) {
-      _engine.openInventory();
-      return KeyEventResult.handled;
-    }
-
-    // 4. F12 or Ctrl+D / Cmd+D opens Debug Inspector
+    // F12 or Ctrl+D / Cmd+D opens Debug Inspector (AGI or SCI)
     if (event.logicalKey == LogicalKeyboardKey.f12 ||
         ((HardwareKeyboard.instance.isControlPressed ||
                 HardwareKeyboard.instance.isMetaPressed) &&
             event.logicalKey == LogicalKeyboardKey.keyD)) {
-      DebugInspectorDialog.show(context, _engine);
-      return KeyEventResult.handled;
+      if (agi != null) {
+        DebugInspectorDialog.show(context, agi);
+        return KeyEventResult.handled;
+      } else if (_sciEngine != null) {
+        SciDebugInspectorDialog.show(context, _sciEngine!);
+        return KeyEventResult.handled;
+      }
     }
 
-    // 3. Register key press on engine for `have.key()` and %v19 (LAST_CHAR)
-    _engine.handleKeyPress(_getKeyCode(event));
-
-    // 4. Trigger registered controller shortcuts via set.key mappings
-    final controllerTriggered = _engine.controllerManager.handleKeyEvent(event, _engine.memory);
-    if (controllerTriggered) {
-      return KeyEventResult.handled;
-    }
-
-    // 5. Direction controls ALWAYS control Ego
+    // 5. Direction controls ALWAYS control Ego/Session
     switch (event.logicalKey) {
       case LogicalKeyboardKey.arrowUp:
       case LogicalKeyboardKey.numpad8:
-        _engine.setEgoDirection(1);
+        _session.handleDirection(1);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.numpad9:
-        _engine.setEgoDirection(2);
+        _session.handleDirection(2);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowRight:
       case LogicalKeyboardKey.numpad6:
-        _engine.setEgoDirection(3);
+        _session.handleDirection(3);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.numpad3:
-        _engine.setEgoDirection(4);
+        _session.handleDirection(4);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowDown:
       case LogicalKeyboardKey.numpad2:
-        _engine.setEgoDirection(5);
+        _session.handleDirection(5);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.numpad1:
-        _engine.setEgoDirection(6);
+        _session.handleDirection(6);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowLeft:
       case LogicalKeyboardKey.numpad4:
-        _engine.setEgoDirection(7);
+        _session.handleDirection(7);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.numpad7:
-        _engine.setEgoDirection(8);
+        _session.handleDirection(8);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.numpad5:
-        _engine.setEgoDirection(0); // Stop
+        _session.handleDirection(0); // Stop
         return KeyEventResult.handled;
     }
+
+    // Register key press on session
+    final rawKey = _getKeyCode(event);
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+    final isCtrl = HardwareKeyboard.instance.isControlPressed;
+    final isAlt = HardwareKeyboard.instance.isAltPressed;
+    final ascii = (event.character != null && event.character!.isNotEmpty)
+        ? event.character!.codeUnitAt(0)
+        : rawKey;
+    _session.handleKeyPress(rawKey, ascii: ascii, shift: isShift, ctrl: isCtrl, alt: isAlt);
 
     // 6. Command history navigation via PageUp/PageDown or F3
     if (event.logicalKey == LogicalKeyboardKey.pageUp ||
@@ -409,7 +443,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     }
 
     // 7. Command prompt input (when input is enabled)
-    if (_engine.isInputEnabled) {
+    if (_session.isInputEnabled) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter) {
         _handleSubmitCommand();
@@ -480,12 +514,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    try {
-      final settings = ref.watch(settingsProvider);
-      _engine.isAiEnabled = settings.ai.enabled;
-      _engine.aiApiKey = settings.ai.apiKey;
-      _engine.aiModel = settings.ai.model;
-    } catch (_) {}
+    if (_agiEngine != null) {
+      try {
+        final settings = ref.watch(settingsProvider);
+        _agiEngine!.isAiEnabled = settings.ai.enabled;
+        _agiEngine!.aiApiKey = settings.ai.apiKey;
+        _agiEngine!.aiModel = settings.ai.model;
+      } catch (_) {}
+    }
 
     return Focus(
       focusNode: _gameFocusNode,
@@ -499,7 +535,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               _buildLeftSidebar(),
               _openPanelTab != null
                   ? ListenableBuilder(
-                      listenable: _engine,
+                      listenable: _session,
                       builder: (context, _) => _buildSlideoutPanel(),
                     )
                   : _buildSlideoutPanel(),
@@ -509,12 +545,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Playfield paints from the engine listenable; it is not
-                      // rebuilt on every AGI tick (see GamePlayfieldWidget).
+                      // Playfield paints from the session listenable; it is not
+                      // rebuilt on every tick (see GamePlayfieldWidget).
                       Positioned.fill(
                         child: RepaintBoundary(
                           child: GamePlayfieldWidget(
-                            engine: _engine,
+                            session: _session,
+                            engine: _agiEngine,
                             renderMode: _renderMode,
                             showCrtShader: _showCrtShader,
                             showPixelGrid: _showPixelGrid,
@@ -525,56 +562,58 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                           ),
                         ),
                       ),
-                      ListenableBuilder(
-                        listenable: _engine,
-                        builder: (context, _) {
-                          return Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (_engine.activeDialog != null)
-                                Positioned.fill(
-                                  child: DialogBoxWidget(
-                                    dialogState: _engine.activeDialog!,
-                                    onDismiss: _engine.dismissDialog,
-                                    correctAspectRatio: _correctAspectRatio,
-                                    strictIntegerScaling: _strictIntegerScaling,
+                      if (_agiEngine != null)
+                        ListenableBuilder(
+                          listenable: _agiEngine!,
+                          builder: (context, _) {
+                            final agi = _agiEngine!;
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (agi.activeDialog != null)
+                                  Positioned.fill(
+                                    child: DialogBoxWidget(
+                                      dialogState: agi.activeDialog!,
+                                      onDismiss: agi.dismissDialog,
+                                      correctAspectRatio: _correctAspectRatio,
+                                      strictIntegerScaling: _strictIntegerScaling,
+                                    ),
                                   ),
-                                ),
-                              if (_engine.activeInputPrompt != null)
-                                Positioned.fill(
-                                  child: InputPromptDialog(
-                                    promptState: _engine.activeInputPrompt!,
-                                    onChanged: _engine.updateInputPrompt,
-                                    onSubmit: _engine.submitInputPrompt,
-                                    onCancel: _engine.cancelInputPrompt,
+                                if (agi.activeInputPrompt != null)
+                                  Positioned.fill(
+                                    child: InputPromptDialog(
+                                      promptState: agi.activeInputPrompt!,
+                                      onChanged: agi.updateInputPrompt,
+                                      onSubmit: agi.submitInputPrompt,
+                                      onCancel: agi.cancelInputPrompt,
+                                    ),
                                   ),
-                                ),
-                              if (_engine.isInventoryOpen &&
-                                  _engine.inspectingObjectNumber == null)
-                                Positioned.fill(
-                                  child: InventoryDialog(
-                                    engine: _engine,
-                                    onClose: () => _engine.closeInventory(),
-                                    onSelect: (selectedObj) =>
-                                        _engine.closeInventory(selectedObj),
-                                    correctAspectRatio: _correctAspectRatio,
-                                    strictIntegerScaling: _strictIntegerScaling,
+                                if (agi.isInventoryOpen &&
+                                    agi.inspectingObjectNumber == null)
+                                  Positioned.fill(
+                                    child: InventoryDialog(
+                                      engine: agi,
+                                      onClose: () => agi.closeInventory(),
+                                      onSelect: (selectedObj) =>
+                                          agi.closeInventory(selectedObj),
+                                      correctAspectRatio: _correctAspectRatio,
+                                      strictIntegerScaling: _strictIntegerScaling,
+                                    ),
                                   ),
-                                ),
-                              if (_engine.inspectingObjectNumber != null)
-                                Positioned.fill(
-                                  child: ObjectInspectionDialog(
-                                    engine: _engine,
-                                    objectNumber: _engine.inspectingObjectNumber!,
-                                    onClose: _engine.closeObjectInspection,
-                                    correctAspectRatio: _correctAspectRatio,
-                                    strictIntegerScaling: _strictIntegerScaling,
+                                if (agi.inspectingObjectNumber != null)
+                                  Positioned.fill(
+                                    child: ObjectInspectionDialog(
+                                      engine: agi,
+                                      objectNumber: agi.inspectingObjectNumber!,
+                                      onClose: agi.closeObjectInspection,
+                                      correctAspectRatio: _correctAspectRatio,
+                                      strictIntegerScaling: _strictIntegerScaling,
+                                    ),
                                   ),
-                                ),
-                            ],
-                          );
-                        },
-                      ),
+                              ],
+                            );
+                          },
+                        ),
                     ],
                   ),
                 ),
@@ -589,8 +628,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Widget _buildSlideoutPanel() {
     return SidebarSlideoutPanel(
       isOpen: _openPanelTab != null,
-      activeTab: _openPanelTab ?? SidebarPanelTab.audio,
-      engine: _engine,
+      activeTab: _openPanelTab ?? (_agiEngine != null ? SidebarPanelTab.audio : SidebarPanelTab.video),
+      engine: _agiEngine,
       onTabChanged: (tab) => setState(() => _openPanelTab = tab),
       onClose: () => setState(() => _openPanelTab = null),
       showCrtShader: _showCrtShader,
@@ -648,35 +687,35 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
           const Divider(height: 10, thickness: 1, color: AgiTheme.egaBorder),
 
-          // Pause / Play toggle & Single Step (scoped to engine state)
+          // Pause / Play toggle & Single Step (scoped to session state)
           ListenableBuilder(
-            listenable: _engine,
+            listenable: _session,
             builder: (context, _) {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     icon: Icon(
-                      _engine.isPaused ? Icons.play_arrow : Icons.pause,
+                      _session.isPaused ? Icons.play_arrow : Icons.pause,
                       size: 18,
-                      color: _engine.isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
+                      color: _session.isPaused ? AgiTheme.egaGreen : AgiTheme.egaAmber,
                     ),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     onPressed: () {
-                      if (_engine.isPaused) {
-                        _engine.resume();
+                      if (_session.isPaused) {
+                        _session.resume();
                       } else {
-                        _engine.pause();
+                        _session.pause();
                       }
                     },
-                    tooltip: _engine.isPaused ? 'Resume Engine' : 'Pause Engine',
+                    tooltip: _session.isPaused ? 'Resume Engine' : 'Pause Engine',
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_next, size: 18, color: AgiTheme.egaCyan),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
-                    onPressed: _engine.isPaused ? () => _engine.tick() : null,
+                    onPressed: _session.isPaused ? () => _session.tick() : null,
                     tooltip: 'Step Single Cycle',
                   ),
                 ],
@@ -686,105 +725,144 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
           // Save Game (F5)
           IconButton(
-            icon: const Icon(Icons.save_outlined, size: 18, color: Color(0xFF22C55E)),
+            icon: Icon(
+              Icons.save_outlined,
+              size: 18,
+              color: _agiEngine != null ? const Color(0xFF22C55E) : AgiTheme.egaMuted,
+            ),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: () => SaveLoadDialog.showSave(context, _engine),
-            tooltip: 'Save Game (F5)',
+            onPressed: _agiEngine != null
+                ? () => SaveLoadDialog.showSave(context, _agiEngine!)
+                : null,
+            tooltip: _agiEngine != null
+                ? 'Save Game (F5)'
+                : 'Save Game (F5) - Planned for Stage 15',
           ),
 
           // Restore Game (F7)
           IconButton(
-            icon: const Icon(Icons.folder_open_outlined, size: 18, color: AgiTheme.egaCyan),
+            icon: Icon(
+              Icons.folder_open_outlined,
+              size: 18,
+              color: _agiEngine != null ? AgiTheme.egaCyan : AgiTheme.egaMuted,
+            ),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: () => SaveLoadDialog.showRestore(context, _engine),
-            tooltip: 'Restore Game (F7)',
+            onPressed: _agiEngine != null
+                ? () => SaveLoadDialog.showRestore(context, _agiEngine!)
+                : null,
+            tooltip: _agiEngine != null
+                ? 'Restore Game (F7)'
+                : 'Restore Game (F7) - Planned for Stage 15',
           ),
 
           // Restart Game (F9)
           IconButton(
-            icon: const Icon(Icons.replay, size: 18, color: AgiTheme.egaRed),
+            icon: Icon(
+              Icons.replay,
+              size: 18,
+              color: _agiEngine != null ? AgiTheme.egaRed : AgiTheme.egaMuted,
+            ),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: () => SaveLoadDialog.showRestartConfirmation(context, _engine),
-            tooltip: 'Restart Game (F9)',
+            onPressed: _agiEngine != null
+                ? () => SaveLoadDialog.showRestartConfirmation(context, _agiEngine!)
+                : null,
+            tooltip: _agiEngine != null
+                ? 'Restart Game (F9)'
+                : 'Restart Game (F9) - Planned for Stage 15',
           ),
 
           const Divider(height: 10, thickness: 1, color: AgiTheme.egaBorder),
 
-          // Speed Selection
-          PopupMenuButton<double>(
-            initialValue: _engine.speedHz,
-            tooltip: 'Cycle Speed (${_engine.speedHz.toStringAsFixed(1)} Hz)',
-            icon: const Icon(Icons.speed, size: 18, color: AgiTheme.egaAmber),
-            padding: EdgeInsets.zero,
-            onSelected: (hz) => _engine.setSpeedHz(hz),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 10.0, child: Text('Slow (10 Hz / delay 3)')),
-              PopupMenuItem(value: 20.0, child: Text('Normal (20 Hz / delay 2)')),
-              PopupMenuItem(value: 30.0, child: Text('Fast (30 Hz / delay 1)')),
-              PopupMenuItem(value: 60.0, child: Text('Fastest (60 Hz / delay 0)')),
-            ],
-          ),
-
-          // Sound Options Slideout Button
+          // Speed Selection (Available for both AGI and SCI sessions)
           ListenableBuilder(
-            listenable: _engine,
+            listenable: _session,
             builder: (context, _) {
-              final isAudioOpen = _openPanelTab == SidebarPanelTab.audio;
-              IconData soundIcon;
-              Color soundColor;
-              String soundLabel;
-
-              if (!_engine.isSoundOn || _engine.soundMode == AgiSoundMode.off) {
-                soundIcon = Icons.volume_off;
-                soundColor = AgiTheme.egaMuted;
-                soundLabel = 'Sound: OFF';
-              } else {
-                switch (_engine.soundMode) {
-                  case AgiSoundMode.off:
-                    soundIcon = Icons.volume_off;
-                    soundColor = AgiTheme.egaMuted;
-                    soundLabel = 'Sound: OFF';
-                    break;
-                  case AgiSoundMode.ibmPc:
-                    soundIcon = Icons.speaker;
-                    soundColor = AgiTheme.egaAmber;
-                    soundLabel = 'Sound: IBM PC Speaker';
-                    break;
-                  case AgiSoundMode.pcJr:
-                    soundIcon = Icons.volume_down;
-                    soundColor = AgiTheme.egaCyan;
-                    soundLabel = 'Sound: PCjr / Tandy 3-Voice';
-                    break;
-                  case AgiSoundMode.enhanced:
-                    soundIcon = Icons.auto_awesome;
-                    soundColor = AgiTheme.egaMagenta;
-                    soundLabel = 'Sound: Enhanced Mode';
-                    break;
-                }
-              }
-
-              return Container(
-                decoration: BoxDecoration(
-                  color: isAudioOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: IconButton(
-                  icon: Icon(soundIcon, size: 18, color: soundColor),
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    setState(() {
-                      _openPanelTab = isAudioOpen ? null : SidebarPanelTab.audio;
-                    });
-                  },
-                  tooltip: '$soundLabel (Click for Audio Panel / F2 toggle)',
-                ),
+              return PopupMenuButton<double>(
+                initialValue: _session.speedHz,
+                tooltip: 'Cycle Speed (${_session.speedHz.toStringAsFixed(1)} Hz)',
+                icon: const Icon(Icons.speed, size: 18, color: AgiTheme.egaAmber),
+                padding: EdgeInsets.zero,
+                onSelected: (hz) => _session.setSpeedHz(hz),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 10.0, child: Text('Slow (10 Hz / delay 3)')),
+                  PopupMenuItem(value: 20.0, child: Text('Normal (20 Hz / delay 2)')),
+                  PopupMenuItem(value: 30.0, child: Text('Fast (30 Hz / delay 1)')),
+                  PopupMenuItem(value: 60.0, child: Text('Fastest (60 Hz / delay 0)')),
+                ],
               );
             },
           ),
+
+          // Sound Options Slideout Button
+          if (_agiEngine != null) ...[
+            ListenableBuilder(
+              listenable: _agiEngine!,
+              builder: (context, _) {
+                final isAudioOpen = _openPanelTab == SidebarPanelTab.audio;
+                IconData soundIcon;
+                Color soundColor;
+                String soundLabel;
+
+                if (!_agiEngine!.isSoundOn || _agiEngine!.soundMode == AgiSoundMode.off) {
+                  soundIcon = Icons.volume_off;
+                  soundColor = AgiTheme.egaMuted;
+                  soundLabel = 'Sound: OFF';
+                } else {
+                  switch (_agiEngine!.soundMode) {
+                    case AgiSoundMode.off:
+                      soundIcon = Icons.volume_off;
+                      soundColor = AgiTheme.egaMuted;
+                      soundLabel = 'Sound: OFF';
+                      break;
+                    case AgiSoundMode.ibmPc:
+                      soundIcon = Icons.speaker;
+                      soundColor = AgiTheme.egaAmber;
+                      soundLabel = 'Sound: IBM PC Speaker';
+                      break;
+                    case AgiSoundMode.pcJr:
+                      soundIcon = Icons.volume_down;
+                      soundColor = AgiTheme.egaCyan;
+                      soundLabel = 'Sound: PCjr / Tandy 3-Voice';
+                      break;
+                    case AgiSoundMode.enhanced:
+                      soundIcon = Icons.auto_awesome;
+                      soundColor = AgiTheme.egaMagenta;
+                      soundLabel = 'Sound: Enhanced Mode';
+                      break;
+                  }
+                }
+
+                return Container(
+                  decoration: BoxDecoration(
+                    color: isAudioOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: IconButton(
+                    icon: Icon(soundIcon, size: 18, color: soundColor),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      setState(() {
+                        _openPanelTab = isAudioOpen ? null : SidebarPanelTab.audio;
+                      });
+                    },
+                    tooltip: '$soundLabel (Click for Audio Panel / F2 toggle)',
+                  ),
+                );
+              },
+            ),
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.volume_off, size: 18, color: AgiTheme.egaMuted),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: null,
+              tooltip: 'Sound: OFF (Planned for Stage 12)',
+            ),
+          ],
 
           // Display / Video Options Slideout Button
           Builder(
@@ -816,105 +894,148 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             },
           ),
 
-          // AI Command Parser Slideout Button
-          ListenableBuilder(
-            listenable: _engine,
-            builder: (context, _) {
-              final isAiOpen = _openPanelTab == SidebarPanelTab.ai;
-              final isAiEnabled = _engine.isAiEnabled;
-              return Container(
-                decoration: BoxDecoration(
-                  color: isAiOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: IconButton(
+          if (_agiEngine != null) ...[
+            // AI Command Parser Slideout Button
+            ListenableBuilder(
+              listenable: _agiEngine!,
+              builder: (context, _) {
+                final isAiOpen = _openPanelTab == SidebarPanelTab.ai;
+                final isAiEnabled = _agiEngine!.isAiEnabled;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: isAiOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.auto_awesome,
+                      size: 18,
+                      color: isAiOpen
+                          ? AgiTheme.egaWhite
+                          : (isAiEnabled ? AgiTheme.egaCyan : AgiTheme.egaMuted),
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      setState(() {
+                        _openPanelTab = isAiOpen ? null : SidebarPanelTab.ai;
+                      });
+                    },
+                    tooltip: isAiEnabled
+                        ? 'AI Commands: ON (Click for AI Options)'
+                        : 'AI Commands: OFF (Click for AI Options)',
+                  ),
+                );
+              },
+            ),
+
+            const Spacer(),
+
+            // Restore last manual checkpoint, or last room-entry if none exist.
+            ListenableBuilder(
+              listenable: _agiEngine!,
+              builder: (context, _) {
+                final snap = _agiEngine!.lastRetryCheckpoint;
+                return IconButton(
                   icon: Icon(
-                    Icons.auto_awesome,
+                    Icons.restore,
                     size: 18,
-                    color: isAiOpen
-                        ? AgiTheme.egaWhite
-                        : (isAiEnabled ? AgiTheme.egaCyan : AgiTheme.egaMuted),
+                    color: snap == null ? AgiTheme.egaMuted : AgiTheme.egaAmber,
                   ),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
-                  onPressed: () {
-                    setState(() {
-                      _openPanelTab = isAiOpen ? null : SidebarPanelTab.ai;
-                    });
-                  },
-                  tooltip: isAiEnabled
-                      ? 'AI Commands: ON (Click for AI Options)'
-                      : 'AI Commands: OFF (Click for AI Options)',
-                ),
-              );
-            },
-          ),
-
-          const Spacer(),
-
-          // Restore last manual checkpoint, or last room-entry if none exist.
-          ListenableBuilder(
-            listenable: _engine,
-            builder: (context, _) {
-              final snap = _engine.lastRetryCheckpoint;
-              return IconButton(
-                icon: Icon(
-                  Icons.restore,
-                  size: 18,
-                  color: snap == null ? AgiTheme.egaMuted : AgiTheme.egaAmber,
-                ),
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                onPressed: snap == null
-                    ? null
-                    : () {
-                        final label = snap.label;
-                        _engine.restoreLastRetryCheckpoint();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Restored: $label',
-                              style: const TextStyle(fontFamily: 'Courier', fontSize: 12),
+                  onPressed: snap == null
+                      ? null
+                      : () {
+                          final label = snap.label;
+                          _agiEngine!.restoreLastRetryCheckpoint();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Restored: $label',
+                                style: const TextStyle(fontFamily: 'Courier', fontSize: 12),
+                              ),
+                              duration: const Duration(seconds: 2),
+                              backgroundColor: AgiTheme.egaCardSurface,
                             ),
-                            duration: const Duration(seconds: 2),
-                            backgroundColor: AgiTheme.egaCardSurface,
-                          ),
-                        );
-                      },
-                tooltip: snap == null
-                    ? 'Restore last checkpoint (none yet)'
-                    : 'Restore: ${snap.label}',
-              );
-            },
-          ),
+                          );
+                        },
+                  tooltip: snap == null
+                      ? 'Restore last checkpoint (none yet)'
+                      : 'Restore: ${snap.label}',
+                );
+              },
+            ),
 
-          // Quick-Capture Checkpoint Snapshot (Instant save-state)
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined, size: 18, color: AgiTheme.egaCyan),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              final snap = _engine.recordCheckpoint();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('📸 Captured: ${snap.label}',
-                      style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
-                  duration: const Duration(seconds: 2),
-                  backgroundColor: AgiTheme.egaCardSurface,
-                ),
-              );
-            },
-            tooltip: 'Quick-Capture Checkpoint Snapshot',
-          ),
+            // Quick-Capture Checkpoint Snapshot (Instant save-state)
+            IconButton(
+              icon: const Icon(Icons.camera_alt_outlined, size: 18, color: AgiTheme.egaCyan),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                final snap = _agiEngine!.recordCheckpoint();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('📸 Captured: ${snap.label}',
+                        style: const TextStyle(fontFamily: 'Courier', fontSize: 12)),
+                    duration: const Duration(seconds: 2),
+                    backgroundColor: AgiTheme.egaCardSurface,
+                  ),
+                );
+              },
+              tooltip: 'Quick-Capture Checkpoint Snapshot',
+            ),
 
-          // Debug Inspector & Checkpoint button (F12)
-          IconButton(
-            icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            onPressed: () => DebugInspectorDialog.show(context, _engine),
-            tooltip: 'Debug Inspector & Checkpoints (F12)',
-          ),
+            // Debug Inspector & Checkpoint button (F12)
+            IconButton(
+              icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: () => DebugInspectorDialog.show(context, _agiEngine!),
+              tooltip: 'Debug Inspector & Checkpoints (F12)',
+            ),
+          ] else if (_sciEngine != null) ...[
+            const Spacer(),
+
+            // Restore last checkpoint (disabled for SCI)
+            IconButton(
+              icon: const Icon(Icons.restore, size: 18, color: AgiTheme.egaMuted),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: null,
+              tooltip: 'Checkpoints - Planned for Stage 15',
+            ),
+
+            // Copy State JSON Snapshot (Instant diagnostic capture)
+            IconButton(
+              icon: const Icon(Icons.camera_alt_outlined, size: 18, color: AgiTheme.egaCyan),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                final json = _sciEngine!.exportStateJson(pretty: true);
+                Clipboard.setData(ClipboardData(text: json));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('📸 SCI Engine State JSON copied to clipboard!',
+                        style: TextStyle(fontFamily: 'Courier', fontSize: 12)),
+                    duration: Duration(seconds: 2),
+                    backgroundColor: AgiTheme.egaCardSurface,
+                  ),
+                );
+              },
+              tooltip: 'Copy State JSON Snapshot',
+            ),
+
+            // SCI Debug Inspector button (F12)
+            IconButton(
+              icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: () => SciDebugInspectorDialog.show(context, _sciEngine!),
+              tooltip: 'SCI Debug Inspector (F12)',
+            ),
+          ] else
+            const Spacer(),
 
           const SizedBox(height: 6),
         ],

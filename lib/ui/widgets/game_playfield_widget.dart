@@ -3,21 +3,24 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/sierra_cursor.dart';
+import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
+import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
-/// Interactive composite playfield viewport for the running AGI Game Engine.
+/// Interactive composite playfield viewport for the running Sierra Game Engine.
 ///
-/// Composites 16 Impeller priority depth slices with active actor sprites
+/// Composites Impeller priority depth slices with active actor sprites
 /// in authentic Z-order, with optional CRT shader overlays and diagnostic maps.
 class GamePlayfieldWidget extends StatefulWidget {
-  final AgiGameEngine engine;
+  final AgiGameEngine? engine;
+  final SierraGameSession? session;
   final AgiPictureRenderMode renderMode;
   final bool showCrtShader;
   final bool showPixelGrid;
@@ -42,7 +45,8 @@ class GamePlayfieldWidget extends StatefulWidget {
 
   const GamePlayfieldWidget({
     super.key,
-    required this.engine,
+    this.engine,
+    this.session,
     this.renderMode = AgiPictureRenderMode.compositedSlices,
     this.showCrtShader = false,
     this.showPixelGrid = false,
@@ -56,7 +60,7 @@ class GamePlayfieldWidget extends StatefulWidget {
     this.mouseCursor,
     this.showMouseCursor = false,
     this.sciWindows = const [],
-  });
+  }) : assert(engine != null || session != null, 'Either engine or session must be provided');
 
   @override
   State<GamePlayfieldWidget> createState() => _GamePlayfieldWidgetState();
@@ -68,19 +72,25 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   final ValueNotifier<bool> _cursorBlink = ValueNotifier<bool>(true);
   Timer? _blinkTimer;
   late Listenable _repaint;
-  AgiPic? _trackedPic;
+  SierraPicture? _trackedPic;
   AgiPictureRenderMode? _trackedMode;
   Offset? _mousePosition;
+
+  SierraGameSession get _session => widget.session ?? widget.engine!;
+  AgiGameEngine? get _agiEngine =>
+      widget.engine ?? (widget.session is AgiGameEngine ? widget.session as AgiGameEngine : null);
 
   @override
   void initState() {
     super.initState();
-    _repaint = Listenable.merge([widget.engine, _cursorBlink]);
-    widget.engine.addListener(_onEngineNotify);
-    widget.engine.atlasManager.onAtlasUpdated = () {
-      if (mounted) setState(() {});
-    };
-    widget.engine.atlasManager.prepareAtlasAsync();
+    _repaint = Listenable.merge([_session, _cursorBlink]);
+    _session.addListener(_onEngineNotify);
+    if (_agiEngine != null) {
+      _agiEngine!.atlasManager.onAtlasUpdated = () {
+        if (mounted) setState(() {});
+      };
+      _agiEngine!.atlasManager.prepareAtlasAsync();
+    }
     _onEngineNotify();
     _blinkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       _cursorBlink.value = !_cursorBlink.value;
@@ -90,32 +100,40 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   @override
   void didUpdateWidget(covariant GamePlayfieldWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.engine != widget.engine) {
-      oldWidget.engine.removeListener(_onEngineNotify);
-      oldWidget.engine.atlasManager.onAtlasUpdated = null;
-      widget.engine.addListener(_onEngineNotify);
-      _repaint = Listenable.merge([widget.engine, _cursorBlink]);
-      widget.engine.atlasManager.onAtlasUpdated = () {
-        if (mounted) setState(() {});
-      };
-      widget.engine.atlasManager.prepareAtlasAsync();
+    final oldSession = oldWidget.session ?? oldWidget.engine!;
+    final curSession = _session;
+    if (oldSession != curSession) {
+      oldSession.removeListener(_onEngineNotify);
+      if (oldWidget.engine != null) {
+        oldWidget.engine!.atlasManager.onAtlasUpdated = null;
+      }
+      curSession.addListener(_onEngineNotify);
+      _repaint = Listenable.merge([curSession, _cursorBlink]);
+      if (_agiEngine != null) {
+        _agiEngine!.atlasManager.onAtlasUpdated = () {
+          if (mounted) setState(() {});
+        };
+        _agiEngine!.atlasManager.prepareAtlasAsync();
+      }
     }
     if (oldWidget.renderMode != widget.renderMode ||
-        oldWidget.engine.currentPic != widget.engine.currentPic) {
+        oldSession.currentPic != curSession.currentPic) {
       _onEngineNotify();
     }
   }
 
   void _onEngineNotify() {
-    final pic = widget.engine.currentPic;
+    final pic = _session.currentPic;
     final mode = widget.renderMode;
     if (pic == _trackedPic && mode == _trackedMode) return;
     _trackedPic = pic;
     _trackedMode = mode;
-    _ensureRenderModeTextureLoaded(pic, mode);
+    if (pic != null) {
+      _ensureRenderModeTextureLoaded(pic, mode);
+    }
   }
 
-  void _ensureRenderModeTextureLoaded(AgiPic? pic, AgiPictureRenderMode mode) {
+  void _ensureRenderModeTextureLoaded(SierraPicture? pic, AgiPictureRenderMode mode) {
     if (pic == null) return;
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
@@ -129,6 +147,16 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         }
         break;
       case AgiPictureRenderMode.unditheredVisual:
+        if (pic is SciPic && pic.cachedUnditheredVisualImage == null) {
+          pic.toFlatVisualUiImage(undithered: true).then((_) {
+            if (mounted) setState(() {});
+          });
+        } else if (pic.cachedFlatVisualImage == null) {
+          pic.toFlatVisualUiImage().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+        break;
       case AgiPictureRenderMode.flatVisual:
         if (pic.cachedFlatVisualImage == null) {
           pic.toFlatVisualUiImage().then((_) {
@@ -160,8 +188,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   @override
   void dispose() {
-    widget.engine.removeListener(_onEngineNotify);
-    widget.engine.atlasManager.onAtlasUpdated = null;
+    _session.removeListener(_onEngineNotify);
+    if (_agiEngine != null) {
+      _agiEngine!.atlasManager.onAtlasUpdated = null;
+    }
     _blinkTimer?.cancel();
     for (final img in _spriteTextureCache.values) {
       img.dispose();
@@ -216,15 +246,18 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             width: playfieldWidth,
             height: playfieldHeight,
             child: MouseRegion(
-              cursor: widget.showMouseCursor ? SystemMouseCursors.none : MouseCursor.defer,
+              cursor: (widget.showMouseCursor || _session.showMouseCursor)
+                  ? SystemMouseCursors.none
+                  : MouseCursor.defer,
               onHover: (event) {
-                if (!widget.showMouseCursor) return;
+                if (!widget.showMouseCursor && !_session.showMouseCursor) return;
                 if (playfieldWidth > 0 && playfieldHeight > 0) {
                   final normX = event.localPosition.dx / playfieldWidth;
                   final normY = event.localPosition.dy / playfieldHeight;
+                  final profile = widget.displayProfile ?? _session.displayProfile;
                   final next = Offset(
-                    (normX * AgiDisplay.renderedWidth).floorToDouble(),
-                    (normY * AgiDisplay.renderedHeight).floorToDouble(),
+                    (normX * profile.width).floorToDouble(),
+                    (normY * profile.height).floorToDouble(),
                   );
                   if (_mousePosition == next) return;
                   setState(() {
@@ -233,7 +266,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                 }
               },
               onExit: (_) {
-                if (!widget.showMouseCursor) return;
+                if (!widget.showMouseCursor && !_session.showMouseCursor) return;
                 if (_mousePosition != null) {
                   setState(() {
                     _mousePosition = null;
@@ -243,91 +276,97 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
               child: GestureDetector(
               onTapUp: (details) {
                 if (playfieldWidth > 0 && playfieldHeight > 0) {
+                  final agi = _agiEngine;
                   // 0. If full text screen is active (e.g. Help or About screen), tap dismisses it
-                  if (widget.engine.isTextScreen) {
-                    widget.engine.handleKeyPress(13);
-                    widget.engine.tick();
+                  if (agi != null && agi.isTextScreen) {
+                    agi.handleKeyPress(13);
+                    agi.tick();
                     return;
                   }
 
                   final localPos = details.localPosition;
                   final normX = localPos.dx / playfieldWidth;
                   final normY = localPos.dy / playfieldHeight;
-                  final screenX = normX * AgiDisplay.renderedWidth;
-                  final screenY = normY * AgiDisplay.renderedHeight;
+                  final profile = widget.displayProfile ?? _session.displayProfile;
+                  final screenX = normX * profile.width;
+                  final screenY = normY * profile.height;
                   final charCol = (screenX / 8.0).floor();
                   final charRow = (screenY / 8.0).floor();
 
-                  // 1. Top Bar Tap Handling (Row 0: Status Line / Menu Bar)
-                  if (charRow == 0) {
-                    if (!widget.engine.isMenuOpen) {
-                      if (widget.engine.menuManager.isAvailable && widget.engine.memory.getFlag(14)) {
-                        int targetMenu = 0;
-                        for (int i = 0; i < widget.engine.menuManager.menus.length; i++) {
-                          final m = widget.engine.menuManager.menus[i];
+                  if (agi != null) {
+                    // 1. Top Bar Tap Handling (Row 0: Status Line / Menu Bar)
+                    if (charRow == 0) {
+                      if (!agi.isMenuOpen) {
+                        if (agi.menuManager.isAvailable && agi.memory.getFlag(14)) {
+                          int targetMenu = 0;
+                          for (int i = 0; i < agi.menuManager.menus.length; i++) {
+                            final m = agi.menuManager.menus[i];
+                            if (charCol >= m.column - 1 && charCol < m.column + m.name.length + 1) {
+                              targetMenu = i;
+                              break;
+                            }
+                          }
+                          agi.openMenu(menuIndex: targetMenu);
+                        }
+                      } else {
+                        bool tappedHeader = false;
+                        for (int i = 0; i < agi.menuManager.menus.length; i++) {
+                          final m = agi.menuManager.menus[i];
                           if (charCol >= m.column - 1 && charCol < m.column + m.name.length + 1) {
-                            targetMenu = i;
+                            agi.menuManager.setActiveMenu(i);
+                            tappedHeader = true;
                             break;
                           }
                         }
-                        widget.engine.openMenu(menuIndex: targetMenu);
-                      }
-                    } else {
-                      bool tappedHeader = false;
-                      for (int i = 0; i < widget.engine.menuManager.menus.length; i++) {
-                        final m = widget.engine.menuManager.menus[i];
-                        if (charCol >= m.column - 1 && charCol < m.column + m.name.length + 1) {
-                          widget.engine.menuManager.setActiveMenu(i);
-                          tappedHeader = true;
-                          break;
+                        if (!tappedHeader) {
+                          agi.closeMenu();
                         }
                       }
-                      if (!tappedHeader) {
-                        widget.engine.closeMenu();
-                      }
+                      return;
                     }
-                    return;
-                  }
 
-                  // 2. Dropdown Menu Tap Handling (when menu is active)
-                  if (charRow > 0 && widget.engine.isMenuOpen) {
-                    final activeMenu = widget.engine.menuManager.activeMenu;
-                    if (activeMenu != null && activeMenu.items.isNotEmpty) {
-                      final maxLen = math.max(activeMenu.maxItemTextLength, 10);
-                      final col = activeMenu.items.first.column;
-                      final boxWidth = (maxLen + 2) * 8.0;
-                      final boxHeight = (activeMenu.items.length + 1) * 8.0;
-                      final left = ((col - 1) * 8.0).clamp(0.0, 320.0 - boxWidth);
-                      final right = left + boxWidth;
-                      const top = 8.0;
-                      final bottom = top + boxHeight;
+                    // 2. Dropdown Menu Tap Handling (when menu is active)
+                    if (charRow > 0 && agi.isMenuOpen) {
+                      final activeMenu = agi.menuManager.activeMenu;
+                      if (activeMenu != null && activeMenu.items.isNotEmpty) {
+                        final maxLen = math.max(activeMenu.maxItemTextLength, 10);
+                        final col = activeMenu.items.first.column;
+                        final boxWidth = (maxLen + 2) * 8.0;
+                        final boxHeight = (activeMenu.items.length + 1) * 8.0;
+                        final left = ((col - 1) * 8.0).clamp(0.0, 320.0 - boxWidth);
+                        final right = left + boxWidth;
+                        const top = 8.0;
+                        final bottom = top + boxHeight;
 
-                      if (screenX >= left && screenX <= right && screenY >= top && screenY <= bottom) {
-                        final itemIndex = ((screenY - top) / 8.0).floor();
-                        if (itemIndex >= 0 && itemIndex < activeMenu.items.length) {
-                          final item = activeMenu.items[itemIndex];
-                          if (!item.isSeparator && item.isEnabled) {
-                            widget.engine.menuManager.setSelectedItemIndex(itemIndex);
-                            widget.engine.selectMenuItem();
-                            return;
+                        if (screenX >= left && screenX <= right && screenY >= top && screenY <= bottom) {
+                          final itemIndex = ((screenY - top) / 8.0).floor();
+                          if (itemIndex >= 0 && itemIndex < activeMenu.items.length) {
+                            final item = activeMenu.items[itemIndex];
+                            if (!item.isSeparator && item.isEnabled) {
+                              agi.menuManager.setSelectedItemIndex(itemIndex);
+                              agi.selectMenuItem();
+                              return;
+                            }
                           }
+                        } else {
+                          agi.closeMenu();
+                          return;
                         }
                       } else {
-                        widget.engine.closeMenu();
+                        agi.closeMenu();
                         return;
                       }
-                    } else {
-                      widget.engine.closeMenu();
-                      return;
                     }
                   }
 
                   // 3. Playfield Canvas Tap
                   if (widget.onCanvasTap != null) {
                     final agiX = (screenX / 2.0).clamp(0.0, (AgiPic.nativeWidth - 1).toDouble());
-                    final agiY = (screenY - widget.engine.playfieldRow * 8.0).clamp(0.0, (AgiPic.nativeHeight - 1).toDouble());
+                    final agiY = (screenY - (agi?.playfieldRow ?? 0) * 8.0).clamp(0.0, (AgiPic.nativeHeight - 1).toDouble());
                     widget.onCanvasTap!(Offset(agiX, agiY));
                   }
+
+                  _session.handleMouseClick(Offset(screenX, screenY));
                 }
               },
               child: Container(
@@ -338,18 +377,19 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                     RepaintBoundary(
                       child: CustomPaint(
                         painter: _GamePlayfieldPainter(
-                          engine: widget.engine,
+                          session: _session,
+                          agiEngine: _agiEngine,
                           renderMode: widget.renderMode,
                           showPixelGrid: widget.showPixelGrid,
                           renderBlackTextBackgrounds: widget.renderBlackTextBackgrounds,
                           isolatedPrioritySlice: widget.isolatedPrioritySlice,
                           cursorBlink: _cursorBlink,
                           buildActors: _buildActorSprites,
-                          displayProfile: widget.displayProfile,
-                          sciWindows: widget.sciWindows,
-                          mouseCursor: widget.mouseCursor,
-                          mouseCursorPosition: _mousePosition,
-                          showMouseCursor: widget.showMouseCursor,
+                          displayProfile: widget.displayProfile ?? _session.displayProfile,
+                          sciWindows: widget.sciWindows.isNotEmpty ? widget.sciWindows : _session.sciWindows,
+                          mouseCursor: widget.mouseCursor ?? _session.mouseCursor,
+                          mouseCursorPosition: _mousePosition ?? _session.mouseCursorPosition,
+                          showMouseCursor: widget.showMouseCursor || _session.showMouseCursor,
                           repaint: _repaint,
                         ),
                         isComplex: true,
@@ -366,17 +406,18 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                     ListenableBuilder(
                       listenable: _repaint,
                       builder: (context, _) {
-                        if (!widget.engine.isInputEnabled) {
+                        if (!_session.isInputEnabled) {
                           return const SizedBox.shrink();
                         }
+                        final row = _agiEngine?.inputRow ?? 24;
                         return Positioned(
-                          top: (widget.engine.inputRow.clamp(0, 24) / 25.0) * playfieldHeight,
+                          top: (row.clamp(0, 24) / 25.0) * playfieldHeight,
                           left: (1.0 / 40.0) * playfieldWidth,
                           right: (1.0 / 40.0) * playfieldWidth,
                           height: math.max(16.0, playfieldHeight / 25.0 * 1.4),
                           child: _buildIntegratedPrompt(
-                            prompt: widget.engine.memory.getString(0).isNotEmpty
-                                ? widget.engine.memory.getString(0)
+                            prompt: _session.promptLine.isNotEmpty
+                                ? _session.promptLine
                                 : '>',
                             text: widget.currentInputText,
                             showCursor: _cursorBlink.value,
@@ -405,7 +446,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     required double playfieldWidth,
   }) {
     final promptText = prompt.endsWith(' ') ? prompt : '$prompt ';
-    final lastAi = widget.engine.lastAiTranslation;
+    final lastAi = _agiEngine?.lastAiTranslation;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -472,73 +513,146 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     );
   }
 
-  List<AgiActorSprite> _buildActorSprites() {
-    final actors = <AgiActorSprite>[];
-    final atlasMgr = widget.engine.atlasManager;
+  List<PlayfieldActorSprite> _buildActorSprites() {
+    final agi = _agiEngine;
+    if (agi != null) {
+      final actors = <PlayfieldActorSprite>[];
+      final atlasMgr = agi.atlasManager;
 
-    for (final obj in widget.engine.animatedObjects) {
-      if (!obj.isDrawn) continue;
+      for (final obj in agi.animatedObjects) {
+        if (!obj.isDrawn) continue;
 
-      try {
-        final viewRes = obj.cachedView ?? widget.engine.getView(obj.view);
-        if (obj.cachedView == null && viewRes != null) {
-          obj.updateCachedView(viewRes);
-        }
-        final loop = viewRes?.getLoop(obj.loop);
-        final safeCel = (loop != null && loop.celCount > 0 && obj.cel >= loop.celCount) ? 0 : obj.cel;
-        final celHeight = obj.getCelHeight(null, safeCel, viewRes);
-        final renderX = (obj.x * 2).toDouble();
-        final renderY = (obj.y - celHeight + 1).toDouble();
-
-        final cel = loop?.getCel(safeCel);
-        final hit = atlasMgr.lookupCel(obj.view, obj.loop, safeCel);
-
-        if (hit != null && hit.atlas.hasImage) {
-          actors.add(
-            AgiActorSprite(
-              priority: obj.effectivePriority,
-              baselineY: obj.effectiveSortY,
-              objectNumber: obj.number,
-              isUpdating: obj.isUpdating,
-              position: Offset(renderX, renderY),
-              viewNumber: obj.view,
-              loopNumber: obj.loop,
-              celNumber: safeCel,
-              atlas: hit.atlas,
-              celEntry: hit.entry,
-            ),
-          );
-        } else {
-          // If not in atlas or atlas image is decoding, trigger atlas build/side-atlas
-          if (viewRes != null) {
-            atlasMgr.registerView(viewRes);
-            atlasMgr.prepareAtlasAsync();
+        try {
+          final viewRes = obj.cachedView ?? agi.getView(obj.view);
+          if (obj.cachedView == null && viewRes != null) {
+            obj.updateCachedView(viewRes);
           }
+          final loop = viewRes?.getLoop(obj.loop);
+          final safeCel = (loop != null && loop.celCount > 0 && obj.cel >= loop.celCount) ? 0 : obj.cel;
+          final celHeight = obj.getCelHeight(null, safeCel, viewRes);
+          final renderX = (obj.x * 2).toDouble();
+          final renderY = (obj.y - celHeight + 1).toDouble();
 
-          final cacheKey = AtlasCelEntry.computeKey(obj.view, obj.loop, safeCel);
-          final cachedImage = _spriteTextureCache[cacheKey];
+          final cel = loop?.getCel(safeCel);
+          final hit = atlasMgr.lookupCel(obj.view, obj.loop, safeCel);
 
-          actors.add(
-            AgiActorSprite(
-              priority: obj.effectivePriority,
-              baselineY: obj.effectiveSortY,
-              objectNumber: obj.number,
-              isUpdating: obj.isUpdating,
-              position: Offset(renderX, renderY),
-              viewNumber: obj.view,
-              loopNumber: obj.loop,
-              celNumber: safeCel,
-              image: cachedImage,
-            ),
-          );
-          if (cachedImage == null && cel != null && viewRes != null) {
-            _decodeSpriteCel(cacheKey, cel, viewRes, safeCel);
+          if (hit != null && hit.atlas.hasImage) {
+            actors.add(
+              AgiActorSprite(
+                priority: obj.effectivePriority,
+                baselineY: obj.effectiveSortY,
+                objectNumber: obj.number,
+                isUpdating: obj.isUpdating,
+                position: Offset(renderX, renderY),
+                viewNumber: obj.view,
+                loopNumber: obj.loop,
+                celNumber: safeCel,
+                atlas: hit.atlas,
+                celEntry: hit.entry,
+              ),
+            );
+          } else {
+            // If not in atlas or atlas image is decoding, trigger atlas build/side-atlas
+            if (viewRes != null) {
+              atlasMgr.registerView(viewRes);
+              atlasMgr.prepareAtlasAsync();
+            }
+
+            final cacheKey = AtlasCelEntry.computeKey(obj.view, obj.loop, safeCel);
+            final cachedImage = _spriteTextureCache[cacheKey];
+
+            actors.add(
+              AgiActorSprite(
+                priority: obj.effectivePriority,
+                baselineY: obj.effectiveSortY,
+                objectNumber: obj.number,
+                isUpdating: obj.isUpdating,
+                position: Offset(renderX, renderY),
+                viewNumber: obj.view,
+                loopNumber: obj.loop,
+                celNumber: safeCel,
+                image: cachedImage,
+              ),
+            );
+            if (cachedImage == null && cel != null && viewRes != null) {
+              _decodeSpriteCel(cacheKey, cel, viewRes, safeCel);
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
+
+      return actors;
     }
 
-    return actors;
+    final sci = _session is SciGameEngine ? (_session as SciGameEngine) : null;
+    if (sci != null) {
+      final actors = <PlayfieldActorSprite>[];
+      for (final sprite in _session.actors) {
+        final cacheKey = AtlasCelEntry.computeKey(sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
+        final cachedImage = sci.kernel.getCelImage(sprite.viewNumber, sprite.loopNumber, sprite.celNumber) ??
+            _spriteTextureCache[cacheKey];
+
+        actors.add(
+          sprite.copyWith(image: cachedImage),
+        );
+
+        if (cachedImage == null) {
+          _decodeSciSpriteCel(sci, sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
+        }
+      }
+      return actors;
+    }
+
+    return _session.actors;
+  }
+
+  void _decodeSciSpriteCel(
+    SciGameEngine sci,
+    int viewId,
+    int loopNo,
+    int celNo,
+  ) {
+    final cacheKey = AtlasCelEntry.computeKey(viewId, loopNo, celNo);
+    if (_pendingDecodes.contains(cacheKey)) return;
+    _pendingDecodes.add(cacheKey);
+
+    final view = sci.kernel.getView(viewId);
+    if (view == null || view.loops.isEmpty) {
+      _pendingDecodes.remove(cacheKey);
+      return;
+    }
+    final loop = view.loops[loopNo % view.loops.length];
+    if (loop.cels.isEmpty) {
+      _pendingDecodes.remove(cacheKey);
+      return;
+    }
+    final safeCel = celNo % loop.cels.length;
+    final cel = loop.cels[safeCel];
+
+    final rgbaBytes = cel.toRgba(
+      parentView: view,
+      celIndex: safeCel,
+      scaleX: 1,
+      scaleY: 1,
+    );
+
+    ui.decodeImageFromPixels(
+      rgbaBytes,
+      cel.width,
+      cel.height,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        if (mounted) {
+          setState(() {
+            _spriteTextureCache[cacheKey] = image;
+            sci.kernel.cacheCelImage(viewId, loopNo, celNo, image);
+            _pendingDecodes.remove(cacheKey);
+          });
+        } else {
+          image.dispose();
+        }
+      },
+    );
   }
 
   void _decodeSpriteCel(
@@ -576,16 +690,17 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   }
 }
 
-/// Paints the live engine playfield. Subscribed to [repaint] (engine + cursor
-/// blink) so AGI ticks call [paint] without rebuilding the surrounding widgets.
+/// Paints the live engine playfield. Subscribed to [repaint] (session + cursor
+/// blink) so ticks call [paint] without rebuilding the surrounding widgets.
 class _GamePlayfieldPainter extends CustomPainter {
-  final AgiGameEngine engine;
+  final SierraGameSession session;
+  final AgiGameEngine? agiEngine;
   final AgiPictureRenderMode renderMode;
   final bool showPixelGrid;
   final bool renderBlackTextBackgrounds;
   final int? isolatedPrioritySlice;
   final ValueNotifier<bool> cursorBlink;
-  final List<AgiActorSprite> Function() buildActors;
+  final List<PlayfieldActorSprite> Function() buildActors;
   final DisplayProfile? displayProfile;
   final List<SciWindowOverlay> sciWindows;
   final SierraCursor? mouseCursor;
@@ -593,7 +708,8 @@ class _GamePlayfieldPainter extends CustomPainter {
   final bool showMouseCursor;
 
   _GamePlayfieldPainter({
-    required this.engine,
+    required this.session,
+    this.agiEngine,
     required this.renderMode,
     required this.showPixelGrid,
     required this.renderBlackTextBackgrounds,
@@ -605,25 +721,25 @@ class _GamePlayfieldPainter extends CustomPainter {
     this.mouseCursor,
     this.mouseCursorPosition,
     this.showMouseCursor = false,
-    required Listenable repaint,
-  }) : super(repaint: repaint);
+    required super.repaint,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final pic = engine.currentPic;
-    final prompt = engine.activeInputPrompt;
+    final pic = session.currentPic;
+    final prompt = agiEngine?.activeInputPrompt;
 
     canvas.save();
-    canvas.translate(engine.shakeOffsetX, engine.shakeOffsetY);
+    canvas.translate(session.shakeOffsetX, session.shakeOffsetY);
     AgiPicturePainter(
       picture: pic,
       actors: buildActors(),
-      displayedTexts: engine.displayedTexts,
-      textScreenBuffer: engine.textScreenBuffer,
-      isTextScreen: engine.isTextScreen,
-      textFgColor: engine.textFgColor,
-      textBgColor: engine.textBgColor,
-      playfieldRow: engine.playfieldRow,
+      displayedTexts: agiEngine?.displayedTexts ?? const [],
+      textScreenBuffer: agiEngine?.textScreenBuffer,
+      isTextScreen: agiEngine?.isTextScreen ?? false,
+      textFgColor: agiEngine?.textFgColor ?? 15,
+      textBgColor: agiEngine?.textBgColor ?? 0,
+      playfieldRow: agiEngine?.playfieldRow ?? 0,
       showCursor: cursorBlink.value && prompt?.row != null,
       cursorRow: prompt?.row,
       cursorCol: prompt?.col ?? 0,
@@ -631,14 +747,16 @@ class _GamePlayfieldPainter extends CustomPainter {
           ? '${prompt.prompt}${prompt.currentText}'
           : null,
       renderMode: renderMode,
-      flatVisualImage: pic?.cachedFlatVisualImage,
+      flatVisualImage: (renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic)
+          ? pic.cachedUnditheredVisualImage
+          : pic?.cachedFlatVisualImage,
       priorityMapImage: pic?.cachedPriorityMapImage,
       controlMapImage: pic?.cachedControlMapImage,
       isolatedPrioritySlice: isolatedPrioritySlice,
       showPixelGrid: showPixelGrid,
       renderBlackTextBackgrounds: renderBlackTextBackgrounds,
-      menuManager: engine.menuManager,
-      displayProfile: displayProfile,
+      menuManager: agiEngine?.menuManager,
+      displayProfile: displayProfile ?? session.displayProfile,
       sciWindows: sciWindows,
       mouseCursor: mouseCursor,
       mouseCursorPosition: mouseCursorPosition,
@@ -649,7 +767,8 @@ class _GamePlayfieldPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GamePlayfieldPainter oldDelegate) {
-    return oldDelegate.engine != engine ||
+    return oldDelegate.session != session ||
+        oldDelegate.agiEngine != agiEngine ||
         oldDelegate.renderMode != renderMode ||
         oldDelegate.showPixelGrid != showPixelGrid ||
         oldDelegate.renderBlackTextBackgrounds != renderBlackTextBackgrounds ||

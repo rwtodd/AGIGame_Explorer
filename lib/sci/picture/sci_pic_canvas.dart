@@ -518,6 +518,7 @@ class SciPicCanvas {
     bool computeSlices = false,
     bool computeUnditheredSlices = false,
     bool isUndithered = false,
+    List<int>? priorityBands,
   }) {
     const totalPixels = scriptWidth * scriptHeight;
     final ditheredVisual = Uint8List(totalPixels);
@@ -549,6 +550,7 @@ class SciPicCanvas {
       rawColorPairs: rawColorPairs,
       slices: ditheredSlices,
       unditheredSlices: unditheredSlices,
+      priorityBands: priorityBands,
     );
     pic.isUndithered = isUndithered;
     return pic;

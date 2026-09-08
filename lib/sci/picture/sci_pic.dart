@@ -132,6 +132,9 @@ class SciPic implements SierraPicture {
   @override
   ui.Image? get cachedControlMapImage => _cachedControlMapImage;
 
+  /// Custom priority bands from opcode 0xFE 0x08, if defined by this picture.
+  final List<int>? priorityBands;
+
   SciPic({
     this.picNumber,
     required this.visualPixels,
@@ -141,6 +144,7 @@ class SciPic implements SierraPicture {
     required Map<int, PictureSlice> slices,
     required Map<int, PictureSlice> unditheredSlices,
     this.isUndithered = false,
+    this.priorityBands,
   })  : _ditheredSlices = slices,
         // ignore: prefer_initializing_formals
         _unditheredSlices = unditheredSlices {

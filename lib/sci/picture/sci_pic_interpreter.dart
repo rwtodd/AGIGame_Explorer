@@ -31,6 +31,7 @@ class SciPicInterpreter {
     int curPos = 0;
     int patternTexture = 0;
     final coords = [0, 0];
+    List<int>? priorityBands;
 
     int getPaletteEntry(int colorIndex) => canvas.getPaletteEntry(colorIndex);
 
@@ -228,7 +229,11 @@ class SciPicInterpreter {
               curPos += size;
               break;
             case 8:
-              curPos += 14;
+              final bands = <int>[];
+              for (int i = 0; i < 14 && curPos < data.length; i++) {
+                bands.add(data[curPos++]);
+              }
+              priorityBands = bands;
               break;
           }
           break;
@@ -242,6 +247,7 @@ class SciPicInterpreter {
       picNumber: picNumber,
       computeSlices: computeSlices,
       computeUnditheredSlices: computeUnditheredSlices,
+      priorityBands: priorityBands,
     );
   }
 }

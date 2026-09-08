@@ -1,6 +1,7 @@
 // SCI0 PMachine Virtual Machine and Execution Engine.
 
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_opcodes.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
@@ -71,8 +72,12 @@ class SciVM {
   // --- Registers (canonical Sierra PMachine names) ---
   // ignore: non_constant_identifier_names
   SciReg r_acc = SciReg.nullReg;
+  SciReg get acc => r_acc;
+  set acc(SciReg v) => r_acc = v;
   // ignore: non_constant_identifier_names
   SciReg r_prev = SciReg.nullReg;
+  SciReg get prev => r_prev;
+  set prev(SciReg v) => r_prev = v;
   // ignore: non_constant_identifier_names
   int r_rest = 0;
 
@@ -84,6 +89,8 @@ class SciVM {
   // --- Execution State ---
   int stepCounter = 0;
   bool abortScriptProcessing = false;
+  bool yieldOnAnimate = false;
+  bool yieldRequested = false;
 
   // --- Debugger & Monitoring Hooks ---
   final List<SciVmObserver> observers = [];
@@ -98,6 +105,8 @@ class SciVM {
     this.volumeManager,
   }) {
     segManager.volumeManager ??= volumeManager;
+    kernel.selectors = selectors;
+    kernel.volumeManager ??= volumeManager;
   }
 
   void addObserver(SciVmObserver observer) => observers.add(observer);
@@ -129,7 +138,10 @@ class SciVM {
   /// Invokes a method on an object or performs property read/write across the message sequence.
   void _dispatchSend(SciReg targetObj, SciReg workObj, int argBase, int frameSize) {
     var curArg = argBase;
-    while (curArg < argBase + frameSize && !abortScriptProcessing) {
+    while (curArg < argBase + frameSize && !abortScriptProcessing && !yieldRequested) {
+      if (curArg + 1 >= stack.length) {
+        break;
+      }
       final selectorId = stack[curArg].toUint16();
       final argc = stack[curArg + 1].toUint16();
       if (curArg + 2 + argc > stack.length) {
@@ -179,11 +191,12 @@ class SciVM {
         final scr = segManager.loadedScripts[segId];
         final localSeg = scr?.segmentId ?? segId;
 
+        final isLastSelector = (curArg + 2 + argc >= argBase + frameSize);
         final xframe = SciExecStack(
           objp: targetObj,
           pc: SciReg.pointer(segId, codeOffset),
           localSegment: localSeg,
-          sp: stack.length,
+          sp: isLastSelector ? argBase : stack.length,
           fp: stack.length,
           argc: argc,
           argp: curArg + 1,
@@ -193,6 +206,9 @@ class SciVM {
 
         executionStack.add(xframe);
         runVm();
+        if (yieldRequested) {
+          break;
+        }
         curArg += 2 + argc;
         continue;
       }
@@ -249,13 +265,16 @@ class SciVM {
 
   /// Executes PMachine bytecode until the current execution stack frame returns
   /// or [maxSteps] instructions have executed.
-  void runVm([int maxSteps = 1000000]) {
+  void runVm([int maxSteps = 1000000, int targetDepth = -1]) {
     if (executionStack.isEmpty) return;
 
-    final baseDepth = executionStack.length - 1;
+    final baseDepth = targetDepth >= 0 ? targetDepth : executionStack.length - 1;
     var steps = 0;
 
     while (executionStack.length > baseDepth && steps < maxSteps && !abortScriptProcessing) {
+      if (yieldRequested) {
+        break;
+      }
       steps++;
       stepCounter++;
 
@@ -503,7 +522,9 @@ class SciVM {
           break;
 
         case 0x24: // ret
-          stack.length = frame.sp;
+          if (frame.sp <= stack.length) {
+            stack.length = frame.sp;
+          }
           executionStack.pop();
           if (executionStack.length <= baseDepth) {
             return;
@@ -515,7 +536,10 @@ class SciVM {
           r_rest = 0;
           final sendBase = stack.length - sendArgc;
           _dispatchSend(r_acc, r_acc, sendBase, sendArgc);
-          stack.length = sendBase;
+          if (yieldRequested) break;
+          if (sendBase >= 0 && sendBase <= stack.length) {
+            stack.length = sendBase;
+          }
           break;
 
         case 0x28: // class
@@ -528,7 +552,10 @@ class SciVM {
           r_rest = 0;
           final selfBase = stack.length - selfArgc;
           _dispatchSend(frame.objp, frame.objp, selfBase, selfArgc);
-          stack.length = selfBase;
+          if (yieldRequested) break;
+          if (selfBase >= 0 && selfBase <= stack.length) {
+            stack.length = selfBase;
+          }
           break;
 
         case 0x2B: // super
@@ -538,7 +565,10 @@ class SciVM {
           final superBase = stack.length - superArgc;
           final superAddr = segManager.getClassAddress(classNr, volumeManager: volumeManager);
           _dispatchSend(frame.objp, superAddr, superBase, superArgc);
-          stack.length = superBase;
+          if (yieldRequested) break;
+          if (superBase >= 0 && superBase <= stack.length) {
+            stack.length = superBase;
+          }
           break;
 
         case 0x2C: // &rest
@@ -636,6 +666,12 @@ class SciVM {
         default:
           if (opcode >= 0x40 && opcode <= 0x7F) {
             _executeVariableOpcode(frame, opcode, opparams[0]);
+          } else {
+            debugPrint(
+              '[SciVM] Unhandled opcode 0x${opcode.toRadixString(16)} (${getOpcodeName(opcode)}) '
+              'at pc=0x${frame.pc.offset.toRadixString(16)} in script '
+              '${segManager.loadedScripts[frame.pc.segment]?.scriptNumber}',
+            );
           }
           break;
       }

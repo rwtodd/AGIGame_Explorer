@@ -30,8 +30,12 @@ import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
 import 'package:flutter_agigame/domain/text_screen_buffer.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
+import 'package:flutter_agigame/domain/sierra_cursor.dart';
+import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
+import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// Available audio output modes for [AgiGameEngine].
 enum AgiSoundMode {
@@ -126,7 +130,76 @@ class AgiDisplayText {
 /// - Phase 3: Executes `LOGIC 0` scan cycle with [AgiLogicInterpreter]
 /// - Phase 4: Prepares rendered frame for Impeller priority slicing compositor
 /// - Post-Scan: Resets transient flags (Flag 1, Flag 2, Flag 4) and updates game clocks
-class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
+class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, SierraGameSession {
+  @override
+  DisplayProfile get displayProfile => DisplayProfile.agi;
+
+  @override
+  Map<int, PictureSlice>? get pictureSlices => currentPic?.slices;
+
+  @override
+  List<PlayfieldActorSprite> get actors {
+    final sprites = <PlayfieldActorSprite>[];
+    for (final obj in animatedObjects) {
+      if (!obj.isDrawn) continue;
+      final viewRes = obj.cachedView ?? getView(obj.view);
+      final loop = viewRes?.getLoop(obj.loop);
+      final safeCel = (loop != null && loop.celCount > 0 && obj.cel >= loop.celCount) ? 0 : obj.cel;
+      final celHeight = obj.getCelHeight(null, safeCel, viewRes);
+      final renderX = (obj.x * 2).toDouble();
+      final renderY = (obj.y - celHeight + 1).toDouble();
+      final hit = atlasManager.lookupCel(obj.view, obj.loop, safeCel);
+
+      sprites.add(
+        PlayfieldActorSprite(
+          priority: obj.effectivePriority,
+          baselineY: obj.effectiveSortY,
+          objectNumber: obj.number,
+          isUpdating: obj.isUpdating,
+          position: ui.Offset(renderX, renderY),
+          viewNumber: obj.view,
+          loopNumber: obj.loop,
+          celNumber: safeCel,
+          atlas: hit?.atlas,
+          celEntry: hit?.entry,
+        ),
+      );
+    }
+    return sprites;
+  }
+
+  @override
+  String get statusLine {
+    final score = memory.getVar(3);
+    final maxScore = memory.getVar(7);
+    final sound = memory.getFlag(9) ? 'on' : 'off';
+    return 'Score: $score of $maxScore  Sound: $sound';
+  }
+
+  @override
+  String get promptLine => memory.getString(0);
+
+  @override
+  bool get isPaused => _isPaused;
+
+  @override
+  List<SciWindowOverlay> get sciWindows => const [];
+
+  @override
+  SierraCursor? get mouseCursor => null;
+
+  @override
+  ui.Offset? get mouseCursorPosition => null;
+
+  @override
+  bool get showMouseCursor => false;
+
+  @override
+  void handleDirection(int direction) => setEgoDirection(direction);
+
+  @override
+  void handleMouseClick(ui.Offset playfieldPos) {}
+
   final AgiResourceLoader? resourceLoader;
   /// Player instance for AGI sound synthesis and PCM playback.
   final AgiSoundPlayer soundPlayer;
@@ -137,6 +210,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   final List<AgiObject>? _customObjects;
   late final AgiLogicInterpreter interpreter;
 
+  @override
   AgiPic? currentPic;
   AgiDialogState? activeDialog;
   AgiInputPromptState? activeInputPrompt;
@@ -150,7 +224,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   int _loopGeneration = 0;
   Timer? _dialogAutoCloseTimer;
   int? _dialogAutoCloseTicks;
+  @override
   double shakeOffsetX = 0.0;
+  @override
   double shakeOffsetY = 0.0;
   int _shakeTicksRemaining = 0;
   int _shakeCount = 0;
@@ -289,19 +365,20 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool? _cachedFlag1Obscured;
 
   bool get isRunning => _isRunning;
-  bool get isPaused => _isPaused;
   bool get isInventoryOpen => _isInventoryOpen;
   int? get inspectingObjectNumber => _inspectingObjectNumber;
   int _playfieldRow = 1;
   int _inputRow = 23;
   int _statusRow = 0;
 
+  @override
   double get speedHz => _speedHz;
   int get cycleCount => _cycleCount;
   List<int> get parsedWordIds => List.unmodifiable(_parsedWordIds);
   String? get lastSubmittedCommand => _lastSubmittedCommand;
   String? get lastError => _lastError;
   bool get isStatusLineEnabled => _isStatusLineEnabled;
+  @override
   bool get isInputEnabled => _isInputEnabled;
   set isInputEnabled(bool enabled) => onInputMode(enabled);
   bool get isUserControl => _isUserControl;
@@ -435,6 +512,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Starts the self-rescheduling game loop.
+  @override
   void start() {
     if (_isRunning && !_isPaused) return;
     _isRunning = true;
@@ -445,6 +523,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Pauses the game loop and sound playback.
+  @override
   void pause() {
     _isPaused = true;
     soundPlayer.pause();
@@ -452,6 +531,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Resumes a paused game loop and sound playback.
+  @override
   void resume() {
     _isPaused = false;
     soundPlayer.resume();
@@ -486,6 +566,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Updates execution loop frequency in Hertz (default 10 Hz / 20 Hz = 50-100ms per tick).
+  @override
   void setSpeedHz(double hz) {
     if (hz <= 0) return;
     _speedHz = hz;
@@ -643,6 +724,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Executes exactly one full 20 Hz AGI cycle.
+  @override
   FutureOr<void> tick() {
     if (interpreter.isExecuting) return null;
     _cycleCount++;
@@ -925,6 +1007,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   }
 
   /// Submits player text command, optionally translating via Gemini AI if enabled.
+  @override
   FutureOr<void> submitCommand(String input) {
     final cleanInput = input.trim();
     if (cleanInput.isEmpty) return null;
@@ -3232,7 +3315,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate {
   bool haveKey() => _keyPressedThisCycle;
 
   /// Registers that a key was pressed by the player.
-  void handleKeyPress([int? rawKeyCode]) {
+  @override
+  void handleKeyPress(
+    int? rawKeyCode, {
+    int ascii = 0,
+    bool shift = false,
+    bool ctrl = false,
+    bool alt = false,
+  }) {
     _keyPressedThisCycle = true;
     if (rawKeyCode != null) {
       memory.setVar(19, rawKeyCode & 0xFF); // %v19: LAST_CHAR

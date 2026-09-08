@@ -139,11 +139,48 @@ class SciSegManager {
       globals = script.locals;
     }
 
+    volumeManager ??= volumeMgr;
+
     // Register any classes defined in this script
     for (final obj in script.objects.values) {
       if (obj.isClass) {
         final species = obj.species.toUint16();
         registerClass(species, obj.pos);
+      }
+    }
+
+    // Resolve classes and instances
+    for (final obj in script.objects.values) {
+      if (obj.isClass) {
+        if (obj.superClass.isNumber && obj.superClass.toUint16() != 0xFFFF) {
+          final supAddr = getClassAddress(obj.superClass.toUint16(), volumeManager: volumeMgr);
+          if (!supAddr.isNull) {
+            obj.superClass = supAddr;
+          }
+        }
+      } else {
+        final speciesNr = obj.species.isNumber ? obj.species.toUint16() : -1;
+        if (speciesNr >= 0 && speciesNr != 0xFFFF) {
+          final classAddr = getClassAddress(speciesNr, volumeManager: volumeMgr);
+          if (!classAddr.isNull) {
+            obj.species = classAddr;
+            final classObj = getObject(classAddr);
+            if (classObj != null) {
+              if (obj.baseVars.isEmpty && classObj.baseVars.isNotEmpty) {
+                obj.baseVars.addAll(classObj.baseVars);
+              }
+              while (obj.variables.length < classObj.variables.length) {
+                obj.variables.add(classObj.variables[obj.variables.length]);
+              }
+            }
+          }
+        }
+        if (obj.superClass.isNumber && obj.superClass.toUint16() != 0xFFFF) {
+          final supAddr = getClassAddress(obj.superClass.toUint16(), volumeManager: volumeMgr);
+          if (!supAddr.isNull) {
+            obj.superClass = supAddr;
+          }
+        }
       }
     }
 
@@ -212,6 +249,16 @@ class SciSegManager {
     final offset = _nextCloneOffset++;
     final clonePos = SciReg.pointer(cloneSegmentId, offset);
     final cloned = source.clone(clonePos);
+    if (source.isClass) {
+      cloned.superClass = source.pos;
+      cloned.species = source.pos;
+    } else if (source.isClone) {
+      cloned.superClass = source.superClass;
+      cloned.species = source.species;
+    } else {
+      cloned.superClass = source.pos;
+      cloned.species = source.species;
+    }
     clones[offset] = cloned;
     return cloned;
   }
@@ -225,6 +272,27 @@ class SciSegManager {
   }
 
   // --- Doubly-Linked List Management ---
+
+  SciList? lookupList(SciReg listReg) {
+    if (listReg.segment == listSegmentId) {
+      return lists[listReg.offset];
+    }
+    return null;
+  }
+
+  List<SciReg> listElements(SciList list) {
+    final elements = <SciReg>[];
+    var curr = list.first;
+    while (!curr.isNull && curr.segment == nodeSegmentId) {
+      final node = nodes[curr.offset];
+      if (node == null) break;
+      if (!node.value.isNull) {
+        elements.add(node.value);
+      }
+      curr = node.succ;
+    }
+    return elements;
+  }
 
   SciReg newList() {
     final offset = _nextListOffset++;

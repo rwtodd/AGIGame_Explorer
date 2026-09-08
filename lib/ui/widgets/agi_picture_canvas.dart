@@ -89,6 +89,44 @@ class PlayfieldActorSprite {
     this.z = 0,
   });
 
+  PlayfieldActorSprite copyWith({
+    int? priority,
+    int? baselineY,
+    int? objectNumber,
+    bool? isUpdating,
+    ui.Image? image,
+    Offset? position,
+    int? viewNumber,
+    int? loopNumber,
+    int? celNumber,
+    ViewTextureAtlas? atlas,
+    AtlasCelEntry? celEntry,
+    double? scaleX,
+    double? scaleY,
+    int? displaceX,
+    int? displaceY,
+    int? z,
+  }) {
+    return PlayfieldActorSprite(
+      priority: priority ?? this.priority,
+      baselineY: baselineY ?? this.baselineY,
+      objectNumber: objectNumber ?? this.objectNumber,
+      isUpdating: isUpdating ?? this.isUpdating,
+      image: image ?? this.image,
+      position: position ?? this.position,
+      viewNumber: viewNumber ?? this.viewNumber,
+      loopNumber: loopNumber ?? this.loopNumber,
+      celNumber: celNumber ?? this.celNumber,
+      atlas: atlas ?? this.atlas,
+      celEntry: celEntry ?? this.celEntry,
+      scaleX: scaleX ?? this.scaleX,
+      scaleY: scaleY ?? this.scaleY,
+      displaceX: displaceX ?? this.displaceX,
+      displaceY: displaceY ?? this.displaceY,
+      z: z ?? this.z,
+    );
+  }
+
   /// Effective depth sorting baseline Y (accounting for elevation z in SCI).
   int get sortY => baselineY - z;
 
@@ -116,15 +154,7 @@ class PlayfieldActorSprite {
       }
     }
     if (image != null) {
-      if (scaleX == 1.0 && scaleY == 1.0) {
-        canvas.drawImage(image!, renderPosition, paint);
-      } else {
-        canvas.save();
-        canvas.translate(renderPosition.dx, renderPosition.dy);
-        canvas.scale(scaleX, scaleY);
-        canvas.drawImage(image!, Offset.zero, paint);
-        canvas.restore();
-      }
+      canvas.drawImage(image!, renderPosition, paint);
     }
   }
 

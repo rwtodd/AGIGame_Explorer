@@ -21,7 +21,8 @@ void main() {
       // Block 8: Relocation Pointers (count = 1, pointer at localsOffset + 2)
       // localsOffset was at byte 14 (10 bytes export block + 4 bytes header of block 10)
       // reloc offset = 14 + 2 = 16 (relocates locals[1])
-      bb.add([0x08, 0x00, 0x06, 0x00, 0x10, 0x00]);
+      // blockType: 8 (2 bytes), blockSize: 8 (2 bytes), count: 1 (2 bytes), reloc: 16 (2 bytes)
+      bb.add([0x08, 0x00, 0x08, 0x00, 0x01, 0x00, 0x10, 0x00]);
 
       // Block 0: Terminator
       bb.add([0x00, 0x00, 0x00, 0x00]);

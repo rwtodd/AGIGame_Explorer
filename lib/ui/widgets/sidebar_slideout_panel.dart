@@ -20,7 +20,7 @@ enum SidebarPanelTab {
 class SidebarSlideoutPanel extends ConsumerStatefulWidget {
   final bool isOpen;
   final SidebarPanelTab activeTab;
-  final AgiGameEngine engine;
+  final AgiGameEngine? engine;
   final ValueChanged<SidebarPanelTab> onTabChanged;
   final VoidCallback onClose;
 
@@ -42,7 +42,7 @@ class SidebarSlideoutPanel extends ConsumerStatefulWidget {
     super.key,
     required this.isOpen,
     required this.activeTab,
-    required this.engine,
+    this.engine,
     required this.onTabChanged,
     required this.onClose,
     required this.showCrtShader,
@@ -113,6 +113,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   /// Synthesizes and plays a short preview arpeggio/melody using the active synthesizer config.
   Future<void> _playTestSound() async {
     if (_previewPlayer == null) return;
+    final engine = widget.engine;
+    if (engine == null) return;
 
     if (_isPlayingPreview) {
       _previewPlayer!.stop();
@@ -122,7 +124,6 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       return;
     }
 
-    final engine = widget.engine;
     AgiSound soundToPlay;
 
     // Check if the loaded game has sounds to preview
@@ -286,14 +287,16 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
         children: [
-          Expanded(
-            child: _buildTabButton(
-              tab: SidebarPanelTab.audio,
-              icon: Icons.music_note,
-              label: 'Audio',
+          if (widget.engine != null) ...[
+            Expanded(
+              child: _buildTabButton(
+                tab: SidebarPanelTab.audio,
+                icon: Icons.music_note,
+                label: 'Audio',
+              ),
             ),
-          ),
-          const SizedBox(width: 4),
+            const SizedBox(width: 4),
+          ],
           Expanded(
             child: _buildTabButton(
               tab: SidebarPanelTab.video,
@@ -301,14 +304,16 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               label: 'Video',
             ),
           ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: _buildTabButton(
-              tab: SidebarPanelTab.ai,
-              icon: Icons.auto_awesome,
-              label: 'AI',
+          if (widget.engine != null) ...[
+            const SizedBox(width: 4),
+            Expanded(
+              child: _buildTabButton(
+                tab: SidebarPanelTab.ai,
+                icon: Icons.auto_awesome,
+                label: 'AI',
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -369,6 +374,18 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
 
   Widget _buildAudioOptions() {
     final engine = widget.engine;
+    if (engine == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text(
+            'Audio options are planned for Stage 12.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: 'Courier', color: AgiTheme.egaMuted),
+          ),
+        ),
+      );
+    }
     final currentMode = engine.soundMode;
     final synthConfig = engine.synthesizerConfig;
 
@@ -572,7 +589,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           onSelected: (selected) {
             if (selected) {
               final newConfig = config.copyWith(waveform: opt.$1);
-              widget.engine.setSynthesizerConfig(newConfig);
+              widget.engine!.setSynthesizerConfig(newConfig);
               _safeSetSynthesizerConfig(newConfig);
             }
           },
@@ -604,7 +621,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
                         enableReverb: val ?? false,
                         reverbMix: (val ?? false) && config.reverbMix == 0.0 ? 0.28 : config.reverbMix,
                       );
-                      widget.engine.setSynthesizerConfig(newConfig);
+                      widget.engine!.setSynthesizerConfig(newConfig);
                       _safeSetSynthesizerConfig(newConfig);
                     },
                   ),
@@ -648,7 +665,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               divisions: 17,
               onChanged: (val) {
                 final newConfig = config.copyWith(reverbMix: val, enableReverb: true);
-                widget.engine.setSynthesizerConfig(newConfig);
+                widget.engine!.setSynthesizerConfig(newConfig);
                 _safeSetSynthesizerConfig(newConfig);
               },
             ),
@@ -677,7 +694,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           reverbMix: amount,
           enableReverb: true,
         );
-        widget.engine.setSynthesizerConfig(newConfig);
+        widget.engine!.setSynthesizerConfig(newConfig);
         _safeSetSynthesizerConfig(newConfig);
       },
       borderRadius: BorderRadius.circular(3),
@@ -732,7 +749,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               divisions: 20,
               onChanged: (val) {
                 final newConfig = config.copyWith(masterVolume: val);
-                widget.engine.setSynthesizerConfig(newConfig);
+                widget.engine!.setSynthesizerConfig(newConfig);
                 _safeSetSynthesizerConfig(newConfig);
               },
             ),
@@ -999,11 +1016,24 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   }
 
   Widget _buildAiOptions() {
+    final engine = widget.engine;
+    if (engine == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text(
+            'AI command translation is currently only available for AGI games.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: 'Courier', color: AgiTheme.egaMuted),
+          ),
+        ),
+      );
+    }
     final isEnabled = () {
       try {
         return ref.watch(settingsProvider).ai.enabled;
       } catch (_) {
-        return widget.engine.isAiEnabled;
+        return widget.engine!.isAiEnabled;
       }
     }();
 
@@ -1011,7 +1041,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       try {
         return ref.watch(settingsProvider).ai.apiKey;
       } catch (_) {
-        return widget.engine.aiApiKey;
+        return widget.engine!.aiApiKey;
       }
     }();
 
@@ -1019,7 +1049,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       try {
         return ref.watch(settingsProvider).ai.model;
       } catch (_) {
-        return widget.engine.aiModel;
+        return widget.engine!.aiModel;
       }
     }();
 
@@ -1050,7 +1080,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
             try {
               ref.read(settingsProvider.notifier).updateAiSettings(enabled: val);
             } catch (_) {}
-            widget.engine.isAiEnabled = val;
+            widget.engine!.isAiEnabled = val;
             setState(() {});
           },
         ),
@@ -1096,7 +1126,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
             try {
               ref.read(settingsProvider.notifier).updateAiSettings(apiKey: val.trim());
             } catch (_) {}
-            widget.engine.aiApiKey = val.trim();
+            widget.engine!.aiApiKey = val.trim();
           },
         ),
         const SizedBox(height: 8),
@@ -1119,7 +1149,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
                         _apiKeyTestResult = null;
                       });
 
-                      final translator = widget.engine.geminiTranslator;
+                      final translator = widget.engine!.geminiTranslator;
                       final result = await translator.testConnection(
                         apiKey: key,
                         model: selectedModel,
@@ -1220,7 +1250,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
                   try {
                     ref.read(settingsProvider.notifier).updateAiSettings(model: val);
                   } catch (_) {}
-                  widget.engine.aiModel = val;
+                  widget.engine!.aiModel = val;
                   setState(() {});
                 }
               },

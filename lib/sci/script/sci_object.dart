@@ -76,16 +76,19 @@ class SciObject {
 
   /// Locates the variable property index corresponding to [selectorId].
   ///
-  /// For classes, searches [baseVars].
-  /// For instances, resolves the class via [superClass] and inspects its [baseVars].
+  /// For classes and instances with populated [baseVars], searches [baseVars].
+  /// Otherwise, resolves the parent class via [superClass] or [species].
   /// Returns -1 if not found.
   int locateVarSelector(SciSegManager segMan, int selectorId) {
-    if (isClass) {
+    if (baseVars.isNotEmpty) {
       return baseVars.indexOf(selectorId);
     }
-    final classObj = segMan.getObject(superClass);
+    if (isClass) {
+      return -1;
+    }
+    final classObj = segMan.getObject(superClass) ?? segMan.getObject(species);
     if (classObj != null) {
-      return classObj.baseVars.indexOf(selectorId);
+      return classObj.locateVarSelector(segMan, selectorId);
     }
     return -1;
   }
@@ -94,15 +97,34 @@ class SciObject {
   ///
   /// Returns a tuple of `(owningObject, codeOffset)` or null if not found.
   (SciObject, int)? lookupMethod(SciSegManager segMan, int selectorId) {
-    if (methods.containsKey(selectorId)) {
+    if (!isClone && methods.containsKey(selectorId)) {
       return (this, methods[selectorId]!);
     }
     // Walk superclass hierarchy
-    final classObj = segMan.getObject(superClass);
-    if (classObj != null) {
-      return classObj.lookupMethod(segMan, selectorId);
+    final parent = isClass
+        ? segMan.getObject(superClass)
+        : (segMan.getObject(superClass) ?? segMan.getObject(species));
+    if (parent != null) {
+      return parent.lookupMethod(segMan, selectorId);
     }
     return null;
+  }
+
+  /// Gets the property value for [selectorId], or [SciReg.nullReg] if not found.
+  SciReg getProp(SciSegManager segMan, int selectorId) {
+    final idx = locateVarSelector(segMan, selectorId);
+    if (idx >= 0 && idx < variables.length) {
+      return variables[idx];
+    }
+    return SciReg.nullReg;
+  }
+
+  /// Sets the property value for [selectorId].
+  void setProp(SciSegManager segMan, int selectorId, SciReg val) {
+    final idx = locateVarSelector(segMan, selectorId);
+    if (idx >= 0 && idx < variables.length) {
+      variables[idx] = val;
+    }
   }
 
   /// Creates a clone of this object with a new address [clonePos].
