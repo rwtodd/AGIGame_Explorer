@@ -194,8 +194,8 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 | 6 | CURSOR parser + Cursor Browser | **Done.** 68-byte `CURSOR` (type 8), `SierraCursor` domain interface, workbench Cursor Browser with live sandbox. |
 | 7 | Launcher detection + workbench | **Done.** Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
 | 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Done.** Actor `scaleX` / displacement / elevation `z`; `SciWindowOverlay` pass; in-game cursor overlay; `sciEnableDithering` setting. |
-| 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | **Next.** PQ2 title / boot. Session facade lands here, not earlier. |
-| 10 | Kernel Animate + ego motion | After 9. First walkable PQ2 room. |
+| 9 | SCI VM skeleton + `DrawPic` / `Animate` / `Parse` stubs | **Done.** PMachine VM (128 opcodes), SegManager, VOCAB.996/997, 0x00..0x71 kernel table, SciVmObserver hooks, PQ2 boot test. |
+| 10 | Kernel Animate + ego motion | **Next.** First walkable PQ2 room. |
 | 11 | QFG2 `kCompLZW1` + SCI1-EGA view mapping | After PQ2 rooms look right. |
 | 12 | Tandy 3-Voice & OPL3 (AdLib FM) | After a walkable room. Existing PCM sinks. |
 | 13 | Roland MT-32 via Munt (`libmt32emu`) | Last. FFI + user-provided ROMs. |

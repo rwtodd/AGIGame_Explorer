@@ -142,6 +142,7 @@ class SciPic implements SierraPicture {
     required Map<int, PictureSlice> unditheredSlices,
     this.isUndithered = false,
   })  : _ditheredSlices = slices,
+        // ignore: prefer_initializing_formals
         _unditheredSlices = unditheredSlices {
     const totalPixels = nativeWidth * nativeHeight;
     if (visualPixels.length != totalPixels) {
