@@ -102,6 +102,15 @@ class SciKernel {
   int currentPort = 0;
   int picNotValid = 0;
 
+  /// Picture-port drawing origin (`GfxPort.top` / `left`).
+  ///
+  /// SCI0 gameplay starts at (0, 10) under the menu bar. Actor `x,y` and pic
+  /// vectors are port-local; the compositor is screen space, so DrawPic,
+  /// Animate, OnControl, and AddToPic all apply this origin. Cutscenes call
+  /// `SetPort` with 6 args to set [picPortTop] to 0 for a full 320×200 port.
+  int picPortTop = 10;
+  int picPortLeft = 0;
+
   /// Ticks requested by the most recent `Wait`. 0 means the game is running
   /// unthrottled (speed test / `setSpeed: 0`) and the engine may pump extra
   /// `doit` cycles in one host tick.
@@ -239,10 +248,11 @@ class SciKernel {
     if (currentPic == null) return 0;
     final pic = currentPic!;
     if (left >= right || top >= bottom) return 0;
-    final l = left.clamp(0, 320);
-    final r = right.clamp(0, 320);
-    final t = top.clamp(0, 200);
-    final b = bottom.clamp(0, 200);
+    // Actor rects are port-local; the pic buffers are already in screen space.
+    final l = (left + picPortLeft).clamp(0, 320);
+    final r = (right + picPortLeft).clamp(0, 320);
+    final t = (top + picPortTop).clamp(0, 200);
+    final b = (bottom + picPortTop).clamp(0, 200);
     int result = 0;
     final isPri = (screenMask & 2) != 0;
     final buf = isPri ? pic.priorityPixels : pic.controlPixels;
@@ -507,6 +517,7 @@ class SciKernel {
         final pic = SciPicInterpreter.interpret(
           picBytes,
           picNumber: picNum,
+          portTop: picPortTop,
           computeSlices: true,
         );
         currentPic = pic;
@@ -630,8 +641,8 @@ class SciKernel {
         isUpdating: isUpdating,
         image: getCelImage(viewId, loopNo, celNo),
         position: ui.Offset(
-          (x - (w >> 1)).toDouble(),
-          (y - h + 1).toDouble(),
+          (x + picPortLeft - (w >> 1)).toDouble(),
+          (y + picPortTop - h + 1).toDouble(),
         ),
         viewNumber: viewId,
         loopNumber: loopNo,
@@ -662,35 +673,45 @@ class SciKernel {
     return const SciReg.fromInt(0);
   }
 
+  /// SCI0 `getCelRect`: origin at the actor's (x, y) baseline, plus cel displace.
+  (int left, int top, int right, int bottom)? _celRect(
+    int viewId,
+    int loopNo,
+    int celNo,
+    int x,
+    int y,
+    int z,
+  ) {
+    final v = getView(viewId);
+    if (v == null || v.loops.isEmpty) return null;
+    final loop = v.loops[loopNo.abs() % v.loops.length];
+    if (loop.cels.isEmpty) return null;
+    final cel = loop.cels[celNo.abs() % loop.cels.length];
+    final left = x + cel.displaceX - (cel.width >> 1);
+    final right = left + cel.width;
+    final bottom = y + cel.displaceY - z + 1;
+    final top = bottom - cel.height;
+    return (left, top, right, bottom);
+  }
+
   SciReg _kSetNowSeen(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 1) return vm.acc;
     final obj = vm.segManager.getObject(argv[0]);
     if (obj == null) return vm.acc;
 
     final viewId = obj.getProp(vm.segManager, selectors.view).toUint16();
-    var loopNo = obj.getProp(vm.segManager, selectors.loop).toUint16();
-    var celNo = obj.getProp(vm.segManager, selectors.cel).toUint16();
+    final loopNo = obj.getProp(vm.segManager, selectors.loop).toSint16();
+    final celNo = obj.getProp(vm.segManager, selectors.cel).toSint16();
     final x = obj.getProp(vm.segManager, selectors.x).toSint16();
     final y = obj.getProp(vm.segManager, selectors.y).toSint16();
     final z = selectors.z >= 0 ? obj.getProp(vm.segManager, selectors.z).toSint16() : 0;
 
-    final v = getView(viewId);
-    if (v != null && v.loops.isNotEmpty) {
-      loopNo = loopNo % v.loops.length;
-      final loop = v.loops[loopNo];
-      if (loop.cels.isNotEmpty) {
-        celNo = celNo % loop.cels.length;
-        final cel = loop.cels[celNo];
-        final nsLeft = x + cel.displaceX - (cel.width >> 1);
-        final nsRight = nsLeft + cel.width;
-        final nsBottom = y + cel.displaceY - z + 1;
-        final nsTop = nsBottom - cel.height;
-
-        obj.setProp(vm.segManager, selectors.nsLeft, SciReg.fromInt(nsLeft));
-        obj.setProp(vm.segManager, selectors.nsRight, SciReg.fromInt(nsRight));
-        obj.setProp(vm.segManager, selectors.nsTop, SciReg.fromInt(nsTop));
-        obj.setProp(vm.segManager, selectors.nsBottom, SciReg.fromInt(nsBottom));
-      }
+    final rect = _celRect(viewId, loopNo, celNo, x, y, z);
+    if (rect != null) {
+      obj.setProp(vm.segManager, selectors.nsLeft, SciReg.fromInt(rect.$1));
+      obj.setProp(vm.segManager, selectors.nsTop, SciReg.fromInt(rect.$2));
+      obj.setProp(vm.segManager, selectors.nsRight, SciReg.fromInt(rect.$3));
+      obj.setProp(vm.segManager, selectors.nsBottom, SciReg.fromInt(rect.$4));
     }
     return vm.acc;
   }
@@ -795,13 +816,15 @@ class SciKernel {
     final cel = loop.cels[celNo.abs() % loop.cels.length];
     final pixels = cel.getUnflippedPixels(parentView: v, celIndex: celNo.abs() % loop.cels.length);
     final trans = cel.transparentColor;
+    final destLeft = left + picPortLeft;
+    final destTop = top + picPortTop;
     for (var y = 0; y < cel.height; y++) {
-      final dy = top + y;
+      final dy = destTop + y;
       if (dy < 0 || dy >= 200) continue;
       final srcRow = y * cel.width;
       final dstRow = dy * 320;
       for (var x = 0; x < cel.width; x++) {
-        final dx = left + x;
+        final dx = destLeft + x;
         if (dx < 0 || dx >= 320) continue;
         final color = pixels[srcRow + x] & 0x0F;
         if (color == trans) continue;
@@ -831,6 +854,16 @@ class SciKernel {
 
   SciReg _kGetPort(SciVM vm, int argc, List<SciReg> argv) => SciReg.fromInt(currentPort);
   SciReg _kSetPort(SciVM vm, int argc, List<SciReg> argv) {
+    // ScummVM kSetPort: 1 arg selects a window; 6/7 args set the pic window
+    // (top, left, bottom, right, picTop, picLeft [, initPriBands]).
+    if (argc == 6 || argc == 7) {
+      picPortTop = argv[4].toSint16();
+      picPortLeft = argv[5].toSint16();
+      if (argc == 7) {
+        initPriorityBands();
+      }
+      return const SciReg.fromInt(0);
+    }
     if (argc >= 1) currentPort = argv[0].toUint16();
     return const SciReg.fromInt(0);
   }
@@ -1306,14 +1339,26 @@ class SciKernel {
 
     final y = obj.getProp(vm.segManager, selectors.y).toSint16();
     final yStep = obj.getProp(vm.segManager, selectors.yStep).toSint16();
-    final nsLeft = obj.getProp(vm.segManager, selectors.nsLeft).toSint16();
-    final nsRight = obj.getProp(vm.segManager, selectors.nsRight).toSint16();
+    final viewId = obj.getProp(vm.segManager, selectors.view).toUint16();
+    final loopNo = obj.getProp(vm.segManager, selectors.loop).toSint16();
+    final celNo = obj.getProp(vm.segManager, selectors.cel).toSint16();
+    final x = obj.getProp(vm.segManager, selectors.x).toSint16();
+    final z = selectors.z >= 0 ? obj.getProp(vm.segManager, selectors.z).toSint16() : 0;
 
+    // ScummVM `kernelBaseSetter`: left/right from the cel, not nsLeft/nsRight
+    // (those are 0 until SetNowSeen). Top/bottom are the yStep-tall "feet" band.
+    var brLeft = obj.getProp(vm.segManager, selectors.nsLeft).toSint16();
+    var brRight = obj.getProp(vm.segManager, selectors.nsRight).toSint16();
+    final rect = _celRect(viewId, loopNo, celNo, x, y, z);
+    if (rect != null) {
+      brLeft = rect.$1;
+      brRight = rect.$3;
+    }
     final brBottom = y + 1;
     final brTop = brBottom - yStep;
 
-    obj.setProp(vm.segManager, selectors.brLeft, SciReg.fromInt(nsLeft));
-    obj.setProp(vm.segManager, selectors.brRight, SciReg.fromInt(nsRight));
+    obj.setProp(vm.segManager, selectors.brLeft, SciReg.fromInt(brLeft));
+    obj.setProp(vm.segManager, selectors.brRight, SciReg.fromInt(brRight));
     obj.setProp(vm.segManager, selectors.brTop, SciReg.fromInt(brTop));
     obj.setProp(vm.segManager, selectors.brBottom, SciReg.fromInt(brBottom));
     return vm.acc;

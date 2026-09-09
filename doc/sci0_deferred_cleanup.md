@@ -28,6 +28,10 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 - **Cache cursor/glyph `ui.Image`s** instead of 1×1 `drawRect` blits (same pattern as slices/atlas). Do **not** allocate GPU images inside `CustomPainter.paint` (that was the `SciTextControl` leak).
 - **Verbose overlay comments.** Class doc retells SaveBits vs overlay; `SciTextControl` had WHAT comments above the glyph loops; window paint numbered “white inset” that is not drawn (both strokes are `penColor`). Drop WHAT / history comments; fix or delete the white-inset claim.
 
+## VM / game loop
+
+- **`Wait(0)` extra-pump is hardcoded to room 99.** `SciGameEngine._pumpVm` runs extra `doit` cycles only while `g11` (currentRoom) is 99, so PQ2's speed test can count a real `machineSpeed` instead of ~20. LSL2 also uses room 99 (`RM099.SC`); **LSL3 uses room 290**. QFG2 and other SCI0 titles may differ or skip the test. Do not treat 99 as universal. A portable version would extra-pump `Wait(0)` for ~1s of `GetTime` after boot, independent of room number, then cap at one cycle per tick even if scripts leave speed at 0.
+
 ## Loader / UI leftovers
 
 - **Launcher `copyWith` sentinel** for `sciVolumeManager` is already fixed; keep using `_unset`, never `??`.

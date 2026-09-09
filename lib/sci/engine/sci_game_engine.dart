@@ -207,10 +207,13 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     return 0;
   }
 
-  /// Runs the VM until Animate yields. Room 99's speed test calls `Wait(0)` and
-  /// counts `doit` cycles for one second; extra-pump only there so `machineSpeed`
-  /// is not capped at 20 Hz. PQ2 then opens the intro still at speed 0 — keep
-  /// one cycle per engine tick so the title can actually animate.
+  /// Runs the VM until Animate yields.
+  ///
+  /// Extra-pump of `Wait(0)` is **PQ2/LSL2-specific**: those titles use room 99
+  /// as a 1-second speed test (`RM099.SC`). LSL3 uses room 290; other SCI0
+  /// games may use another room or none. After leaving 99, PQ2 keeps speed 0
+  /// for the intro — one cycle per engine tick so it can animate. See
+  /// `doc/sci0_deferred_cleanup.md`.
   void _pumpVm() {
     if (vm.executionStack.isEmpty || vm.abortScriptProcessing) return;
     final sliceEnd = DateTime.now().add(const Duration(milliseconds: 12));

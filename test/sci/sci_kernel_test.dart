@@ -204,6 +204,46 @@ void main() {
       expect(kernel.call(vm, 0x66, 2, [ab, const SciReg.fromInt(0)]).toSint16(), 88);
     });
 
+    test('BaseSetter uses cel width not uninitialized nsLeft/nsRight', () {
+      final view = SciView(
+        viewNumber: 292,
+        loops: [
+          const SciViewLoop(loopNumber: 0, cels: [
+            SciViewCel(width: 40, height: 20, transparentColor: 0, rawPixels: null),
+          ]),
+        ],
+      );
+      kernel.registerView(292, view);
+      selectors.y = 4;
+      selectors.x = 5;
+      selectors.view = 6;
+      selectors.loop = 7;
+      selectors.cel = 8;
+      selectors.nsLeft = 11;
+      selectors.nsRight = 13;
+      selectors.brTop = 20;
+      selectors.brLeft = 21;
+      selectors.brBottom = 22;
+      selectors.brRight = 23;
+      selectors.yStep = 24;
+      final obj = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x30),
+        variables: List<SciReg>.generate(30, (i) => const SciReg.fromInt(0)),
+        baseVars: List<int>.generate(30, (i) => i),
+      );
+      obj.variables[4] = const SciReg.fromInt(50); // y
+      obj.variables[5] = const SciReg.fromInt(100); // x
+      obj.variables[6] = const SciReg.fromInt(292);
+      obj.variables[24] = const SciReg.fromInt(3); // yStep
+      segMan.clones[0x30] = obj;
+
+      kernel.call(vm, 0x4F, 1, [obj.pos]);
+      expect(obj.variables[21].toSint16(), 80); // brLeft = 100 - 40/2
+      expect(obj.variables[23].toSint16(), 120); // brRight
+      expect(obj.variables[22].toSint16(), 51); // brBottom = y+1
+      expect(obj.variables[20].toSint16(), 48); // brTop = 51-3
+    });
+
     test('Wait records requested ticks and returns a delta', () {
       kernel.call(vm, 0x45, 1, [const SciReg.fromInt(0)]);
       expect(kernel.lastWaitTicks, 0);
@@ -217,6 +257,77 @@ void main() {
       expect(kernel.eventQueue.single.message, 13);
       kernel.postDirectionEvent(1);
       expect(kernel.eventQueue.last.type, SciEventType.direction);
+    });
+
+    test('SetPort 6-arg updates the picture port origin', () {
+      expect(kernel.picPortTop, 10);
+      expect(kernel.picPortLeft, 0);
+      kernel.call(vm, 0x15, 1, [const SciReg.fromInt(3)]);
+      expect(kernel.currentPort, 3);
+      expect(kernel.picPortTop, 10);
+      kernel.call(vm, 0x15, 6, [
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(200),
+        const SciReg.fromInt(320),
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(0),
+      ]);
+      expect(kernel.picPortTop, 0);
+      expect(kernel.picPortLeft, 0);
+      kernel.call(vm, 0x15, 6, [
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(200),
+        const SciReg.fromInt(320),
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(0),
+      ]);
+      expect(kernel.picPortTop, 10);
+    });
+
+    test('Animate sprite y includes the picture port origin', () {
+      final view = SciView(
+        viewNumber: 1,
+        loops: [
+          const SciViewLoop(loopNumber: 0, cels: [
+            SciViewCel(width: 16, height: 16, transparentColor: 0, rawPixels: null),
+          ]),
+        ],
+      );
+      kernel.registerView(1, view);
+      final obj = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x40),
+        variables: List<SciReg>.generate(25, (i) => const SciReg.fromInt(0)),
+        baseVars: List<int>.generate(25, (i) => i),
+      );
+      obj.variables[4] = const SciReg.fromInt(100); // y
+      obj.variables[5] = const SciReg.fromInt(160); // x
+      obj.variables[6] = const SciReg.fromInt(1); // view
+      segMan.clones[0x40] = obj;
+
+      final list = kernel.call(vm, 0x32, 0, []);
+      final node = kernel.call(vm, 0x34, 2, [obj.pos, const SciReg.fromInt(1)]);
+      kernel.call(vm, 0x3D, 2, [list, node]);
+
+      // Gameplay port: actor y is port-local, sprite is in screen space.
+      kernel.call(vm, 0x0B, 2, [list, const SciReg.fromInt(0)]);
+      expect(kernel.currentSprites, isNotEmpty);
+      expect(kernel.currentSprites.single.position.dy, 100 + 10 - 16 + 1);
+      expect(kernel.currentSprites.single.position.dx, 160 - 8);
+      expect(kernel.currentSprites.single.baselineY, 100);
+
+      // Intro / hide-menu: SetPort 6-arg drops the 10px origin.
+      kernel.call(vm, 0x15, 6, [
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(200),
+        const SciReg.fromInt(320),
+        const SciReg.fromInt(0),
+        const SciReg.fromInt(0),
+      ]);
+      kernel.call(vm, 0x0B, 2, [list, const SciReg.fromInt(0)]);
+      expect(kernel.currentSprites.single.position.dy, 100 - 16 + 1);
     });
   });
 }
