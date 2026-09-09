@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/screens/browsers/sci_script_browser_screen.dart';
 
 /// Modal diagnostic inspector for SCI0 game execution.
 ///
@@ -360,28 +361,41 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
                           const Divider(height: 4, color: Color(0xFF222D42)),
                       itemBuilder: (context, i) {
                         final s = loadedScripts[i];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          child: Row(
-                            children: [
-                              Text(
-                                'Script ${s.scriptNumber}',
-                                style: const TextStyle(
-                                  color: AgiTheme.egaWhite,
-                                  fontFamily: 'Courier',
-                                  fontSize: 11,
+                        return InkWell(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => SciScriptBrowserScreen(
+                                  initialScriptNumber: s.scriptNumber,
+                                  volumeManager: widget.engine.volumeManager,
                                 ),
                               ),
-                              const Spacer(),
-                              Text(
-                                'seg: ${s.segmentId}',
-                                style: const TextStyle(
-                                  color: AgiTheme.egaMuted,
-                                  fontFamily: 'Courier',
-                                  fontSize: 10,
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Script ${s.scriptNumber}',
+                                  style: const TextStyle(
+                                    color: AgiTheme.egaCyan,
+                                    fontFamily: 'Courier',
+                                    fontSize: 11,
+                                    decoration: TextDecoration.underline,
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const Spacer(),
+                                Text(
+                                  'seg: ${s.segmentId}',
+                                  style: const TextStyle(
+                                    color: AgiTheme.egaMuted,
+                                    fontFamily: 'Courier',
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },

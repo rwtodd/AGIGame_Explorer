@@ -12,6 +12,7 @@ import 'package:flutter_agigame/ui/screens/browsers/font_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/objects_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
+import 'package:flutter_agigame/ui/screens/browsers/sci_script_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/sound_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/words_browser_screen.dart';
@@ -607,6 +608,13 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                             (info.resourceCounts['SCRIPT Bytecode'] ?? 0).toString(),
                             Icons.code,
                             AgiTheme.egaGreen,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const SciScriptBrowserScreen(),
+                                ),
+                              );
+                            },
                           ),
                           _buildMetricTile(
                             'TEXT Messages',

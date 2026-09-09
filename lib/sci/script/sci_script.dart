@@ -33,6 +33,9 @@ class SciScript {
   /// Pointers/offsets relocated by the relocation block.
   final List<int> relocationOffsets;
 
+  /// Code block ranges (offset, length) within the script.
+  final List<(int offset, int length)> codeBlocks;
+
   SciScript({
     required this.scriptNumber,
     required this.segmentId,
@@ -43,6 +46,7 @@ class SciScript {
     Map<int, String>? strings,
     List<int>? synonyms,
     List<int>? relocationOffsets,
+    List<(int offset, int length)>? codeBlocks,
   })  : exports = exports != null ? List<int>.unmodifiable(exports) : const <int>[],
         locals = locals != null ? List<SciReg>.from(locals) : <SciReg>[],
         objects = objects != null ? Map<int, SciObject>.from(objects) : <int, SciObject>{},
@@ -50,7 +54,10 @@ class SciScript {
         synonyms = synonyms != null ? List<int>.unmodifiable(synonyms) : const <int>[],
         relocationOffsets = relocationOffsets != null
             ? List<int>.unmodifiable(relocationOffsets)
-            : const <int>[];
+            : const <int>[],
+        codeBlocks = codeBlocks != null
+            ? List<(int offset, int length)>.unmodifiable(codeBlocks)
+            : const [];
 
   /// Total script buffer size in bytes.
   int get size => bytes.length;
@@ -75,6 +82,24 @@ class SciScript {
     final str = String.fromCharCodes(bytes.sublist(offset, end));
     strings[offset] = str;
     return str;
+  }
+
+  /// Returns whether an object exists at the specified [offset].
+  bool isObject(int offset) => objects.containsKey(offset);
+
+  /// Returns all procedure entry offsets (exported procedures and code block offsets).
+  List<int> get procedureOffsets {
+    final set = <int>{};
+    for (final exp in exports) {
+      if (!isObject(exp)) {
+        set.add(exp);
+      }
+    }
+    for (final cb in codeBlocks) {
+      set.add(cb.$1);
+    }
+    final list = set.toList()..sort();
+    return list;
   }
 
   @override

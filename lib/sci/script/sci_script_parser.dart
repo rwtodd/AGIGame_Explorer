@@ -41,6 +41,7 @@ class SciScriptParser {
     final strings = <int, String>{};
     final synonyms = <int>[];
     final relocationOffsets = <int>[];
+    final codeBlocks = <(int offset, int length)>[];
 
     // Read blocks sequentially until terminator (blockType == 0) or EOF
     while (pos + 4 <= data.length) {
@@ -78,6 +79,12 @@ class SciScriptParser {
           );
           if (obj != null) {
             objects[obj.pos.offset] = obj;
+            if (obj.nameString != null && obj.variables.length > 3) {
+              final nameOffset = obj.variables[3].toUint16();
+              if (nameOffset > 0) {
+                strings[nameOffset] = obj.nameString!;
+              }
+            }
           }
           break;
 
@@ -86,10 +93,15 @@ class SciScriptParser {
           break;
 
         case SciScriptBlockType.strings:
-          // Strings are indexed on-demand or parsed directly
+          _parseStrings(data, pos, blockSize, strings);
           break;
 
         case SciScriptBlockType.code:
+          if (blockSize > 4) {
+            codeBlocks.add((pos + 4, blockSize - 4));
+          }
+          break;
+
         case SciScriptBlockType.said:
         default:
           break;
@@ -117,7 +129,33 @@ class SciScriptParser {
       strings: strings,
       synonyms: synonyms,
       relocationOffsets: relocationOffsets,
+      codeBlocks: codeBlocks,
     );
+  }
+
+  void _parseStrings(
+    Uint8List data,
+    int pos,
+    int blockSize,
+    Map<int, String> strings,
+  ) {
+    var cur = pos + 4;
+    final end = pos + blockSize;
+    while (cur < end) {
+      if (data[cur] == 0) {
+        cur++;
+        continue;
+      }
+      var strEnd = cur;
+      while (strEnd < end && data[strEnd] != 0) {
+        strEnd++;
+      }
+      if (strEnd > cur) {
+        final str = String.fromCharCodes(data.sublist(cur, strEnd));
+        strings[cur] = str;
+      }
+      cur = strEnd + 1;
+    }
   }
 
   void _parseExports(
