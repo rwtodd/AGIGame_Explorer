@@ -119,5 +119,44 @@ void main() {
 
       engine.dispose();
     });
+
+    test('restartGame resets engine state and enters Room 1 in PQ2', () {
+      final pq2Dir = Directory('reference_games/police-quest-2');
+      if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+
+      final volumeMgr = SciVolumeManager.fromDirectory(pq2Dir.path);
+      final engine = SciGameEngine(volumeManager: volumeMgr);
+      engine.initializeGame();
+
+      // Start engine normally (intro path)
+      engine.start();
+      for (int i = 0; i < 20; i++) {
+        engine.tick();
+      }
+
+      // Execute restartGame
+      engine.restartGame();
+      expect(engine.kernel.gameIsRestarting, 1);
+      expect(engine.isRunning, isTrue);
+
+      // Run ticks until Room 1 is reached
+      bool reachedRoom1 = false;
+      for (int t = 1; t <= 100; t++) {
+        engine.tick();
+        if (engine.kernel.currentPic?.picNumber == 1) {
+          reachedRoom1 = true;
+          break;
+        }
+      }
+
+      expect(reachedRoom1, isTrue);
+      expect(engine.kernel.currentPic?.picNumber, 1);
+      expect(engine.kernel.currentSprites, isNotEmpty);
+
+      engine.dispose();
+    });
   });
 }

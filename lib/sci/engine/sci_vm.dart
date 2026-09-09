@@ -114,6 +114,20 @@ class SciVM {
   void addObserver(SciVmObserver observer) => observers.add(observer);
   void removeObserver(SciVmObserver observer) => observers.remove(observer);
 
+  /// Resets VM execution registers, stacks, and execution state flags.
+  void reset() {
+    r_acc = SciReg.nullReg;
+    r_prev = SciReg.nullReg;
+    r_rest = 0;
+    stack.clear();
+    executionStack.clear();
+    executionStackBase = 0;
+    stepCounter = 0;
+    abortScriptProcessing = false;
+    yieldRequested = false;
+    recentInstructions.clear();
+  }
+
   void push(SciReg reg) => stack.add(reg);
 
   SciReg pop() {
@@ -128,6 +142,7 @@ class SciVM {
 
   /// Sends a selector message to an object: `(targetObj selector: args...)`.
   void sendSelector(SciReg targetObj, int selectorId, List<SciReg> args) {
+    yieldRequested = false;
     // Push selector ID, argc, and args onto stack
     final frameBase = stack.length;
     stack.add(SciReg.fromInt(selectorId));

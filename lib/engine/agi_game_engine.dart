@@ -3142,6 +3142,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
 
   /// Restarts the game, resetting variables, flags, strings, inventory to initial game state,
   /// reloading starting room and root Logic 0, and raising Flag 5, Flag 6, and Flag 11.
+  @override
   void restartGame({int startingRoom = 0}) {
     memory.reset();
 

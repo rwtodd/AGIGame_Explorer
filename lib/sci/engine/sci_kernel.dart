@@ -13,6 +13,8 @@ import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 import 'package:flutter_agigame/sci/view/sci_view.dart';
 import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
+import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
+import 'package:flutter_agigame/sci/parser/sci_said_matcher.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 typedef SciKernelFunc = SciReg Function(SciVM vm, int argc, List<SciReg> argv);
@@ -88,6 +90,8 @@ class SciKernel {
   int mouseY = 0;
 
   List<PlayfieldActorSprite> currentSprites = [];
+  int gameIsRestarting = 0;
+  VoidCallback? onRestartGameRequested;
 
   // --- External Callbacks for UI & Graphics Engine (Stage 10 Hooks) ---
   void Function(int picNum, int showStyle)? onDrawPic;
@@ -120,9 +124,45 @@ class SciKernel {
   bool _soundMuted = false;
   final Map<SciReg, SciSoundSlot> _soundSlots = {};
 
+  // --- Parser, Vocabulary & Status (Stage 11) ---
+  SciVocab? vocab;
+  SciReg? parserEvent;
+  final List<SciVocabWord> lastParsedWords = [];
+  String lastParsedRaw = '';
+  String? lastUnknownWord;
+  String? currentStatusLine;
+  final List<SciSaidSpec> activeCycleSaidSpecs = [];
+  void Function(String text)? onDrawStatus;
+  int getEventCallCount = 0;
+
   SciKernel() {
     initPriorityBands();
     _registerAll();
+  }
+
+  /// Resets active picture, sprites, events, ports, and sound slots.
+  void reset() {
+    currentPic = null;
+    currentSprites.clear();
+    eventQueue.clear();
+    mouseX = 0;
+    mouseY = 0;
+    currentPort = 0;
+    picNotValid = 0;
+    picPortTop = 10;
+    picPortLeft = 0;
+    lastWaitTicks = 0;
+    gameIsRestarting = 0;
+    _soundSlots.clear();
+    recentCallLogs.clear();
+    initPriorityBands();
+    parserEvent = null;
+    lastParsedWords.clear();
+    lastParsedRaw = '';
+    lastUnknownWord = null;
+    currentStatusLine = null;
+    activeCycleSaidSpecs.clear();
+    getEventCallCount = 0;
   }
 
   void _register(int id, String name, SciKernelFunc func) {
@@ -325,15 +365,15 @@ class SciKernel {
     _register(0x1D, 'GlobalToLocal', _kStub);
     _register(0x1E, 'LocalToGlobal', _kStub);
     _register(0x1F, 'MapKeyToDir', _kMapKeyToDir);
-    _register(0x20, 'DrawMenuBar', _kStub);
-    _register(0x21, 'MenuSelect', _kStub);
-    _register(0x22, 'AddMenu', _kStub);
-    _register(0x23, 'DrawStatus', _kStub);
+    _register(0x20, 'DrawMenuBar', _kDrawMenuBar);
+    _register(0x21, 'MenuSelect', _kMenuSelect);
+    _register(0x22, 'AddMenu', _kAddMenu);
+    _register(0x23, 'DrawStatus', _kDrawStatus);
 
     // 0x24..0x28: Parser, Mouse, Cursor
     _register(0x24, 'Parse', _kParse);
     _register(0x25, 'Said', _kSaid);
-    _register(0x26, 'SetSynonyms', _kStub);
+    _register(0x26, 'SetSynonyms', _kSetSynonyms);
     _register(0x27, 'HaveMouse', _kHaveMouse);
     _register(0x28, 'SetCursor', _kStub);
 
@@ -346,8 +386,8 @@ class SciKernel {
     // 0x2D..0x31: Game state & Sound
     _register(0x2D, 'SaveGame', _kStub);
     _register(0x2E, 'RestoreGame', _kStub);
-    _register(0x2F, 'RestartGame', _kStub);
-    _register(0x30, 'GameIsRestarting', _kStub);
+    _register(0x2F, 'RestartGame', _kRestartGame);
+    _register(0x30, 'GameIsRestarting', _kGameIsRestarting);
     _register(0x31, 'DoSound', _kDoSound);
 
     // 0x32..0x3F: Doubly-Linked Lists
@@ -429,6 +469,21 @@ class SciKernel {
 
   // --- Default Stub ---
   SciReg _kStub(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+
+  // --- Restart Management ---
+
+  SciReg _kRestartGame(SciVM vm, int argc, List<SciReg> argv) {
+    onRestartGameRequested?.call();
+    return SciReg.nullReg;
+  }
+
+  SciReg _kGameIsRestarting(SciVM vm, int argc, List<SciReg> argv) {
+    final previous = gameIsRestarting;
+    if (argc > 0 && argv[0].toUint16() == 0) {
+      gameIsRestarting = 0;
+    }
+    return SciReg.fromInt(previous);
+  }
 
   // --- Lifecycle & Objects ---
 
@@ -549,6 +604,7 @@ class SciKernel {
   }
 
   SciReg _kAnimate(SciVM vm, int argc, List<SciReg> argv) {
+    getEventCallCount = 0;
     final castList = argc >= 1 ? argv[0] : SciReg.nullReg;
     onAnimate?.call(castList);
 
@@ -907,7 +963,9 @@ class SciKernel {
     final messageSel = selectors.message >= 0 ? selectors.message : (vm.selectors.findSelector('message') ?? 84);
     final modifiersSel = selectors.modifiers >= 0 ? selectors.modifiers : (vm.selectors.findSelector('modifiers') ?? 85);
 
+    getEventCallCount++;
     if (foundIdx >= 0) {
+      getEventCallCount = 0;
       final ev = eventQueue.removeAt(foundIdx);
       eventObj.setProp(vm.segManager, typeSel, SciReg.fromInt(ev.type));
       eventObj.setProp(vm.segManager, messageSel, SciReg.fromInt(ev.message));
@@ -919,12 +977,161 @@ class SciKernel {
       eventObj.setProp(vm.segManager, typeSel, const SciReg.fromInt(0));
       eventObj.setProp(vm.segManager, messageSel, const SciReg.fromInt(0));
       eventObj.setProp(vm.segManager, modifiersSel, const SciReg.fromInt(0));
+      if (getEventCallCount > 2) {
+        vm.yieldRequested = true;
+      }
       return const SciReg.fromInt(0);
     }
   }
 
-  SciReg _kParse(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kSaid(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+  // --- Menu & Status (Stage 11) ---
+
+  SciReg _kDrawMenuBar(SciVM vm, int argc, List<SciReg> argv) => vm.r_acc;
+  SciReg _kMenuSelect(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+  SciReg _kAddMenu(SciVM vm, int argc, List<SciReg> argv) => vm.r_acc;
+
+  SciReg _kDrawStatus(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc >= 1 && !argv[0].isNull) {
+      final text = vm.segManager.getString(argv[0]);
+      if (text.isNotEmpty && text != 'Replaying sound') {
+        currentStatusLine = text;
+        onDrawStatus?.call(text);
+      }
+    }
+    return vm.r_acc;
+  }
+
+  // --- Parser & Vocabulary (Stage 11) ---
+
+  SciReg _kParse(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return const SciReg.fromInt(0);
+    final strPtr = argv[0];
+    final evPtr = argv[1];
+    parserEvent = evPtr;
+
+    final evObj = vm.segManager.lookupObject(evPtr);
+    final inputStr = vm.segManager.getString(strPtr);
+    lastParsedRaw = inputStr;
+    lastParsedWords.clear();
+    lastUnknownWord = null;
+
+    final tokens = _splitInputTokens(inputStr);
+    if (tokens.isEmpty) {
+      evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(0));
+      return const SciReg.fromInt(0);
+    }
+
+    for (final token in tokens) {
+      final candidates = vocab?.lookup(token);
+      if (candidates == null || candidates.isEmpty) {
+        lastUnknownWord = token;
+        evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(1));
+        _invokeWordFail(vm, evPtr, strPtr, token);
+        return const SciReg.fromInt(0);
+      }
+      lastParsedWords.add(candidates.first);
+    }
+
+    evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(0));
+    return const SciReg.fromInt(1);
+  }
+
+  List<String> _splitInputTokens(String input) {
+    return input
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9\s']"), ' ')
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  void _invokeWordFail(SciVM vm, SciReg eventReg, SciReg strReg, String unknownWord) {
+    if (vm.segManager.globals.isNotEmpty && selectors.wordFail != -1) {
+      final theGame = vm.segManager.globals[0];
+      if (!theGame.isNull) {
+        try {
+          vm.sendSelector(theGame, selectors.wordFail, [eventReg, strReg]);
+        } catch (_) {}
+      }
+    }
+  }
+
+  SciReg _kSaid(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return const SciReg.fromInt(0);
+    final specPtr = argv[0];
+    final bytes = vm.segManager.bytesFor(specPtr);
+    if (bytes == null) return const SciReg.fromInt(0);
+    final offset = vm.segManager.byteIndexFor(specPtr);
+    final spec = SciSaidSpec.fromBytes(bytes, offset);
+
+    activeCycleSaidSpecs.add(spec);
+
+    if (parserEvent == null || parserEvent!.isNull) {
+      return const SciReg.fromInt(0);
+    }
+    final evObj = vm.segManager.lookupObject(parserEvent!);
+    if (evObj == null) return const SciReg.fromInt(0);
+
+    final claimedReg = evObj.getProp(vm.segManager, selectors.claimed);
+    if (claimedReg.toUint16() != 0) {
+      return const SciReg.fromInt(0);
+    }
+
+    final matched = SciSaidMatcher.match(
+      spec,
+      lastParsedWords,
+      vocab: vocab,
+      rawInput: lastParsedRaw,
+    );
+
+    if (matched) {
+      if (!spec.isNonClaiming) {
+        evObj.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(1));
+      }
+      return const SciReg.fromInt(1);
+    }
+
+    return const SciReg.fromInt(0);
+  }
+
+  SciReg _kSetSynonyms(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1 || vocab == null) return vm.r_acc;
+    final target = argv[0];
+    final obj = vm.segManager.lookupObject(target);
+    if (obj == null) return vm.r_acc;
+
+    // Case 1: object is a Collection with elements
+    final elemReg = obj.getProp(vm.segManager, selectors.elements);
+    if (!elemReg.isNull) {
+      final list = vm.segManager.lookupList(elemReg);
+      if (list != null) {
+        final elements = vm.segManager.listElements(list);
+        for (final el in elements) {
+          _applyScriptSynonyms(vm, el);
+        }
+      }
+    }
+    // Case 2: object is directly a room/region with a script number
+    _applyScriptSynonyms(vm, target);
+
+    return vm.r_acc;
+  }
+
+  void _applyScriptSynonyms(SciVM vm, SciReg objReg) {
+    final o = vm.segManager.lookupObject(objReg);
+    if (o == null) return;
+    final numReg = o.getProp(vm.segManager, selectors.number);
+    final scriptNr = numReg.toSint16();
+    if (scriptNr <= 0) return;
+    final seg = vm.segManager.scriptToSegment[scriptNr];
+    if (seg == null) return;
+    final script = vm.segManager.loadedScripts[seg];
+    if (script == null || script.synonyms.isEmpty) return;
+    for (int i = 0; i < script.synonyms.length - 1; i += 2) {
+      vocab?.setSynonym(script.synonyms[i], script.synonyms[i + 1]);
+    }
+  }
+
   SciReg _kHaveMouse(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(1);
 
   // --- Lists & Nodes ---

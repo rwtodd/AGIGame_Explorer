@@ -72,6 +72,7 @@ class SciSelectors {
   int type = -1;
   int message = -1;
   int modifiers = -1;
+  int number = -1;
 
   SciSelectors();
 
@@ -166,6 +167,7 @@ class SciSelectors {
     type = findSelector('type') ?? -1;
     message = findSelector('message') ?? -1;
     modifiers = findSelector('modifiers') ?? -1;
+    number = findSelector('number') ?? -1;
   }
 
   /// Finds selector ID by name, or null if not found.

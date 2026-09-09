@@ -120,6 +120,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       agi.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, agi);
       agi.onRestartGameRequested = () => SaveLoadDialog.showRestartConfirmation(context, agi);
     } else {
+      final sci = _sciEngine;
+      if (sci != null) {
+        sci.kernel.onRestartGameRequested =
+            () => SaveLoadDialog.showRestartConfirmation(context, sci);
+      }
       _session.start();
     }
   }
@@ -422,7 +427,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         return KeyEventResult.handled;
     }
 
-    // Register key press on session
+    // Register key press on session (for SCI, printable characters during input are handled by the integrated prompt)
     final rawKey = _getKeyCode(event);
     final isShift = HardwareKeyboard.instance.isShiftPressed;
     final isCtrl = HardwareKeyboard.instance.isControlPressed;
@@ -430,7 +435,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final ascii = (event.character != null && event.character!.isNotEmpty)
         ? event.character!.codeUnitAt(0)
         : rawKey;
-    _session.handleKeyPress(rawKey, ascii: ascii, shift: isShift, ctrl: isCtrl, alt: isAlt);
+
+    final isPrintableChar = ascii >= 32 && ascii <= 126 && !isCtrl && !isAlt;
+    final isSciPromptActive = (_sciEngine != null && _session.isInputEnabled);
+
+    if (!isSciPromptActive || !isPrintableChar) {
+      _session.handleKeyPress(rawKey, ascii: ascii, shift: isShift, ctrl: isCtrl, alt: isAlt);
+    }
 
     // 6. Command history navigation via PageUp/PageDown or F3
     if (event.logicalKey == LogicalKeyboardKey.pageUp ||
@@ -759,19 +770,15 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
           // Restart Game (F9)
           IconButton(
-            icon: Icon(
+            icon: const Icon(
               Icons.replay,
               size: 18,
-              color: _agiEngine != null ? AgiTheme.egaRed : AgiTheme.egaMuted,
+              color: AgiTheme.egaRed,
             ),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: _agiEngine != null
-                ? () => SaveLoadDialog.showRestartConfirmation(context, _agiEngine!)
-                : null,
-            tooltip: _agiEngine != null
-                ? 'Restart Game (F9)'
-                : 'Restart Game (F9) - Planned for Stage 15',
+            onPressed: () => SaveLoadDialog.showRestartConfirmation(context, _session),
+            tooltip: 'Restart Game (F9)',
           ),
 
           const Divider(height: 10, thickness: 1, color: AgiTheme.egaBorder),

@@ -94,6 +94,23 @@ class SciSegManager {
 
   SciSegManager({this.volumeManager});
 
+  /// Resets all loaded scripts, objects, lists, nodes, hunks, and globals.
+  void reset() {
+    _nextScriptSegmentId = 1;
+    scriptToSegment.clear();
+    loadedScripts.clear();
+    classAddresses.clear();
+    lists.clear();
+    _listIds.clear();
+    nodes.clear();
+    _nodeIds.clear();
+    clones.clear();
+    _cloneIds.clear();
+    hunkBuffers.clear();
+    _nextHunkOffset = 1;
+    globals.clear();
+  }
+
   /// Loads the class-to-script mapping table from `VOCAB.996`.
   void loadClassTable(Uint8List vocab996Bytes) {
     classScripts.clear();
@@ -211,28 +228,29 @@ class SciSegManager {
   /// Retrieves an object by its VM address [addr] or by class species ID if [addr.isNumber].
   SciObject? getObject(SciReg addr) {
     if (addr.isNull) return null;
-
-    if (addr.isNumber) {
-      // Immediate number refers to class species ID
-      final classNr = addr.toUint16();
-      final classAddr = getClassAddress(classNr, volumeManager: volumeManager);
-      if (!classAddr.isNull && classAddr != addr) {
+    if (addr.segment == cloneSegmentId) {
+      return clones[addr.offset];
+    }
+    if (addr.segment == hunkSegmentId) {
+      return clones[addr.offset];
+    }
+    if (addr.segment == 0) {
+      // Species lookup: resolve class object
+      final classAddr = classAddresses[addr.offset];
+      if (classAddr != null) {
         return getObject(classAddr);
       }
       return null;
     }
-
-    if (addr.segment == cloneSegmentId) {
-      return clones[addr.offset];
-    }
-
     final script = loadedScripts[addr.segment];
     if (script != null) {
       return script.getObject(addr.offset);
     }
-
     return null;
   }
+
+  /// Alias for [getObject].
+  SciObject? lookupObject(SciReg addr) => getObject(addr);
 
   /// Resolves the human-readable name of an object.
   String getObjectName(SciReg addr) {
@@ -507,6 +525,30 @@ class SciSegManager {
     return old;
   }
 
+  /// Reads a null-terminated ASCII/Latin-1 string starting at [ptr].
+  String getString(SciReg ptr) {
+    final bytes = bytesFor(ptr);
+    if (bytes == null) return '';
+    var i = byteIndexFor(ptr);
+    final start = i;
+    while (i < bytes.length && bytes[i] != 0) {
+      i++;
+    }
+    return String.fromCharCodes(bytes.sublist(start, i));
+  }
+
+  /// Allocates a new null-terminated string buffer in hunk memory and returns its pointer.
+  SciReg allocString(String text) {
+    final codeUnits = text.codeUnits;
+    final reg = allocHunk(codeUnits.length + 1);
+    final buf = hunkBuffers[reg.offset]!;
+    for (int i = 0; i < codeUnits.length; i++) {
+      buf[i] = codeUnits[i];
+    }
+    buf[codeUnits.length] = 0;
+    return reg;
+  }
+
   SciReg findKey(SciReg listReg, SciReg key) {
     if (listReg.segment != listSegmentId) return SciReg.nullReg;
     final list = lists[listReg.offset];
@@ -589,5 +631,10 @@ class _Offset16Pool {
 
   void release(int offset) {
     if (offset > 0 && offset <= _max) _free.add(offset);
+  }
+
+  void clear() {
+    _next = 1;
+    _free.clear();
   }
 }

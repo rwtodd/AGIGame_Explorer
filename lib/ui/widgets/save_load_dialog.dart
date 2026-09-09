@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
@@ -79,25 +80,24 @@ class SaveLoadDialog extends StatefulWidget {
     }
   }
 
-  /// Displays the Restart Confirmation dialog per Sierra AGI Opcode 128 (`restart.game`),
-  /// pausing game execution while open.
+  /// Displays the Restart Confirmation dialog, pausing game execution while open.
   static Future<bool?> showRestartConfirmation(
     BuildContext context,
-    AgiGameEngine engine,
+    SierraGameSession session,
   ) async {
-    final wasPaused = engine.isPaused;
+    final wasPaused = session.isPaused;
     if (!wasPaused) {
-      engine.pause();
+      session.pause();
     }
     try {
       return await showDialog<bool>(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => RestartConfirmationDialog(engine: engine),
+        builder: (ctx) => RestartConfirmationDialog(session: session),
       );
     } finally {
       if (!wasPaused) {
-        engine.resume();
+        session.resume();
       }
     }
   }
@@ -581,22 +581,24 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
   }
 }
 
-/// Modal Confirmation Dialog for `restart.game` (Opcode 128).
+/// Modal Confirmation Dialog for restarting game.
 class RestartConfirmationDialog extends StatelessWidget {
-  final AgiGameEngine engine;
+  final SierraGameSession session;
 
   const RestartConfirmationDialog({
     super.key,
-    required this.engine,
+    required this.session,
   });
 
   void _confirmRestart(BuildContext context) {
-    engine.restartGame();
+    session.restartGame();
     Navigator.of(context).pop(true);
   }
 
   void _cancelRestart(BuildContext context) {
-    engine.cancelRestart();
+    if (session is AgiGameEngine) {
+      (session as AgiGameEngine).cancelRestart();
+    }
     Navigator.of(context).pop(false);
   }
 

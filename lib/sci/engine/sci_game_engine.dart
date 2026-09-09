@@ -14,6 +14,8 @@ import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
+import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
+import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -43,7 +45,6 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
   String _statusLine = '';
   final String _promptLine = '';
-  final bool _isInputEnabled = false;
 
   @override
   DisplayProfile get displayProfile => DisplayProfile.sci0;
@@ -71,7 +72,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   bool get showMouseCursor => false;
 
   @override
-  String get statusLine => _statusLine;
+  String get statusLine => kernel.currentStatusLine ?? _statusLine;
 
   @override
   String get promptLine => _promptLine;
@@ -80,7 +81,26 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   bool get isPaused => _isPaused;
 
   @override
-  bool get isInputEnabled => _isInputEnabled;
+  bool get isInputEnabled {
+    final s996Seg = segManager.scriptToSegment[996];
+    if (s996Seg != null) {
+      final s996 = segManager.loadedScripts[s996Seg];
+      final user = s996?.objects.values.firstWhere(
+        (o) => o.nameString == 'User',
+        orElse: () => SciObject(pos: SciReg.nullReg, variables: const []),
+      );
+      if (user != null && user.variables.isNotEmpty) {
+        final canInputSel = selectors.findSelector('canInput');
+        if (canInputSel != null) {
+          final idx = user.locateVarSelector(segManager, canInputSel);
+          if (idx >= 0 && idx < user.variables.length) {
+            return user.variables[idx].toUint16() != 0;
+          }
+        }
+      }
+    }
+    return true;
+  }
 
   @override
   double get shakeOffsetX => 0.0;
@@ -110,9 +130,14 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     this.kernel.volumeManager = volumeManager;
     this.kernel.selectors = this.selectors;
     this.segManager.volumeManager = volumeManager;
+    this.kernel.onRestartGameRequested ??= () => restartGame();
+    this.kernel.onDrawStatus = (text) {
+      _statusLine = text;
+      notifyListeners();
+    };
   }
 
-  /// Loads classes, selectors, and script 0. SCI start is always `(Game play:)`.
+  /// Loads classes, selectors, vocabulary, and script 0. SCI start is always `(Game play:)`.
   /// [startingRoom] is a debug warp reserved for later; boot still uses play:.
   void initializeGame({int startingRoom = 0}) {
     final vocab996Bytes = volumeManager.getResource(SciResourceType.vocab, 996);
@@ -120,6 +145,14 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
     final vocab997Bytes = volumeManager.getResource(SciResourceType.vocab, 997);
     selectors.loadVocab997(vocab997Bytes);
+
+    final vocab0Entry = volumeManager.resourceMap.findById(const SciResourceId(SciResourceType.vocab, 0));
+    if (vocab0Entry != null) {
+      final vocab0Bytes = volumeManager.getResource(SciResourceType.vocab, 0);
+      final vocab = SciVocab();
+      vocab.loadVocab000(vocab0Bytes);
+      kernel.vocab = vocab;
+    }
 
     final script0 = segManager.instantiateScript(0, volumeManager);
     final gameObjOffset = script0.exports[0];
@@ -187,6 +220,51 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       tick();
     });
     notifyListeners();
+  }
+
+  @override
+  void restartGame({int startingRoom = 0}) {
+    final wasPaused = _isPaused;
+    _isPaused = true;
+    _tickTimer?.cancel();
+    _tickTimer = null;
+
+    _cycleCount = 0;
+    _started = false;
+
+    atlasManager.clear();
+    segManager.reset();
+    vm.reset();
+    kernel.reset();
+
+    kernel.gameIsRestarting = 1;
+
+    initializeGame(startingRoom: startingRoom);
+
+    _isRunning = true;
+    _started = true;
+    _isPaused = false;
+
+    if (_gameObj != null) {
+      try {
+        vm.sendSelector(_gameObj!, selectors.play, []);
+      } catch (e, st) {
+        if (kernel.verboseLogging) {
+          debugPrint('[SciEngine] ERROR during restart boot: $e\n$st');
+        }
+      }
+    }
+
+    final intervalMs = (1000.0 / speedHz).round();
+    _tickTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
+      tick();
+    });
+
+    if (wasPaused) {
+      pause();
+    } else {
+      notifyListeners();
+    }
   }
 
   @override
@@ -259,7 +337,79 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
   @override
   void submitCommand(String command) {
-    // Stage 11 will connect parser Said()
+    final trimmed = command.trim();
+    if (trimmed.isEmpty) return;
+
+    kernel.activeCycleSaidSpecs.clear();
+
+    // Allocate an event object
+    final eventReg = SciReg.pointer(SciSegManager.cloneSegmentId, 9999);
+    final eventObj = SciObject(
+      pos: eventReg,
+      variables: List<SciReg>.filled(16, const SciReg.fromInt(0)),
+    );
+    segManager.clones[9999] = eventObj;
+
+    final typeSel = selectors.type >= 0 ? selectors.type : (selectors.findSelector('type') ?? 83);
+    final claimedSel = selectors.claimed >= 0 ? selectors.claimed : (selectors.findSelector('claimed') ?? 76);
+    final messageSel = selectors.message >= 0 ? selectors.message : (selectors.findSelector('message') ?? 84);
+    final modifiersSel = selectors.modifiers >= 0 ? selectors.modifiers : (selectors.findSelector('modifiers') ?? 85);
+
+    eventObj.baseVars.addAll([typeSel, messageSel, modifiersSel, claimedSel]);
+    eventObj.setProp(segManager, typeSel, const SciReg.fromInt(128)); // saidEvent
+    eventObj.setProp(segManager, claimedSel, const SciReg.fromInt(0));
+
+    final strReg = segManager.allocString(trimmed);
+
+    // Run Parse
+    final parseRes = kernel.call(vm, 0x24, 2, [strReg, eventReg]);
+    if (parseRes.toUint16() == 0) {
+      notifyListeners();
+      return;
+    }
+
+    // Try dispatching through User.said first if User is present
+    var dispatched = false;
+    final s996Seg = segManager.scriptToSegment[996];
+    if (s996Seg != null) {
+      final s996 = segManager.loadedScripts[s996Seg];
+      final user = s996?.objects.values.firstWhere(
+        (o) => o.nameString == 'User',
+        orElse: () => SciObject(pos: SciReg.nullReg, variables: const []),
+      );
+      if (user != null && !user.pos.isNull) {
+        final saidSel = selectors.findSelector('said') ?? 75;
+        try {
+          vm.sendSelector(user.pos, saidSel, [eventReg]);
+          dispatched = true;
+        } catch (_) {}
+      }
+    }
+
+    // If User was not available, or event was not claimed, dispatch directly to curRoom
+    final claimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
+    if (!dispatched || !claimed) {
+      if (segManager.globals.length > 1 && !segManager.globals[1].isNull) {
+        final curRoom = segManager.globals[1];
+        try {
+          vm.sendSelector(curRoom, selectors.handleEvent, [eventReg]);
+        } catch (_) {}
+      }
+    }
+
+    // If still not claimed, call prsErr on theGame if available
+    final finalClaimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
+    if (!finalClaimed && segManager.globals.isNotEmpty && !segManager.globals[0].isNull) {
+      final theGame = segManager.globals[0];
+      final prsErrSel = selectors.findSelector('prsErr');
+      if (prsErrSel != null) {
+        try {
+          vm.sendSelector(theGame, prsErrSel, [eventReg]);
+        } catch (_) {}
+      }
+    }
+
+    notifyListeners();
   }
 
   /// Exports a comprehensive snapshot of the SCI engine state as a Map.
@@ -343,6 +493,15 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       'nodesCount': segManager.nodes.length,
       'clonesCount': segManager.clones.length,
       'recentKernelLogs': kernel.recentCallLogs.toList(),
+      'parser': {
+        'lastInput': kernel.lastParsedRaw,
+        'lastParsedWords': kernel.lastParsedWords.map((w) => w.toString()).toList(),
+        'lastUnknownWord': kernel.lastUnknownWord,
+        'activeCycleSaidSpecs': kernel.activeCycleSaidSpecs
+            .take(30)
+            .map((s) => s.toSaidString(kernel.vocab))
+            .toList(),
+      },
     };
   }
 

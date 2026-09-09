@@ -71,6 +71,9 @@ abstract class SierraGameSession implements Listenable {
   /// Resumes the game loop.
   void resume();
 
+  /// Restarts the active game session to initial state.
+  void restartGame({int startingRoom = 0});
+
   /// Dispatches 8-direction navigation input (0 = stop, 1 = up, 2 = up-right, ...).
   void handleDirection(int direction);
 
