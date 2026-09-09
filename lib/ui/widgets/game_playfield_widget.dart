@@ -90,6 +90,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         if (mounted) setState(() {});
       };
       _agiEngine!.atlasManager.prepareAtlasAsync();
+    } else if (_session is SciGameEngine) {
+      (_session as SciGameEngine).atlasManager.onAtlasUpdated = () {
+        if (mounted) setState(() {});
+      };
     }
     _onEngineNotify();
     _blinkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
@@ -114,6 +118,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           if (mounted) setState(() {});
         };
         _agiEngine!.atlasManager.prepareAtlasAsync();
+      } else if (curSession is SciGameEngine) {
+        curSession.atlasManager.onAtlasUpdated = () {
+          if (mounted) setState(() {});
+        };
       }
     }
     if (oldWidget.renderMode != widget.renderMode ||
@@ -191,6 +199,8 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     _session.removeListener(_onEngineNotify);
     if (_agiEngine != null) {
       _agiEngine!.atlasManager.onAtlasUpdated = null;
+    } else if (_session is SciGameEngine) {
+      (_session as SciGameEngine).atlasManager.onAtlasUpdated = null;
     }
     _blinkTimer?.cancel();
     for (final img in _spriteTextureCache.values) {
@@ -586,16 +596,25 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
     final sci = _session is SciGameEngine ? (_session as SciGameEngine) : null;
     if (sci != null) {
+      final atlasMgr = sci.atlasManager;
       final actors = <PlayfieldActorSprite>[];
       for (final sprite in _session.actors) {
+        var hit = atlasMgr.lookupCel(sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
+        if (hit == null || !hit.atlas.hasImage) {
+          final view = sci.kernel.getView(sprite.viewNumber);
+          if (view != null) {
+            atlasMgr.registerView(view);
+            atlasMgr.prepareAtlasAsync();
+            hit = atlasMgr.lookupCel(sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
+          }
+        }
+        if (hit != null && hit.atlas.hasImage) {
+          actors.add(sprite.copyWith(atlas: hit.atlas, celEntry: hit.entry));
+          continue;
+        }
         final cacheKey = AtlasCelEntry.computeKey(sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
-        final cachedImage = sci.kernel.getCelImage(sprite.viewNumber, sprite.loopNumber, sprite.celNumber) ??
-            _spriteTextureCache[cacheKey];
-
-        actors.add(
-          sprite.copyWith(image: cachedImage),
-        );
-
+        final cachedImage = _spriteTextureCache[cacheKey];
+        actors.add(sprite.copyWith(image: cachedImage));
         if (cachedImage == null) {
           _decodeSciSpriteCel(sci, sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
         }

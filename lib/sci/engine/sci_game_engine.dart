@@ -14,6 +14,7 @@ import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
+import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
@@ -26,6 +27,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   late final SciKernel kernel;
   late final SciSelectors selectors;
   late final SciVM vm;
+  final ViewAtlasManager atlasManager = ViewAtlasManager();
 
   Timer? _tickTimer;
   bool _isRunning = false;
@@ -37,7 +39,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   SciReg? _gameObj;
   bool _started = false;
 
-  List<String> get recentKernelLogs => kernel.recentCallLogs;
+  List<String> get recentKernelLogs => kernel.recentCallLogs.toList();
 
   String _statusLine = '';
   final String _promptLine = '';
@@ -110,17 +112,15 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     this.segManager.volumeManager = volumeManager;
   }
 
-  /// Loads classes, selectors, script 0, and connects callbacks.
+  /// Loads classes, selectors, and script 0. SCI start is always `(Game play:)`.
+  /// [startingRoom] is a debug warp reserved for later; boot still uses play:.
   void initializeGame({int startingRoom = 0}) {
-    // 1. Load Vocab 996 (class table)
     final vocab996Bytes = volumeManager.getResource(SciResourceType.vocab, 996);
     segManager.loadClassTable(vocab996Bytes);
 
-    // 2. Load Vocab 997 (selectors)
     final vocab997Bytes = volumeManager.getResource(SciResourceType.vocab, 997);
     selectors.loadVocab997(vocab997Bytes);
 
-    // 3. Instantiate Script 0
     final script0 = segManager.instantiateScript(0, volumeManager);
     final gameObjOffset = script0.exports[0];
     final game = script0.getObject(gameObjOffset);
@@ -129,15 +129,6 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       _statusLine = game.nameString ?? 'Sierra SCI0';
     }
 
-    // 4. Hook up graphics notifications
-    kernel.onDrawPic = (picNum, showStyle) {
-      notifyListeners();
-    };
-    kernel.onSpritesUpdated = (sprites) {
-      notifyListeners();
-    };
-
-    // 5. Enable VM yielding on Animate
     vm.yieldOnAnimate = true;
   }
 
@@ -151,11 +142,11 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     if (!_started && _gameObj != null) {
       _started = true;
       try {
-        debugPrint('[SciEngine] Booting game object $_gameObj via selector play:');
         vm.sendSelector(_gameObj!, selectors.play, []);
-        debugPrint('[SciEngine] Boot initial run returned. ExecStack depth: ${vm.executionStack.length}');
       } catch (e, st) {
-        debugPrint('[SciEngine] ERROR during boot: $e\n$st');
+        if (kernel.verboseLogging) {
+          debugPrint('[SciEngine] ERROR during boot: $e\n$st');
+        }
       }
       notifyListeners();
     }
@@ -202,17 +193,42 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   void tick() {
     if (_isPaused || _isDisposed) return;
     _cycleCount++;
+    _pumpVm();
+    notifyListeners();
+  }
 
-    if (vm.executionStack.isNotEmpty && !vm.abortScriptProcessing) {
-      vm.yieldRequested = false;
-      try {
+  /// SCI0 `g11` is `currentRoom` (PQ2 snapshot / LSL2 `GAME.SH`).
+  static const int _globalCurrentRoom = 11;
+
+  int get _currentRoom {
+    if (segManager.globals.length > _globalCurrentRoom) {
+      return segManager.globals[_globalCurrentRoom].toUint16();
+    }
+    return 0;
+  }
+
+  /// Runs the VM until Animate yields. Room 99's speed test calls `Wait(0)` and
+  /// counts `doit` cycles for one second; extra-pump only there so `machineSpeed`
+  /// is not capped at 20 Hz. PQ2 then opens the intro still at speed 0 — keep
+  /// one cycle per engine tick so the title can actually animate.
+  void _pumpVm() {
+    if (vm.executionStack.isEmpty || vm.abortScriptProcessing) return;
+    final sliceEnd = DateTime.now().add(const Duration(milliseconds: 12));
+    try {
+      do {
+        vm.yieldRequested = false;
         vm.runVm(100000, 0);
-      } catch (e, st) {
+        if (!vm.yieldRequested) break;
+        if (kernel.lastWaitTicks > 0) break;
+        if (_currentRoom != 99) break;
+      } while (!vm.abortScriptProcessing &&
+          vm.executionStack.isNotEmpty &&
+          DateTime.now().isBefore(sliceEnd));
+    } catch (e, st) {
+      if (kernel.verboseLogging) {
         debugPrint('[SciEngine] ERROR in tick: $e\n$st');
       }
     }
-
-    notifyListeners();
   }
 
   @override
@@ -323,7 +339,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       },
       'nodesCount': segManager.nodes.length,
       'clonesCount': segManager.clones.length,
-      'recentKernelLogs': kernel.recentCallLogs,
+      'recentKernelLogs': kernel.recentCallLogs.toList(),
     };
   }
 
@@ -342,6 +358,8 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _isRunning = false;
     _tickTimer?.cancel();
     _tickTimer = null;
+    atlasManager.dispose();
+    kernel.dispose();
     super.dispose();
   }
 }

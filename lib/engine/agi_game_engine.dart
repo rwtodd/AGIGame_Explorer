@@ -138,6 +138,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   Map<int, PictureSlice>? get pictureSlices => currentPic?.slices;
 
   @override
+  /// Facade snapshot for inspectors. The playfield still walks [animatedObjects]
+  /// so it can decode missing atlas cels; this getter is not on the paint path.
   List<PlayfieldActorSprite> get actors {
     final sprites = <PlayfieldActorSprite>[];
     for (final obj in animatedObjects) {

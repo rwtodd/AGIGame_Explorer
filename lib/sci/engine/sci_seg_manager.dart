@@ -72,15 +72,15 @@ class SciSegManager {
 
   /// Doubly linked lists indexed by list offset.
   final Map<int, SciList> lists = {};
-  int _nextListOffset = 1;
+  final _Offset16Pool _listIds = _Offset16Pool();
 
   /// Doubly linked list nodes indexed by node offset.
   final Map<int, SciNode> nodes = {};
-  int _nextNodeOffset = 1;
+  final _Offset16Pool _nodeIds = _Offset16Pool();
 
   /// Cloned objects indexed by clone offset.
   final Map<int, SciObject> clones = {};
-  int _nextCloneOffset = 1;
+  final _Offset16Pool _cloneIds = _Offset16Pool();
 
   /// Dynamic memory buffers (hunks / strings) indexed by offset.
   final Map<int, Uint8List> hunkBuffers = {};
@@ -246,7 +246,7 @@ class SciSegManager {
 
   /// Allocates a new cloned instance of [source].
   SciObject cloneObject(SciObject source) {
-    final offset = _nextCloneOffset++;
+    final offset = _cloneIds.alloc(clones.containsKey);
     final clonePos = SciReg.pointer(cloneSegmentId, offset);
     final cloned = source.clone(clonePos);
     if (source.isClass) {
@@ -266,7 +266,9 @@ class SciSegManager {
   /// Frees a cloned object.
   bool disposeClone(SciReg addr) {
     if (addr.segment == cloneSegmentId) {
-      return clones.remove(addr.offset) != null;
+      final removed = clones.remove(addr.offset) != null;
+      if (removed) _cloneIds.release(addr.offset);
+      return removed;
     }
     return false;
   }
@@ -295,7 +297,7 @@ class SciSegManager {
   }
 
   SciReg newList() {
-    final offset = _nextListOffset++;
+    final offset = _listIds.alloc(lists.containsKey);
     final pos = SciReg.pointer(listSegmentId, offset);
     final list = SciList(pos: pos);
     lists[offset] = list;
@@ -306,19 +308,21 @@ class SciSegManager {
     if (listReg.segment != listSegmentId) return false;
     final list = lists.remove(listReg.offset);
     if (list == null) return false;
+    _listIds.release(listReg.offset);
 
     // Free all nodes in the list
     var curr = list.first;
     while (!curr.isNull && curr.segment == nodeSegmentId) {
       final node = nodes.remove(curr.offset);
       if (node == null) break;
+      _nodeIds.release(curr.offset);
       curr = node.succ;
     }
     return true;
   }
 
   SciReg newNode(SciReg value, [SciReg key = SciReg.nullReg]) {
-    final offset = _nextNodeOffset++;
+    final offset = _nodeIds.alloc(nodes.containsKey);
     final pos = SciReg.pointer(nodeSegmentId, offset);
     final node = SciNode(pos: pos, value: value, key: key);
     nodes[offset] = node;
@@ -388,7 +392,8 @@ class SciSegManager {
     list.count++;
   }
 
-  void addAfter(SciReg listReg, SciReg nodeReg, SciReg afterReg) {
+  /// Inserts [nodeReg] after [afterReg] (Sierra `AddAfter(list, existing, new)`).
+  void addAfter(SciReg listReg, SciReg afterReg, SciReg nodeReg) {
     if (listReg.segment != listSegmentId || nodeReg.segment != nodeSegmentId) return;
     if (afterReg.isNull) {
       addToFront(listReg, nodeReg);
@@ -411,20 +416,95 @@ class SciSegManager {
     list.count++;
   }
 
-  void emptyList(SciReg listReg) {
-    if (listReg.segment != listSegmentId) return;
-    final list = lists[listReg.offset];
-    if (list == null) return;
+  /// Predicate: true when the list has no nodes. Does not mutate the list.
+  bool isListEmpty(SciReg listReg) {
+    if (listReg.isNull) return true;
+    final list = lookupList(listReg);
+    return list == null || list.first.isNull;
+  }
 
-    var curr = list.first;
-    while (!curr.isNull && curr.segment == nodeSegmentId) {
-      final node = nodes.remove(curr.offset);
-      if (node == null) break;
-      curr = node.succ;
+  void disposeScript(int scriptNr) {
+    if (scriptNr == 0) return;
+    final seg = scriptToSegment.remove(scriptNr);
+    if (seg == null) return;
+    loadedScripts.remove(seg);
+    classAddresses.removeWhere((_, addr) => addr.segment == seg);
+  }
+
+  Uint8List? bytesFor(SciReg ptr) {
+    if (!ptr.isPointer) return null;
+    if (ptr.segment == hunkSegmentId) return hunkBuffers[ptr.offset];
+    return loadedScripts[ptr.segment]?.bytes;
+  }
+
+  int byteIndexFor(SciReg ptr) => ptr.segment == hunkSegmentId ? 0 : ptr.offset;
+
+  int strlen(SciReg ptr) {
+    final bytes = bytesFor(ptr);
+    if (bytes == null) return 0;
+    var i = byteIndexFor(ptr);
+    var n = 0;
+    while (i < bytes.length && bytes[i] != 0) {
+      n++;
+      i++;
     }
-    list.first = SciReg.nullReg;
-    list.last = SciReg.nullReg;
-    list.count = 0;
+    return n;
+  }
+
+  int strcmp(SciReg a, SciReg b, [int? maxLen]) {
+    final ba = bytesFor(a);
+    final bb = bytesFor(b);
+    if (ba == null || bb == null) return 1;
+    var ia = byteIndexFor(a);
+    var ib = byteIndexFor(b);
+    var n = 0;
+    while (true) {
+      if (maxLen != null && n >= maxLen) return 0;
+      final ca = ia < ba.length ? ba[ia] : 0;
+      final cb = ib < bb.length ? bb[ib] : 0;
+      if (ca != cb) return ca < cb ? -1 : 1;
+      if (ca == 0) return 0;
+      ia++;
+      ib++;
+      n++;
+    }
+  }
+
+  bool strcpy(SciReg dest, SciReg src, {int? maxLen, bool rawCopy = false}) {
+    final db = bytesFor(dest);
+    final sb = bytesFor(src);
+    if (db == null || sb == null) return false;
+    var di = byteIndexFor(dest);
+    var si = byteIndexFor(src);
+    if (rawCopy && maxLen != null) {
+      final n = maxLen < (db.length - di) ? maxLen : (db.length - di);
+      for (var i = 0; i < n && si < sb.length; i++) {
+        db[di++] = sb[si++];
+      }
+      return true;
+    }
+    final limit = maxLen ?? (db.length - di);
+    var copied = 0;
+    while (copied < limit && di < db.length && si < sb.length && sb[si] != 0) {
+      db[di++] = sb[si++];
+      copied++;
+    }
+    if (di < db.length && (maxLen == null || copied < limit)) {
+      db[di] = 0;
+    }
+    return true;
+  }
+
+  int strAt(SciReg ptr, int index, [int? writeValue]) {
+    final bytes = bytesFor(ptr);
+    if (bytes == null) return 0;
+    final i = byteIndexFor(ptr) + index;
+    if (i < 0 || i >= bytes.length) return 0;
+    final old = bytes[i];
+    if (writeValue != null) {
+      bytes[i] = writeValue & 0xFF;
+    }
+    return old;
   }
 
   SciReg findKey(SciReg listReg, SciReg key) {
@@ -467,6 +547,7 @@ class SciSegManager {
     }
 
     nodes.remove(nodeReg.offset);
+    _nodeIds.release(nodeReg.offset);
     list.count--;
     return true;
   }
@@ -483,5 +564,30 @@ class SciSegManager {
   Uint8List? getHunk(SciReg addr) {
     if (addr.segment != hunkSegmentId) return null;
     return hunkBuffers[addr.offset];
+  }
+}
+
+/// SCI pointers only have a 16-bit offset. Recycle IDs so `Event new:` /
+/// `dispose:` (and lists/nodes) do not wrap and leak after 65535 allocations.
+class _Offset16Pool {
+  static const int _max = 0xFFFF;
+  int _next = 1;
+  final List<int> _free = [];
+
+  int alloc(bool Function(int offset) inUse) {
+    while (_free.isNotEmpty) {
+      final o = _free.removeLast();
+      if (o > 0 && o <= _max && !inUse(o)) return o;
+    }
+    for (var n = 0; n < _max; n++) {
+      if (_next > _max) _next = 1;
+      final o = _next++;
+      if (!inUse(o)) return o;
+    }
+    return 1;
+  }
+
+  void release(int offset) {
+    if (offset > 0 && offset <= _max) _free.add(offset);
   }
 }

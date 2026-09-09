@@ -13,6 +13,8 @@ class SciDebugInspectorDialog extends StatefulWidget {
   const SciDebugInspectorDialog({super.key, required this.engine});
 
   static Future<void> show(BuildContext context, SciGameEngine engine) {
+    engine.kernel.captureDebugLogs = true;
+    engine.vm.captureDebugLogs = true;
     engine.pause();
     return showDialog(
       context: context,
@@ -40,6 +42,8 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
   @override
   void dispose() {
     widget.engine.removeListener(_onEngineUpdate);
+    widget.engine.kernel.captureDebugLogs = false;
+    widget.engine.vm.captureDebugLogs = false;
     _tabController.dispose();
     _logFilterController.dispose();
     super.dispose();

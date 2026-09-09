@@ -82,7 +82,8 @@ void main() {
     test('Parses PQ2 Script 0 successfully', () {
       final pq2Dir = Directory('reference_games/police-quest-2');
       if (!pq2Dir.existsSync()) {
-        return; // Skip if reference game not present
+        markTestSkipped('PQ2 reference tree missing');
+        return;
       }
 
       final volumeMgr = SciVolumeManager.fromDirectory(pq2Dir.path);

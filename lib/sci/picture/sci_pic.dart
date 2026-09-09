@@ -437,6 +437,24 @@ class SciPic implements SierraPicture {
     detachGpuCache();
   }
 
+  /// Rebuilds compositor slices after in-place buffer edits (`AddToPic`).
+  void rebuildSlices() {
+    for (final slice in _ditheredSlices.values) {
+      slice.dispose();
+    }
+    for (final slice in _unditheredSlices.values) {
+      slice.dispose();
+    }
+    _ditheredSlices = PictureSlicer.slice(
+      visualPixels: visualPixels,
+      priorityPixels: priorityPixels,
+      profile: DisplayProfile.sci0,
+      paletteRgbaPacked: EgaColors.rgbaPacked,
+    );
+    _unditheredSlices = {};
+    bumpRasterEpoch();
+  }
+
   void ensureSlices({bool undithered = false}) {
     if (undithered) {
       if (_unditheredSlices.isEmpty) {

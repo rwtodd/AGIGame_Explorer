@@ -1,5 +1,6 @@
 // SCI0 PMachine Virtual Machine and Execution Engine.
 
+import 'dart:collection';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
@@ -91,6 +92,7 @@ class SciVM {
   bool abortScriptProcessing = false;
   bool yieldOnAnimate = false;
   bool yieldRequested = false;
+  bool captureDebugLogs = false;
 
   // --- Debugger & Monitoring Hooks ---
   final List<SciVmObserver> observers = [];
@@ -261,7 +263,8 @@ class SciVM {
     );
   }
 
-  final List<String> recentInstructions = [];
+  final ListQueue<String> recentInstructions = ListQueue<String>();
+  static const int _instructionLogCap = 30;
 
   /// Executes PMachine bytecode until the current execution stack frame returns
   /// or [maxSteps] instructions have executed.
@@ -291,12 +294,20 @@ class SciVM {
       }
 
       final instr = decodeInstruction(scr.bytes, frame.pc.offset);
-      if (recentInstructions.length >= 30) recentInstructions.removeAt(0);
-      recentInstructions.add('${frame.pc.segment}:${frame.pc.offset.toRadixString(16)} ${instr.name} ${instr.operands}');
+      if (captureDebugLogs) {
+        if (recentInstructions.length >= _instructionLogCap) {
+          recentInstructions.removeFirst();
+        }
+        recentInstructions.addLast(
+          '${frame.pc.segment}:${frame.pc.offset.toRadixString(16)} ${instr.name} ${instr.operands}',
+        );
+      }
       frame.pc = frame.pc + instr.length;
 
-      for (final obs in observers) {
-        obs.onInstructionStep(this, frame, instr);
+      if (observers.isNotEmpty) {
+        for (final obs in observers) {
+          obs.onInstructionStep(this, frame, instr);
+        }
       }
 
       final opcode = instr.opcode;
@@ -452,72 +463,89 @@ class SciVM {
 
         case 0x20: // call (local subroutine)
           final callOffset = frame.pc.offset + opparams[0];
-          final callArgc = (opparams[1] >> 1) + r_rest;
+          final rest = r_rest;
+          final callArgc = (opparams[1] >> 1) + rest;
           final totalCount = callArgc + 1;
-          r_rest = 0;
           final callBase = stack.length - totalCount;
-          final finalArgc = stack[callBase].toUint16();
-          stack[callBase] = SciReg.fromInt(finalArgc);
-
-          final subFrame = SciExecStack(
-            objp: frame.objp,
-            pc: SciReg.pointer(frame.pc.segment, callOffset),
-            localSegment: frame.localSegment,
-            sp: stack.length,
-            fp: stack.length,
-            argc: finalArgc,
-            argp: callBase,
-            type: SciExecStackType.call,
-          );
-          executionStack.add(subFrame);
+          r_rest = 0;
+          if (callBase >= 0) {
+            final finalArgc = stack[callBase].toUint16() + rest;
+            stack[callBase] = SciReg.fromInt(finalArgc);
+            frame.sp = callBase;
+            executionStack.add(
+              SciExecStack(
+                objp: frame.objp,
+                pc: SciReg.pointer(frame.pc.segment, callOffset),
+                localSegment: frame.localSegment,
+                sp: callBase,
+                fp: stack.length,
+                argc: finalArgc,
+                argp: callBase,
+                type: SciExecStackType.call,
+              ),
+            );
+          }
           break;
 
         case 0x21: // callk (kernel call)
           final kernelNr = opparams[0];
-          var callkArgc = (opparams[1] >> 1) + r_rest;
+          final callkArgc = (opparams[1] >> 1) + r_rest;
           r_rest = 0;
-          final argv = <SciReg>[];
-          for (var i = 0; i < callkArgc; i++) {
-            argv.insert(0, pop());
+          final argv = List<SciReg>.filled(callkArgc, SciReg.nullReg);
+          for (var i = callkArgc - 1; i >= 0; i--) {
+            argv[i] = pop();
           }
-          // Pop the argc word pushed by the script before callk
-          pop();
+          pop(); // argc word
 
           final res = kernel.call(this, kernelNr, callkArgc, argv);
           r_acc = res;
-          for (final obs in observers) {
-            obs.onKernelCall(kernelNr, kernel.getKernelName(kernelNr), callkArgc, argv, res);
+          if (observers.isNotEmpty) {
+            for (final obs in observers) {
+              obs.onKernelCall(kernelNr, kernel.getKernelName(kernelNr), callkArgc, argv, res);
+            }
           }
           break;
 
         case 0x22: // callb (call base script 0)
           final pubfunct = opparams[0];
-          final callbArgc = (opparams[1] >> 1) + r_rest;
+          final rest = r_rest;
+          final callbArgc = (opparams[1] >> 1) + rest;
           final totalCount = callbArgc + 1;
-          r_rest = 0;
           final callBase = stack.length - totalCount;
-          final finalArgc = stack[callBase].toUint16();
-          stack[callBase] = SciReg.fromInt(finalArgc);
-
-          final subFrame = _createExportCallFrame(0, pubfunct, finalArgc, callBase, frame.objp);
-          if (subFrame != null) {
-            executionStack.add(subFrame);
+          r_rest = 0;
+          if (callBase >= 0) {
+            final finalArgc = stack[callBase].toUint16() + rest;
+            stack[callBase] = SciReg.fromInt(finalArgc);
+            frame.sp = callBase;
+            final subFrame = _createExportCallFrame(0, pubfunct, finalArgc, callBase, frame.objp);
+            if (subFrame != null) {
+              subFrame.sp = callBase;
+              executionStack.add(subFrame);
+            } else {
+              stack.length = callBase;
+            }
           }
           break;
 
         case 0x23: // calle (call external script)
           final scriptNr = opparams[0];
           final pubfunct = opparams[1];
-          final calleArgc = (opparams[2] >> 1) + r_rest;
+          final rest = r_rest;
+          final calleArgc = (opparams[2] >> 1) + rest;
           final totalCount = calleArgc + 1;
-          r_rest = 0;
           final callBase = stack.length - totalCount;
-          final finalArgc = stack[callBase].toUint16();
-          stack[callBase] = SciReg.fromInt(finalArgc);
-
-          final subFrame = _createExportCallFrame(scriptNr, pubfunct, finalArgc, callBase, frame.objp);
-          if (subFrame != null) {
-            executionStack.add(subFrame);
+          r_rest = 0;
+          if (callBase >= 0) {
+            final finalArgc = stack[callBase].toUint16() + rest;
+            stack[callBase] = SciReg.fromInt(finalArgc);
+            frame.sp = callBase;
+            final subFrame = _createExportCallFrame(scriptNr, pubfunct, finalArgc, callBase, frame.objp);
+            if (subFrame != null) {
+              subFrame.sp = callBase;
+              executionStack.add(subFrame);
+            } else {
+              stack.length = callBase;
+            }
           }
           break;
 
@@ -533,8 +561,9 @@ class SciVM {
 
         case 0x25: // send
           final sendArgc = (opparams[0] >> 1) + r_rest;
-          r_rest = 0;
           final sendBase = stack.length - sendArgc;
+          _foldRestIntoSendArgc(sendBase);
+          r_rest = 0;
           _dispatchSend(r_acc, r_acc, sendBase, sendArgc);
           if (yieldRequested) break;
           if (sendBase >= 0 && sendBase <= stack.length) {
@@ -549,8 +578,9 @@ class SciVM {
 
         case 0x2A: // self
           final selfArgc = (opparams[0] >> 1) + r_rest;
-          r_rest = 0;
           final selfBase = stack.length - selfArgc;
+          _foldRestIntoSendArgc(selfBase);
+          r_rest = 0;
           _dispatchSend(frame.objp, frame.objp, selfBase, selfArgc);
           if (yieldRequested) break;
           if (selfBase >= 0 && selfBase <= stack.length) {
@@ -561,8 +591,9 @@ class SciVM {
         case 0x2B: // super
           final classNr = opparams[0];
           final superArgc = (opparams[1] >> 1) + r_rest;
-          r_rest = 0;
           final superBase = stack.length - superArgc;
+          _foldRestIntoSendArgc(superBase);
+          r_rest = 0;
           final superAddr = segManager.getClassAddress(classNr, volumeManager: volumeManager);
           _dispatchSend(frame.objp, superAddr, superBase, superArgc);
           if (yieldRequested) break;
@@ -811,6 +842,15 @@ class SciVM {
         return SciReg.pointer(SciSegManager.listSegmentId, (frame.fp + index) * 2);
       case SciVarType.param:
         return SciReg.pointer(SciSegManager.listSegmentId, (frame.argp + index) * 2);
+    }
+  }
+
+  /// ScummVM `op_send`/`op_self`/`op_super`: rest args are already on the stack,
+  /// but the argc word at `sendBase+1` still has the pre-rest count.
+  void _foldRestIntoSendArgc(int sendBase) {
+    if (r_rest == 0) return;
+    if (sendBase + 1 >= 0 && sendBase + 1 < stack.length) {
+      stack[sendBase + 1] = SciReg.fromInt(stack[sendBase + 1].toUint16() + r_rest);
     }
   }
 

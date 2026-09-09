@@ -233,5 +233,29 @@ void main() {
       expect(observer.sends.isNotEmpty, isTrue);
       expect(observer.instructionSteps.isNotEmpty, isTrue);
     });
+
+    test('call restores the stack to the pre-argument base', () {
+      // pushi 99, pushi 0 (argc), call +0, ret
+      final code = Uint8List.fromList([
+        0x39, 99,
+        0x39, 0,
+        0x41, 0, 0,
+        0x48,
+      ]);
+      final script = SciScript(scriptNumber: 104, segmentId: 1, bytes: code);
+      segMan.loadedScripts[1] = script;
+      vm.executionStack.add(
+        SciExecStack(
+          objp: SciReg.nullReg,
+          pc: const SciReg.pointer(1, 0),
+          localSegment: 1,
+          sp: 0,
+          fp: 0,
+        ),
+      );
+      vm.runVm();
+      expect(vm.stack.length, 1);
+      expect(vm.stack.first.toSint16(), 99);
+    });
   });
 }

@@ -10,6 +10,7 @@ void main() {
     test('initializes and executes tick cycles', () {
       final pq2Dir = Directory('reference_games/police-quest-2');
       if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
         return;
       }
 
@@ -59,6 +60,7 @@ void main() {
     test('exportState and exportStateJson return structured engine snapshot', () {
       final pq2Dir = Directory('reference_games/police-quest-2');
       if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
         return;
       }
 
@@ -82,6 +84,7 @@ void main() {
     test('clone method lookup resolves to owning script segment and executes without stack leak', () {
       final pq2Dir = Directory('reference_games/police-quest-2');
       if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
         return;
       }
 

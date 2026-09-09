@@ -1,8 +1,10 @@
+import 'dart:collection';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
@@ -14,6 +16,27 @@ import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 typedef SciKernelFunc = SciReg Function(SciVM vm, int argc, List<SciReg> argv);
+
+/// SCI0 event type bits (ScummVM `event.h`).
+class SciEventType {
+  static const int none = 0;
+  static const int mousePress = 1;
+  static const int mouseRelease = 1 << 1;
+  static const int keyDown = 1 << 2;
+  static const int keyUp = 1 << 3;
+  static const int direction = 1 << 6;
+  static const int said = 1 << 7;
+}
+
+class SciSignal {
+  static const int stopUpdate = 0x0001;
+  static const int viewHidden = 0x0008;
+  static const int fixedPriority = 0x0010;
+  static const int removeView = 0x0080;
+  static const int frozen = 0x0100;
+  static const int hitObstacle = 0x0400;
+  static const int ignoreActor = 0x4000;
+}
 
 /// Represents an input event in the SCI engine event queue.
 class SciInputEvent {
@@ -79,6 +102,15 @@ class SciKernel {
   int currentPort = 0;
   int picNotValid = 0;
 
+  /// Ticks requested by the most recent `Wait`. 0 means the game is running
+  /// unthrottled (speed test / `setSpeed: 0`) and the engine may pump extra
+  /// `doit` cycles in one host tick.
+  int lastWaitTicks = 0;
+
+  int _masterVolume = 15;
+  bool _soundMuted = false;
+  final Map<SciReg, SciSoundSlot> _soundSlots = {};
+
   SciKernel() {
     initPriorityBands();
     _registerAll();
@@ -92,7 +124,10 @@ class SciKernel {
     _register(id, name, func);
   }
 
-  final List<String> recentCallLogs = [];
+  bool captureDebugLogs = false;
+  bool verboseLogging = false;
+  final ListQueue<String> recentCallLogs = ListQueue<String>();
+  static const int _logCap = 200;
 
   String getKernelName(int id) => _entries[id]?.name ?? 'k_0x${id.toRadixString(16)}';
 
@@ -102,19 +137,35 @@ class SciKernel {
     if (entry != null) {
       result = entry.function(vm, argc, argv);
     } else {
-      // Unimplemented stub returns 0
-      debugPrint('[SciKernel] Unimplemented kernel 0x${kernelId.toRadixString(16)} (${getKernelName(kernelId)}) called with argc=$argc, argv=$argv');
+      if (verboseLogging) {
+        debugPrint(
+          '[SciKernel] Unimplemented kernel 0x${kernelId.toRadixString(16)} '
+          '(${getKernelName(kernelId)}) argc=$argc',
+        );
+      }
       result = const SciReg.fromInt(0);
     }
 
-    final logLine = '0x${kernelId.toRadixString(16).padLeft(2, "0")} (${getKernelName(kernelId)}) args=[${argv.take(argc).map((a) => a.toString()).join(", ")}] -> ${result.toString()}';
-    if (recentCallLogs.length >= 200) {
-      recentCallLogs.removeAt(0);
+    if (captureDebugLogs) {
+      final logLine =
+          '0x${kernelId.toRadixString(16).padLeft(2, "0")} (${getKernelName(kernelId)}) '
+          'args=[${argv.take(argc).map((a) => a.toString()).join(", ")}] -> ${result.toString()}';
+      if (recentCallLogs.length >= _logCap) {
+        recentCallLogs.removeFirst();
+      }
+      recentCallLogs.addLast(logLine);
     }
-    recentCallLogs.add(logLine);
 
     onKernelExecuted?.call(kernelId, entry?.name ?? 'unknown', argc, argv, result);
     return result;
+  }
+
+  void dispose() {
+    for (final img in _celImages.values) {
+      img.dispose();
+    }
+    _celImages.clear();
+    _viewCache.clear();
   }
 
   void initPriorityBands({
@@ -209,11 +260,11 @@ class SciKernel {
   }
 
   void postDirectionEvent(int dir) {
-    postEvent(SciInputEvent(type: 0x40, message: dir));
+    postEvent(SciInputEvent(type: SciEventType.direction, message: dir));
   }
 
   void postKeyEvent(int character, {int modifiers = 0}) {
-    postEvent(SciInputEvent(type: 1, message: character, modifiers: modifiers));
+    postEvent(SciInputEvent(type: SciEventType.keyDown, message: character, modifiers: modifiers));
   }
 
   void postMouseEvent(int type, int x, int y) {
@@ -287,7 +338,7 @@ class SciKernel {
     _register(0x2E, 'RestoreGame', _kStub);
     _register(0x2F, 'RestartGame', _kStub);
     _register(0x30, 'GameIsRestarting', _kStub);
-    _register(0x31, 'DoSound', _kStub);
+    _register(0x31, 'DoSound', _kDoSound);
 
     // 0x32..0x3F: Doubly-Linked Lists
     _register(0x32, 'NewList', _kNewList);
@@ -329,8 +380,8 @@ class SciKernel {
     _register(0x50, 'DirLoop', _kDirLoop);
     _register(0x51, 'CanBeHere', _kCanBeHere);
     _register(0x52, 'OnControl', _kOnControl);
-    _register(0x53, 'InitBresen', _kStub);
-    _register(0x54, 'DoBresen', _kStub);
+    _register(0x53, 'InitBresen', _kInitBresen);
+    _register(0x54, 'DoBresen', _kDoBresen);
     _register(0x55, 'DoAvoider', _kStub);
 
     // 0x56..0x67: Debugging & System
@@ -340,7 +391,7 @@ class SciKernel {
     _register(0x59, 'ShowSends', _kStub);
     _register(0x5A, 'ShowObjs', _kStub);
     _register(0x5B, 'ShowFree', _kStub);
-    _register(0x5C, 'MemoryInfo', _kStub);
+    _register(0x5C, 'MemoryInfo', _kMemoryInfo);
     _register(0x5D, 'StackUsage', _kStub);
     _register(0x5E, 'Profiler', _kStub);
     _register(0x5F, 'GetMenu', _kStub);
@@ -401,7 +452,12 @@ class SciKernel {
     return SciReg.nullReg;
   }
 
-  SciReg _kDisposeScript(SciVM vm, int argc, List<SciReg> argv) => SciReg.nullReg;
+  SciReg _kDisposeScript(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc >= 1) {
+      vm.segManager.disposeScript(argv[0].toUint16());
+    }
+    return argc >= 2 ? argv[1] : vm.acc;
+  }
 
   SciReg _kClone(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 1) return SciReg.nullReg;
@@ -452,7 +508,6 @@ class SciKernel {
           picBytes,
           picNumber: picNum,
           computeSlices: true,
-          computeUnditheredSlices: true,
         );
         currentPic = pic;
         if (pic.priorityBands != null) {
@@ -642,16 +697,21 @@ class SciKernel {
 
   SciReg _kNumLoops(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 1) return const SciReg.fromInt(0);
-    final view = getView(argv[0].toUint16());
+    final obj = vm.segManager.getObject(argv[0]);
+    if (obj == null) return const SciReg.fromInt(0);
+    final view = getView(obj.getProp(vm.segManager, selectors.view).toUint16());
     return SciReg.fromInt(view?.loops.length ?? 0);
   }
 
   SciReg _kNumCels(SciVM vm, int argc, List<SciReg> argv) {
-    if (argc < 2) return const SciReg.fromInt(0);
-    final view = getView(argv[0].toUint16());
-    final loop = argv[1].toUint16();
-    if (view != null && loop < view.loops.length) {
-      return SciReg.fromInt(view.loops[loop].cels.length);
+    if (argc < 1) return const SciReg.fromInt(0);
+    final obj = vm.segManager.getObject(argv[0]);
+    if (obj == null) return const SciReg.fromInt(0);
+    final view = getView(obj.getProp(vm.segManager, selectors.view).toUint16());
+    final loop = obj.getProp(vm.segManager, selectors.loop).toUint16();
+    if (view != null && view.loops.isNotEmpty) {
+      final l = loop % view.loops.length;
+      return SciReg.fromInt(view.loops[l].cels.length);
     }
     return const SciReg.fromInt(0);
   }
@@ -679,7 +739,83 @@ class SciKernel {
   }
 
   SciReg _kDrawCel(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kAddToPic(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+
+  SciReg _kAddToPic(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc >= 7) {
+      _blitViewToPic(
+        argv[0].toUint16(),
+        argv[1].toSint16(),
+        argv[2].toSint16(),
+        argv[3].toSint16(),
+        argv[4].toSint16(),
+        argv[5].toSint16(),
+        argv[6].toSint16(),
+      );
+    } else if (argc >= 1 && !argv[0].isNull) {
+      SciList? list = vm.segManager.lookupList(argv[0]);
+      if (list == null) {
+        final obj = vm.segManager.getObject(argv[0]);
+        if (obj != null) {
+          list = vm.segManager.lookupList(obj.getProp(vm.segManager, selectors.elements));
+        }
+      }
+      if (list != null) {
+        for (final item in vm.segManager.listElements(list)) {
+          final o = vm.segManager.getObject(item);
+          if (o == null) continue;
+          final viewId = o.getProp(vm.segManager, selectors.view).toUint16();
+          final loopNo = o.getProp(vm.segManager, selectors.loop).toUint16();
+          final celNo = o.getProp(vm.segManager, selectors.cel).toUint16();
+          final left = o.getProp(vm.segManager, selectors.nsLeft).toSint16();
+          final top = o.getProp(vm.segManager, selectors.nsTop).toSint16();
+          final pri = o.getProp(vm.segManager, selectors.priority).toSint16();
+          _blitViewToPic(viewId, loopNo, celNo, left, top, pri, 0);
+        }
+      }
+    }
+    currentPic?.rebuildSlices();
+    picNotValid = 1;
+    return vm.acc;
+  }
+
+  void _blitViewToPic(
+    int viewId,
+    int loopNo,
+    int celNo,
+    int left,
+    int top,
+    int priority,
+    int control,
+  ) {
+    final pic = currentPic;
+    final v = getView(viewId);
+    if (pic == null || v == null || v.loops.isEmpty) return;
+    final loop = v.loops[loopNo.abs() % v.loops.length];
+    if (loop.cels.isEmpty) return;
+    final cel = loop.cels[celNo.abs() % loop.cels.length];
+    final pixels = cel.getUnflippedPixels(parentView: v, celIndex: celNo.abs() % loop.cels.length);
+    final trans = cel.transparentColor;
+    for (var y = 0; y < cel.height; y++) {
+      final dy = top + y;
+      if (dy < 0 || dy >= 200) continue;
+      final srcRow = y * cel.width;
+      final dstRow = dy * 320;
+      for (var x = 0; x < cel.width; x++) {
+        final dx = left + x;
+        if (dx < 0 || dx >= 320) continue;
+        final color = pixels[srcRow + x] & 0x0F;
+        if (color == trans) continue;
+        final di = dstRow + dx;
+        pic.visualPixels[di] = color;
+        if (priority >= 0 && priority <= 15) {
+          pic.priorityPixels[di] = priority;
+        }
+        if (control >= 0 && control <= 15) {
+          pic.controlPixels[di] = control;
+        }
+      }
+    }
+  }
 
   // --- Windows ---
 
@@ -712,6 +848,9 @@ class SciKernel {
   // --- Parser & Events ---
 
   SciReg _kGetEvent(SciVM vm, int argc, List<SciReg> argv) {
+    // SCI0 does not poll UpdateCues; Sierra (and ScummVM) pump signals here.
+    updateSci0Cues(vm);
+
     if (argc < 2) return const SciReg.fromInt(0);
     final mask = argv[0].toUint16();
     final eventObj = vm.segManager.getObject(argv[1]);
@@ -731,9 +870,9 @@ class SciKernel {
       }
     }
 
-    final typeSel = vm.selectors.findSelector('type') ?? 83;
-    final messageSel = vm.selectors.findSelector('message') ?? 84;
-    final modifiersSel = vm.selectors.findSelector('modifiers') ?? 85;
+    final typeSel = selectors.type >= 0 ? selectors.type : (vm.selectors.findSelector('type') ?? 83);
+    final messageSel = selectors.message >= 0 ? selectors.message : (vm.selectors.findSelector('message') ?? 84);
+    final modifiersSel = selectors.modifiers >= 0 ? selectors.modifiers : (vm.selectors.findSelector('modifiers') ?? 85);
 
     if (foundIdx >= 0) {
       final ev = eventQueue.removeAt(foundIdx);
@@ -780,8 +919,8 @@ class SciKernel {
   }
 
   SciReg _kEmptyList(SciVM vm, int argc, List<SciReg> argv) {
-    if (argc >= 1) vm.segManager.emptyList(argv[0]);
-    return SciReg.nullReg;
+    if (argc < 1 || argv[0].isNull) return SciReg.nullReg;
+    return SciReg.fromInt(vm.segManager.isListEmpty(argv[0]) ? 1 : 0);
   }
 
   SciReg _kNextNode(SciVM vm, int argc, List<SciReg> argv) {
@@ -801,7 +940,11 @@ class SciKernel {
 
   SciReg _kAddAfter(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 3) vm.segManager.addAfter(argv[0], argv[1], argv[2]);
-    return SciReg.nullReg;
+    if (argc >= 4) {
+      final node = vm.segManager.nodes[argv[2].offset];
+      if (node != null) node.key = argv[3];
+    }
+    return vm.acc;
   }
 
   SciReg _kAddToFront(SciVM vm, int argc, List<SciReg> argv) {
@@ -870,9 +1013,21 @@ class SciKernel {
     return SciReg.fromInt(sqrt(dx * dx + dy * dy).round());
   }
 
-  SciReg _kWait(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+  SciReg _kWait(SciVM vm, int argc, List<SciReg> argv) {
+    final ticks = argc >= 1 ? argv[0].toUint16() : 0;
+    lastWaitTicks = ticks;
+    final nowMs = _playTimeStopwatch.elapsedMilliseconds;
+    final elapsedMs = nowMs - _lastWaitMs;
+    final deltaTicks = (elapsedMs * 60) ~/ 1000;
+    _lastWaitMs = nowMs;
+    return SciReg.fromInt(deltaTicks & 0xFFFF);
+  }
+
+  int _lastWaitMs = 0;
 
   final Stopwatch _playTimeStopwatch = Stopwatch()..start();
+
+  int get currentSciTicks => (_playTimeStopwatch.elapsedMilliseconds * 60) ~/ 1000;
 
   SciReg _kGetTime(SciVM vm, int argc, List<SciReg> argv) {
     final mode = argc >= 1 ? argv[0].toUint16() : 0;
@@ -897,21 +1052,250 @@ class SciKernel {
     }
   }
 
+  // SCI0 DoSound subops (kernel_tables.h SIG_SOUNDSCI0).
+  static const int _sndInit = 0;
+  static const int _sndPlay = 1;
+  static const int _sndDispose = 3;
+  static const int _sndMute = 4;
+  static const int _sndStop = 5;
+  static const int _sndPause = 6;
+  static const int _sndMasterVolume = 8;
+  static const int _sndUpdate = 9;
+  static const int _sndFade = 10;
+  static const int _sndPolyphony = 11;
+  static const int _sndStopAll = 12;
+
+  SciReg _kDoSound(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return vm.acc;
+    final sub = argv[0].toUint16();
+    final rest = argc > 1 ? argv.sublist(1) : const <SciReg>[];
+    switch (sub) {
+      case _sndInit:
+        if (rest.isNotEmpty) _soundInit(vm, rest[0]);
+        return vm.acc;
+      case _sndPlay:
+        if (rest.isNotEmpty) _soundPlay(vm, rest[0]);
+        return vm.acc;
+      case _sndDispose:
+        if (rest.isNotEmpty) _soundStop(vm, rest[0], dispose: true);
+        return vm.acc;
+      case _sndMute:
+        final prev = _soundMuted ? 0 : 1;
+        if (rest.isNotEmpty) {
+          _soundMuted = rest[0].toUint16() == 0;
+        }
+        return SciReg.fromInt(prev);
+      case _sndStop:
+        if (rest.isNotEmpty) _soundStop(vm, rest[0]);
+        return vm.acc;
+      case _sndPause:
+        if (rest.isNotEmpty) {
+          final paused = rest[0].toUint16() != 0;
+          for (final slot in _soundSlots.values) {
+            if (paused && slot.status == SciSoundStatus.playing) {
+              slot.status = SciSoundStatus.paused;
+            } else if (!paused && slot.status == SciSoundStatus.paused) {
+              slot.status = SciSoundStatus.playing;
+            }
+            _writeSoundProp(vm, slot.obj, 'state', slot.status);
+          }
+        }
+        return vm.acc;
+      case _sndMasterVolume:
+        final prev = _masterVolume;
+        if (rest.isNotEmpty) {
+          _masterVolume = rest[0].toSint16().clamp(0, 15);
+        }
+        return SciReg.fromInt(prev);
+      case _sndUpdate:
+        return vm.acc;
+      case _sndFade:
+        if (rest.isNotEmpty) _soundStop(vm, rest[0]);
+        return vm.acc;
+      case _sndPolyphony:
+        return const SciReg.fromInt(16);
+      case _sndStopAll:
+        for (final obj in _soundSlots.keys.toList()) {
+          _soundStop(vm, obj);
+        }
+        return vm.acc;
+      default:
+        return vm.acc;
+    }
+  }
+
+  void _soundInit(SciVM vm, SciReg obj) {
+    final number = _readSoundProp(vm, obj, 'number');
+    _soundSlots[obj] = SciSoundSlot(
+      obj: obj,
+      resourceId: number,
+      status: SciSoundStatus.initialized,
+    );
+    _writeSoundProp(vm, obj, 'state', SciSoundStatus.initialized);
+    _writeSoundProp(vm, obj, 'signal', 0);
+  }
+
+  void _soundPlay(SciVM vm, SciReg obj) {
+    var slot = _soundSlots[obj];
+    if (slot == null) {
+      _soundInit(vm, obj);
+      slot = _soundSlots[obj]!;
+    }
+    final number = _readSoundProp(vm, obj, 'number');
+    slot.resourceId = number;
+    slot.status = SciSoundStatus.playing;
+    slot.startTick = currentSciTicks;
+    slot.nextCue = 0;
+    slot.loop = _readSoundProp(vm, obj, 'loop');
+    slot.cues = _loadSoundCues(number);
+    _writeSoundProp(vm, obj, 'state', SciSoundStatus.playing);
+    _writeSoundProp(vm, obj, 'signal', 0);
+    _writeSoundReg(vm, obj, 'handle', obj);
+    _writeSoundReg(vm, obj, 'nodePtr', obj);
+  }
+
+  void _soundStop(SciVM vm, SciReg obj, {bool dispose = false}) {
+    final slot = _soundSlots[obj];
+    if (slot != null) {
+      slot.status = SciSoundStatus.stopped;
+      slot.nextCue = slot.cues.length;
+    }
+    _writeSoundProp(vm, obj, 'state', SciSoundStatus.stopped);
+    _writeSoundProp(vm, obj, 'signal', sciSoundFinished);
+    if (dispose) {
+      _soundSlots.remove(obj);
+    }
+  }
+
+  List<SciSoundCue> _loadSoundCues(int number) {
+    final vol = volumeManager;
+    if (vol == null || vol.resourceMap.find(SciResourceType.sound, number) == null) {
+      return const [SciSoundCue(tick: 0, signal: sciSoundFinished)];
+    }
+    try {
+      return Sci0SoundParser.parse(vol.getResource(SciResourceType.sound, number));
+    } catch (_) {
+      return const [SciSoundCue(tick: 0, signal: sciSoundFinished)];
+    }
+  }
+
+  /// Posts at most one pending cue per playing slot (SCI0 queues signals).
+  void updateSci0Cues(SciVM vm) {
+    if (_soundSlots.isEmpty) return;
+    final now = currentSciTicks;
+    for (final slot in _soundSlots.values) {
+      if (slot.status != SciSoundStatus.playing) continue;
+      if (slot.nextCue >= slot.cues.length) continue;
+      final elapsed = now - slot.startTick;
+      final cue = slot.cues[slot.nextCue];
+      if (elapsed < cue.tick) continue;
+      slot.nextCue++;
+      _writeSoundProp(vm, slot.obj, 'signal', cue.signal);
+      if (cue.signal == sciSoundFinished) {
+        slot.status = SciSoundStatus.stopped;
+        _writeSoundProp(vm, slot.obj, 'state', SciSoundStatus.stopped);
+      }
+    }
+  }
+
+  int _readSoundProp(SciVM vm, SciReg obj, String name) {
+    final sel = selectors.findSelector(name);
+    if (sel == null) return 0;
+    final o = vm.segManager.getObject(obj);
+    if (o == null) return 0;
+    return o.getProp(vm.segManager, sel).toUint16();
+  }
+
+  void _writeSoundProp(SciVM vm, SciReg obj, String name, int value) {
+    _writeSoundReg(vm, obj, name, SciReg.fromInt(value));
+  }
+
+  void _writeSoundReg(SciVM vm, SciReg obj, String name, SciReg value) {
+    final sel = selectors.findSelector(name);
+    if (sel == null) return;
+    vm.segManager.getObject(obj)?.setProp(vm.segManager, sel, value);
+  }
+
   // --- Strings ---
 
   SciReg _kStrEnd(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 1) return SciReg.nullReg;
+    final len = vm.segManager.strlen(argv[0]);
+    return SciReg(argv[0].segment, (argv[0].offset + len) & 0xFFFF);
+  }
+
+  SciReg _kStrCat(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return argc >= 1 ? argv[0] : SciReg.nullReg;
+    final dest = argv[0];
+    final len = vm.segManager.strlen(dest);
+    final tail = SciReg(dest.segment, (dest.offset + len) & 0xFFFF);
+    if (!vm.segManager.strcpy(tail, argv[1])) {
+      return dest;
+    }
+    return dest;
+  }
+
+  SciReg _kStrCmp(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return const SciReg.fromInt(1);
+    final n = argc >= 3 ? argv[2].toUint16() : null;
+    return SciReg.fromInt(vm.segManager.strcmp(argv[0], argv[1], n));
+  }
+
+  SciReg _kStrLen(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1 || argv[0].isNull) return const SciReg.fromInt(0);
+    return SciReg.fromInt(vm.segManager.strlen(argv[0]));
+  }
+
+  SciReg _kStrCpy(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return argc >= 1 ? argv[0] : SciReg.nullReg;
+    if (argc >= 3) {
+      final length = argv[2].toSint16();
+      if (length >= 0) {
+        vm.segManager.strcpy(argv[0], argv[1], maxLen: length);
+      } else {
+        vm.segManager.strcpy(argv[0], argv[1], maxLen: -length, rawCopy: true);
+      }
+    } else {
+      vm.segManager.strcpy(argv[0], argv[1]);
+    }
     return argv[0];
   }
 
-  SciReg _kStrCat(SciVM vm, int argc, List<SciReg> argv) => argc >= 1 ? argv[0] : SciReg.nullReg;
-  SciReg _kStrCmp(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kStrLen(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kStrCpy(SciVM vm, int argc, List<SciReg> argv) => argc >= 1 ? argv[0] : SciReg.nullReg;
   SciReg _kFormat(SciVM vm, int argc, List<SciReg> argv) => argc >= 1 ? argv[0] : SciReg.nullReg;
   SciReg _kGetFarText(SciVM vm, int argc, List<SciReg> argv) => argc >= 3 ? argv[2] : SciReg.nullReg;
-  SciReg _kReadNumber(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kStrAt(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+
+  SciReg _kReadNumber(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return const SciReg.fromInt(0);
+    final bytes = vm.segManager.bytesFor(argv[0]);
+    if (bytes == null) return const SciReg.fromInt(0);
+    var i = vm.segManager.byteIndexFor(argv[0]);
+    var sign = 1;
+    if (i < bytes.length && bytes[i] == 0x2D) {
+      sign = -1;
+      i++;
+    }
+    var n = 0;
+    while (i < bytes.length) {
+      final c = bytes[i];
+      if (c < 0x30 || c > 0x39) break;
+      n = n * 10 + (c - 0x30);
+      i++;
+    }
+    return SciReg.fromInt((sign * n) & 0xFFFF);
+  }
+
+  SciReg _kStrAt(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return SciReg.nullReg;
+    final write = argc >= 3 ? argv[2].toSint16() : null;
+    return SciReg.fromInt(vm.segManager.strAt(argv[0], argv[1].toUint16(), write));
+  }
+
+  SciReg _kMemoryInfo(SciVM vm, int argc, List<SciReg> argv) {
+    const size = 0x7fea;
+    if (argc < 1) return const SciReg.fromInt(size);
+    if (argv[0].toUint16() == 0) return const SciReg.fromInt(size - 2);
+    return const SciReg.fromInt(size);
+  }
 
   // --- Motion & Priority ---
 
@@ -1020,6 +1404,171 @@ class SciKernel {
     return const SciReg.fromInt(1); // Can be here!
   }
 
+  SciReg _kInitBresen(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return vm.acc;
+    final mover = vm.segManager.getObject(argv[0]);
+    if (mover == null) return vm.acc;
+    final clientReg = mover.getProp(vm.segManager, selectors.client);
+    final client = vm.segManager.getObject(clientReg);
+    if (client == null) return vm.acc;
+    final stepFactor = argc >= 2 ? argv[1].toUint16() : 1;
+    var clientXStep = client.getProp(vm.segManager, selectors.xStep).toSint16() * stepFactor;
+    var clientYStep = client.getProp(vm.segManager, selectors.yStep).toSint16() * stepFactor;
+    final moverX = mover.getProp(vm.segManager, selectors.x).toSint16();
+    final moverY = mover.getProp(vm.segManager, selectors.y).toSint16();
+    final deltaX = moverX - client.getProp(vm.segManager, selectors.x).toSint16();
+    final deltaY = moverY - client.getProp(vm.segManager, selectors.y).toSint16();
+    var clientStep = (clientXStep < clientYStep ? clientYStep : clientXStep) * 2;
+    var moverDx = 0, moverDy = 0, moverI1 = 0, moverI2 = 0, moverDi = 0, moverIncr = 0, moverXAxis = 0;
+
+    while (true) {
+      moverDx = clientXStep;
+      moverDy = clientYStep;
+      moverIncr = 1;
+      if (deltaX.abs() >= deltaY.abs()) {
+        moverXAxis = 1;
+        if (deltaX < 0) moverDx = -moverDx;
+        moverDy = deltaX != 0 ? moverDx * deltaY ~/ deltaX : 0;
+        moverI1 = ((moverDx * deltaY) - (moverDy * deltaX)) * 2;
+        if (deltaY < 0) {
+          moverIncr = -1;
+          moverI1 = -moverI1;
+        }
+        moverI2 = moverI1 - (deltaX * 2);
+        moverDi = moverI1 - deltaX;
+        if (deltaX < 0) {
+          moverI1 = -moverI1;
+          moverI2 = -moverI2;
+          moverDi = -moverDi;
+        }
+        if (clientXStep <= clientYStep) break;
+        if (clientXStep == 0) break;
+        if (clientYStep >= (moverDy + moverIncr).abs()) break;
+        clientStep--;
+        if (clientStep == 0) break;
+        clientXStep--;
+      } else {
+        moverXAxis = 0;
+        if (deltaY < 0) moverDy = -moverDy;
+        moverDx = deltaY != 0 ? moverDy * deltaX ~/ deltaY : 0;
+        moverI1 = ((moverDy * deltaX) - (moverDx * deltaY)) * 2;
+        if (deltaX < 0) {
+          moverIncr = -1;
+          moverI1 = -moverI1;
+        }
+        moverI2 = moverI1 - (deltaY * 2);
+        moverDi = moverI1 - deltaY;
+        if (deltaY < 0) {
+          moverI1 = -moverI1;
+          moverI2 = -moverI2;
+          moverDi = -moverDi;
+        }
+        break;
+      }
+    }
+
+    void set(int sel, int v) {
+      if (sel >= 0) mover.setProp(vm.segManager, sel, SciReg.fromInt(v));
+    }
+
+    set(selectors.dx, moverDx);
+    set(selectors.dy, moverDy);
+    set(selectors.bI1, moverI1);
+    set(selectors.bI2, moverI2);
+    set(selectors.bDi, moverDi);
+    set(selectors.bIncr, moverIncr);
+    set(selectors.bXAxis, moverXAxis);
+    return vm.acc;
+  }
+
+  SciReg _kDoBresen(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return vm.acc;
+    final mover = vm.segManager.getObject(argv[0]);
+    if (mover == null) return vm.acc;
+    final clientReg = mover.getProp(vm.segManager, selectors.client);
+    final client = vm.segManager.getObject(clientReg);
+    if (client == null) return vm.acc;
+
+    final handleMoveCount = selectors.bMovCnt >= 0 && selectors.moveSpeed >= 0;
+    var moverMoveCnt = 1;
+    var clientMoveSpeed = 0;
+    if (handleMoveCount) {
+      moverMoveCnt = mover.getProp(vm.segManager, selectors.bMovCnt).toSint16() + 1;
+      clientMoveSpeed = client.getProp(vm.segManager, selectors.moveSpeed).toSint16();
+    }
+
+    if (clientMoveSpeed < moverMoveCnt) {
+      moverMoveCnt = 0;
+      var clientX = client.getProp(vm.segManager, selectors.x).toSint16();
+      var clientY = client.getProp(vm.segManager, selectors.y).toSint16();
+      final moverX = mover.getProp(vm.segManager, selectors.x).toSint16();
+      final moverY = mover.getProp(vm.segManager, selectors.y).toSint16();
+      final xAxis = selectors.bXAxis >= 0 ? mover.getProp(vm.segManager, selectors.bXAxis).toSint16() : 1;
+      final dx = mover.getProp(vm.segManager, selectors.dx).toSint16();
+      final dy = mover.getProp(vm.segManager, selectors.dy).toSint16();
+      final incr = selectors.bIncr >= 0 ? mover.getProp(vm.segManager, selectors.bIncr).toSint16() : 1;
+      var i1 = selectors.bI1 >= 0 ? mover.getProp(vm.segManager, selectors.bI1).toSint16() : 0;
+      var i2 = selectors.bI2 >= 0 ? mover.getProp(vm.segManager, selectors.bI2).toSint16() : 0;
+      var di = selectors.bDi >= 0 ? mover.getProp(vm.segManager, selectors.bDi).toSint16() : 0;
+      final orgI1 = i1, orgI2 = i2, orgDi = di;
+
+      final backup = List<SciReg>.from(client.variables);
+      var completed = false;
+      if (xAxis != 0) {
+        completed = (moverX - clientX).abs() < dx.abs();
+      } else {
+        completed = (moverY - clientY).abs() < dy.abs();
+      }
+      if (completed) {
+        clientX = moverX;
+        clientY = moverY;
+      } else {
+        clientX += dx;
+        clientY += dy;
+        if (di < 0) {
+          di += i1;
+        } else {
+          di += i2;
+          if (xAxis == 0) {
+            clientX += incr;
+          } else {
+            clientY += incr;
+          }
+        }
+      }
+      client.setProp(vm.segManager, selectors.x, SciReg.fromInt(clientX));
+      client.setProp(vm.segManager, selectors.y, SciReg.fromInt(clientY));
+
+      vm.acc = SciReg.nullReg;
+      var collision = false;
+      if (selectors.cantBeHere >= 0) {
+        vm.sendSelector(client.pos, selectors.cantBeHere, []);
+        collision = !vm.acc.isNull;
+      } else if (selectors.canBeHere >= 0) {
+        vm.sendSelector(client.pos, selectors.canBeHere, []);
+        collision = vm.acc.isNull;
+      }
+      if (collision) {
+        for (var i = 0; i < backup.length && i < client.variables.length; i++) {
+          client.variables[i] = backup[i];
+        }
+        i1 = orgI1;
+        i2 = orgI2;
+        di = orgDi;
+        final sig = client.getProp(vm.segManager, selectors.signal).toUint16();
+        client.setProp(vm.segManager, selectors.signal, SciReg.fromInt(sig | SciSignal.hitObstacle));
+      }
+      if (selectors.bI1 >= 0) mover.setProp(vm.segManager, selectors.bI1, SciReg.fromInt(i1));
+      if (selectors.bI2 >= 0) mover.setProp(vm.segManager, selectors.bI2, SciReg.fromInt(i2));
+      if (selectors.bDi >= 0) mover.setProp(vm.segManager, selectors.bDi, SciReg.fromInt(di));
+    }
+
+    if (handleMoveCount) {
+      mover.setProp(vm.segManager, selectors.bMovCnt, SciReg.fromInt(moverMoveCnt));
+    }
+    return vm.acc;
+  }
+
   SciReg _kOnControl(SciVM vm, int argc, List<SciReg> argv) {
     int screenMask = 4; // default CONTROL
     int argBase = 0;
@@ -1048,11 +1597,11 @@ class SciKernel {
     final eventObj = vm.segManager.getObject(argv[0]);
     if (eventObj == null) return vm.acc;
 
-    final typeSel = vm.selectors.findSelector('type') ?? 83;
-    final messageSel = vm.selectors.findSelector('message') ?? 84;
+    final typeSel = selectors.type >= 0 ? selectors.type : (vm.selectors.findSelector('type') ?? 83);
+    final messageSel = selectors.message >= 0 ? selectors.message : (vm.selectors.findSelector('message') ?? 84);
 
     final type = eventObj.getProp(vm.segManager, typeSel).toUint16();
-    if (type == 1) { // kSciEventKeyDown
+    if (type == SciEventType.keyDown) {
       final msg = eventObj.getProp(vm.segManager, messageSel).toUint16();
       int? dir;
       switch (msg) {

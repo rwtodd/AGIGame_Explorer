@@ -62,6 +62,16 @@ class SciSelectors {
   int claimed = -1;
   int heading = -1;
   int isBlocked = -1;
+  int bI1 = -1;
+  int bI2 = -1;
+  int bDi = -1;
+  int bIncr = -1;
+  int bXAxis = -1;
+  int bMovCnt = -1;
+  int moveDone = -1;
+  int type = -1;
+  int message = -1;
+  int modifiers = -1;
 
   SciSelectors();
 
@@ -143,6 +153,19 @@ class SciSelectors {
     claimed = findSelector('claimed') ?? -1;
     heading = findSelector('heading') ?? -1;
     isBlocked = findSelector('isBlocked') ?? -1;
+    bI1 = findSelector('b-i1') ?? findSelector('b_i1') ?? -1;
+    bI2 = findSelector('b-i2') ?? findSelector('b_i2') ?? -1;
+    bDi = findSelector('b-di') ?? findSelector('b_di') ?? -1;
+    bIncr = findSelector('b-incr') ?? findSelector('b_incr') ?? -1;
+    bXAxis = findSelector('b-xAxis') ?? findSelector('b_xAxis') ?? -1;
+    bMovCnt = findSelector('b-moveCnt') ??
+        findSelector('b-movCnt') ??
+        findSelector('b_movCnt') ??
+        -1;
+    moveDone = findSelector('moveDone') ?? -1;
+    type = findSelector('type') ?? -1;
+    message = findSelector('message') ?? -1;
+    modifiers = findSelector('modifiers') ?? -1;
   }
 
   /// Finds selector ID by name, or null if not found.

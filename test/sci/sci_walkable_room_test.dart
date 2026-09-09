@@ -12,6 +12,7 @@ void main() {
     test('Inspects PQ2 Game.play and executes until Animate', () {
       final pq2Dir = Directory('reference_games/police-quest-2');
       if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
         return;
       }
 

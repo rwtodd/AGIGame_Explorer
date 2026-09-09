@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
@@ -5,6 +6,8 @@ import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
+import 'package:flutter_agigame/sci/script/sci_script.dart';
+import 'package:flutter_agigame/sci/view/sci_view.dart';
 
 void main() {
   group('SciKernel Tests', () {
@@ -129,6 +132,91 @@ void main() {
       final castList = const SciReg.pointer(SciSegManager.listSegmentId, 1);
       kernel.call(vm, 0x0B, 1, [castList]);
       expect(animatedCast, castList);
+    });
+
+    test('EmptyList is a predicate and does not wipe the list', () {
+      final list = kernel.call(vm, 0x32, 0, []);
+      expect(kernel.call(vm, 0x37, 1, [list]).toSint16(), 1);
+      final node = kernel.call(vm, 0x34, 2, [const SciReg.fromInt(1), const SciReg.fromInt(1)]);
+      kernel.call(vm, 0x3D, 2, [list, node]);
+      expect(kernel.call(vm, 0x37, 1, [list]).toSint16(), 0);
+      expect(kernel.call(vm, 0x35, 1, [list]), node);
+    });
+
+    test('AddAfter uses Sierra order (list, existing, new)', () {
+      final list = kernel.call(vm, 0x32, 0, []);
+      final a = kernel.call(vm, 0x34, 2, [const SciReg.fromInt(1), const SciReg.fromInt(1)]);
+      final b = kernel.call(vm, 0x34, 2, [const SciReg.fromInt(2), const SciReg.fromInt(2)]);
+      final c = kernel.call(vm, 0x34, 2, [const SciReg.fromInt(3), const SciReg.fromInt(3)]);
+      kernel.call(vm, 0x3D, 2, [list, a]);
+      kernel.call(vm, 0x3B, 3, [list, a, b]);
+      kernel.call(vm, 0x3B, 3, [list, b, c]);
+      expect(kernel.call(vm, 0x35, 1, [list]), a);
+      expect(kernel.call(vm, 0x38, 1, [a]), b);
+      expect(kernel.call(vm, 0x38, 1, [b]), c);
+      expect(kernel.call(vm, 0x36, 1, [list]), c);
+    });
+
+    test('NumLoops and NumCels read view/loop from the object', () {
+      final view = SciView(
+        viewNumber: 5,
+        loops: [
+          const SciViewLoop(loopNumber: 0, cels: [
+            SciViewCel(width: 8, height: 8, transparentColor: 0, rawPixels: null),
+            SciViewCel(width: 8, height: 8, transparentColor: 0, rawPixels: null),
+          ]),
+          const SciViewLoop(loopNumber: 1, cels: [
+            SciViewCel(width: 8, height: 8, transparentColor: 0, rawPixels: null),
+          ]),
+        ],
+      );
+      kernel.registerView(5, view);
+      selectors.view = 6;
+      selectors.loop = 7;
+      final obj = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x20),
+        variables: List<SciReg>.generate(10, (i) => SciReg.nullReg),
+        baseVars: List<int>.generate(10, (i) => i),
+      );
+      obj.variables[6] = const SciReg.fromInt(5);
+      obj.variables[7] = const SciReg.fromInt(0);
+      segMan.clones[0x20] = obj;
+      final objAddr = obj.pos;
+      expect(kernel.call(vm, 0x0D, 1, [objAddr]).toSint16(), 2);
+      expect(kernel.call(vm, 0x0E, 1, [objAddr]).toSint16(), 2);
+    });
+
+    test('MemoryInfo reports a non-zero heap', () {
+      expect(kernel.call(vm, 0x5C, 1, [const SciReg.fromInt(1)]).toUint16(), 0x7fea);
+      expect(kernel.call(vm, 0x5C, 1, [const SciReg.fromInt(0)]).toUint16(), 0x7fea - 2);
+    });
+
+    test('string kernels read and write script bytes', () {
+      final bytes = Uint8List.fromList([65, 66, 0, 88, 89, 0]);
+      segMan.loadedScripts[1] = SciScript(scriptNumber: 1, segmentId: 1, bytes: bytes);
+      final ab = const SciReg.pointer(1, 0);
+      final xy = const SciReg.pointer(1, 3);
+      expect(kernel.call(vm, 0x4A, 1, [ab]).toSint16(), 2);
+      expect(kernel.call(vm, 0x49, 2, [ab, xy]).toSint16(), isNot(0));
+      kernel.call(vm, 0x4B, 2, [ab, xy]);
+      expect(kernel.call(vm, 0x4A, 1, [ab]).toSint16(), 2);
+      expect(bytes[0], 88);
+      expect(kernel.call(vm, 0x66, 2, [ab, const SciReg.fromInt(0)]).toSint16(), 88);
+    });
+
+    test('Wait records requested ticks and returns a delta', () {
+      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(0)]);
+      expect(kernel.lastWaitTicks, 0);
+      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
+      expect(kernel.lastWaitTicks, 6);
+    });
+
+    test('keyboard events are posted as key-down not mouse-press', () {
+      kernel.postKeyEvent(13);
+      expect(kernel.eventQueue.single.type, SciEventType.keyDown);
+      expect(kernel.eventQueue.single.message, 13);
+      kernel.postDirectionEvent(1);
+      expect(kernel.eventQueue.last.type, SciEventType.direction);
     });
   });
 }

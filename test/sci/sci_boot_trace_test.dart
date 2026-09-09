@@ -7,7 +7,10 @@ import 'package:flutter_agigame/sci/loader/volume.dart';
 void main() {
   test('Trace PQ2 boot through SciGameEngine', () {
     final pq2Dir = Directory('reference_games/police-quest-2');
-    if (!pq2Dir.existsSync()) return;
+    if (!pq2Dir.existsSync()) {
+      markTestSkipped('PQ2 reference tree missing');
+      return;
+    }
 
     final volumeMgr = SciVolumeManager.fromDirectory(pq2Dir.path);
     final engine = SciGameEngine(volumeManager: volumeMgr);

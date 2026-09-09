@@ -222,10 +222,10 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
      - `kDrawPic(picNum, style, clearPic, palette)` (`0x08`): Loads and rasterizes `PICTURE` resources via `SciPicInterpreter`, setting visual, priority, and control buffers.
      - `kPicNotValid` (`0x0A`) and `kShow` (`0x09`): Controls deferral and presentation of newly drawn rooms.
   3. **Collision & Space Testing**:
-     - `kOnControl(screen, x, y, x2, y2)` (`0x3E`): Samples control buffer values under points or rectangles.
-     - `kCanBeHere(actor, cast)` (`0x3F`) / `kCantBeHere`: Validates actor position against control map barrier lines (`ctlWHITE` / 15) and other non-ignored actors.
+     - `kOnControl(screen, x, y, x2, y2)` (`0x52`): Samples control buffer values under points or rectangles.
+     - `kCanBeHere(actor, cast)` (`0x51`) / `kCantBeHere`: Validates actor position against control map barrier lines (`ctlWHITE` / 15) and other non-ignored actors.
   4. **Input Event Translation**:
-     - `kGetEvent(mask, eventObj)` (`0x48`): Translates Flutter keyboard inputs (arrow keys, Enter, Esc) and mouse movement/clicks into SCI event object properties (`type`, `message`, `modifiers`).
+     - `kGetEvent(mask, eventObj)` (`0x1C`): Translates Flutter keyboard inputs (arrow keys, Enter, Esc) and mouse movement/clicks into SCI event object properties (`type`, `message`, `modifiers`). Kernel IDs are the SCI0 FileIO-inserted layout (`SciKernel._registerAll`), not the unshifted `s_defaultKernelNames` comments.
   5. **Session Facade (`SierraGameSession`)**:
      - Abstract interface uniting `AgiGameEngine` and `SciGameEngine` behind `GameScreen`.
      - `SciGameEngine`: Drives the 60 Hz tick / 20 Hz script cycle:
@@ -240,11 +240,11 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 - **Key Deliverables**:
   1. **`VOCAB.000` Vocabulary Subsystem**:
      - Binary parser for vocabulary word groups, word classes, synonyms, and group IDs.
-  2. **Kernel `Parse(inputString, eventObj)` (`0x49`)**:
+  2. **Kernel `Parse(inputString, eventObj)` (`0x24`)**:
      - Strips punctuation and noise words.
      - Tokenizes text into word group IDs matching `VOCAB.000`.
      - Identifies unknown words and flags them for the game script's response.
-  3. **Kernel `Said(saidSpecPointer)` (`0x4A`)**:
+  3. **Kernel `Said(saidSpecPointer)` (`0x25`)**:
      - Evaluates compiled Sierra `Said` specs (sequence of word group IDs, `ANYWORD` wildcard 1, `ROL` wildcard 9999, operators like `,`, `/`, `&`, `[]`).
      - Matches parsed event tokens against script `Said` expressions.
   4. **Status & Menu Bar**:
