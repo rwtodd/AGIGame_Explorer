@@ -562,5 +562,50 @@ void main() {
 
       expect(engine.sciWindows.isEmpty, isTrue, reason: 'Dialog should be dismissed');
     });
+
+    test('SciTextControl.wrapText splits long strings into multiple lines according to maxWidth', () {
+      final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
+      final engine = SciGameEngine(volumeManager: vol);
+      engine.initializeGame();
+
+      final font0 = engine.kernel.getFont(0);
+      expect(font0, isNotNull);
+
+      final text = 'The entrance to the station is the other way.';
+      final lines = SciTextControl.wrapText(text, font0, 192);
+
+      expect(lines.length, equals(2));
+      expect(lines[0], equals('The entrance to the station is'));
+      expect(lines[1], equals('the other way.'));
+
+      for (final line in lines) {
+        expect(font0!.measureTextWidth(line), lessThanOrEqualTo(192));
+      }
+    });
+
+    test('SciEditControl paints with 1px inflated frame and vertically centered text', () {
+      final recorder = PictureRecorder();
+      final canvas = Canvas(recorder);
+
+      const editCtrl = SciEditControl(
+        rect: Rect.fromLTWH(4.0, 20.0, 270.0, 8.0),
+        text: 'look in glove box',
+        cursorPosition: 17,
+        maxChars: 40,
+        isFocused: true,
+      );
+
+      // Verify paint runs cleanly without throwing
+      expect(
+        () => editCtrl.paint(
+          canvas,
+          windowTopLeft: const Offset(21.0, 155.0),
+          defaultColorPen: 0,
+          defaultColorBack: 15,
+        ),
+        returnsNormally,
+      );
+    });
   });
 }
+

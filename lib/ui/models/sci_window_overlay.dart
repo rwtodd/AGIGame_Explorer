@@ -37,6 +37,92 @@ class SciTextControl extends SciControlItem {
     this.align = TextAlign.left,
   });
 
+  /// Word wraps [text] against [maxWidth] using Sierra font metrics.
+  static List<String> wrapText(String text, SierraFont? font, int maxWidth) {
+    if (text.isEmpty) return const [''];
+    final normalized = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    if (maxWidth <= 0) return normalized.split('\n');
+
+    final paragraphs = normalized.split('\n');
+    final resultLines = <String>[];
+
+    for (final paragraph in paragraphs) {
+      if (paragraph.isEmpty) {
+        resultLines.add('');
+        continue;
+      }
+      final words = paragraph.split(' ');
+      var currentLine = StringBuffer();
+      var currentWidth = 0;
+
+      for (var i = 0; i < words.length; i++) {
+        final word = words[i];
+        if (word.isEmpty) {
+          if (currentLine.isNotEmpty) {
+            currentLine.write(' ');
+            currentWidth += font != null ? font.measureTextWidth(' ') : 8;
+          }
+          continue;
+        }
+        final wordWidth = font != null ? font.measureTextWidth(word) : word.length * 8;
+        final spaceWidth = font != null ? font.measureTextWidth(' ') : 8;
+
+        if (currentLine.isEmpty) {
+          if (wordWidth <= maxWidth) {
+            currentLine.write(word);
+            currentWidth = wordWidth;
+          } else {
+            // Giant word longer than maxWidth: break by character
+            for (var c = 0; c < word.length; c++) {
+              final charStr = word[c];
+              final charW = font != null ? font.measureTextWidth(charStr) : 8;
+              if (currentWidth + charW <= maxWidth || currentLine.isEmpty) {
+                currentLine.write(charStr);
+                currentWidth += charW;
+              } else {
+                resultLines.add(currentLine.toString());
+                currentLine = StringBuffer(charStr);
+                currentWidth = charW;
+              }
+            }
+          }
+        } else {
+          if (currentWidth + spaceWidth + wordWidth <= maxWidth) {
+            currentLine.write(' ');
+            currentLine.write(word);
+            currentWidth += spaceWidth + wordWidth;
+          } else {
+            resultLines.add(currentLine.toString());
+            if (wordWidth <= maxWidth) {
+              currentLine = StringBuffer(word);
+              currentWidth = wordWidth;
+            } else {
+              currentLine = StringBuffer();
+              currentWidth = 0;
+              for (var c = 0; c < word.length; c++) {
+                final charStr = word[c];
+                final charW = font != null ? font.measureTextWidth(charStr) : 8;
+                if (currentWidth + charW <= maxWidth || currentLine.isEmpty) {
+                  currentLine.write(charStr);
+                  currentWidth += charW;
+                } else {
+                  resultLines.add(currentLine.toString());
+                  currentLine = StringBuffer(charStr);
+                  currentWidth = charW;
+                }
+              }
+            }
+          }
+        }
+      }
+      if (currentLine.isNotEmpty) {
+        resultLines.add(currentLine.toString());
+      }
+    }
+
+    return resultLines.isNotEmpty ? resultLines : const [''];
+  }
+
   @override
   void paint(
     Canvas canvas, {
@@ -57,7 +143,8 @@ class SciTextControl extends SciControlItem {
     }
 
     if (effectiveFont != null) {
-      final lines = text.split('\n');
+      final wrapWidth = rect.width >= 16 ? rect.width.toInt() : 192;
+      final lines = wrapText(text, effectiveFont, wrapWidth);
       var yOffset = drawPos.dy;
       final glyphPaint = Paint()
         ..color = EgaColors.palette[fg.clamp(0, 15)]
@@ -92,7 +179,7 @@ class SciTextControl extends SciControlItem {
             currentX += glyph.width;
           }
         }
-        yOffset += effectiveFont.fontHeight + 2.0;
+        yOffset += effectiveFont.fontHeight;
       }
     } else {
       // Fallback text rendering if no font resource is attached
@@ -107,7 +194,7 @@ class SciTextControl extends SciControlItem {
         ),
         textAlign: align,
         textDirection: TextDirection.ltr,
-      )..layout(maxWidth: rect.width);
+      )..layout(maxWidth: rect.width > 0 ? rect.width : 192);
 
       textPainter.paint(canvas, drawPos);
       textPainter.dispose();
@@ -168,8 +255,9 @@ class SciButtonControl extends SciControlItem {
     }
 
     // Centered label text
+    final btnFontH = (font ?? defaultFont)?.fontHeight.toDouble() ?? 8.0;
     final labelControl = SciTextControl(
-      rect: Rect.fromLTWH(0, (rect.height - 8.0) / 2.0, rect.width, rect.height),
+      rect: Rect.fromLTWH(0, (rect.height - btnFontH) / 2.0, rect.width, rect.height),
       text: text,
       colorPen: effectivePen,
       font: font ?? defaultFont,
@@ -270,21 +358,22 @@ class SciEditControl extends SciControlItem {
     final fg = colorPen ?? defaultColorPen;
     final bg = colorBack ?? defaultColorBack;
     final editRect = rect.shift(windowTopLeft);
+    final frameRect = editRect.inflate(1.0);
 
     // Box background
     final bgPaint = Paint()
       ..color = EgaColors.palette[bg.clamp(0, 15)]
       ..style = PaintingStyle.fill;
-    canvas.drawRect(editRect, bgPaint);
+    canvas.drawRect(frameRect, bgPaint);
 
-    // Box border
+    // Box border (1px outer frame around text area)
     final borderPaint = Paint()
       ..color = EgaColors.palette[fg.clamp(0, 15)]
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
-    canvas.drawRect(editRect, borderPaint);
+    canvas.drawRect(frameRect, borderPaint);
 
-    final textPos = editRect.topLeft + const Offset(2.0, 2.0);
+    final textPos = editRect.topLeft + const Offset(1.0, 0.0);
 
     if (effectiveFont != null) {
       final glyphPaint = Paint()
@@ -322,7 +411,7 @@ class SciEditControl extends SciControlItem {
           ..color = EgaColors.palette[fg.clamp(0, 15)]
           ..style = PaintingStyle.fill;
         canvas.drawRect(
-          Rect.fromLTWH(cursorX, textPos.dy + effectiveFont.fontHeight - 1.0, 6.0, 2.0),
+          Rect.fromLTWH(cursorX, editRect.top + effectiveFont.fontHeight - 1.0, 6.0, 1.0),
           cursorPaint,
         );
       }

@@ -996,49 +996,9 @@ class SciKernel {
   }
 
   /// Wraps [text] into lines fitting within [maxWidth] pixels using [font].
-  List<String> wrapText(String text, SierraFont? font, int maxWidth) {
-    if (text.isEmpty) return const [''];
-    if (maxWidth <= 0) return text.split(RegExp(r'\r\n|\r|\n'));
+  List<String> wrapText(String text, SierraFont? font, int maxWidth) =>
+      SciTextControl.wrapText(text, font, maxWidth);
 
-    final paragraphs = text.split(RegExp(r'\r\n|\r|\n'));
-    final resultLines = <String>[];
-
-    for (final paragraph in paragraphs) {
-      if (paragraph.isEmpty) {
-        resultLines.add('');
-        continue;
-      }
-      final words = paragraph.split(' ');
-      var currentLine = StringBuffer();
-      var currentWidth = 0;
-
-      for (var i = 0; i < words.length; i++) {
-        final word = words[i];
-        final wordWidth = font != null ? font.measureTextWidth(word) : word.length * 8;
-        final spaceWidth = font != null ? font.measureTextWidth(' ') : 8;
-
-        if (currentLine.isEmpty) {
-          currentLine.write(word);
-          currentWidth = wordWidth;
-        } else {
-          if (currentWidth + spaceWidth + wordWidth <= maxWidth) {
-            currentLine.write(' ');
-            currentLine.write(word);
-            currentWidth += spaceWidth + wordWidth;
-          } else {
-            resultLines.add(currentLine.toString());
-            currentLine = StringBuffer(word);
-            currentWidth = wordWidth;
-          }
-        }
-      }
-      if (currentLine.isNotEmpty) {
-        resultLines.add(currentLine.toString());
-      }
-    }
-
-    return resultLines.isNotEmpty ? resultLines : const [''];
-  }
 
   SciReg _kTextSize(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 2) return const SciReg.fromInt(0);
