@@ -416,7 +416,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                     ListenableBuilder(
                       listenable: _repaint,
                       builder: (context, _) {
-                        if (!_session.isInputEnabled) {
+                        if (!_session.isInputEnabled || _agiEngine == null) {
                           return const SizedBox.shrink();
                         }
                         final row = _agiEngine?.inputRow ?? 24;
@@ -776,10 +776,10 @@ class _GamePlayfieldPainter extends CustomPainter {
       renderBlackTextBackgrounds: renderBlackTextBackgrounds,
       menuManager: agiEngine?.menuManager,
       displayProfile: displayProfile ?? session.displayProfile,
-      sciWindows: sciWindows,
-      mouseCursor: mouseCursor,
-      mouseCursorPosition: mouseCursorPosition,
-      showMouseCursor: showMouseCursor,
+      sciWindows: sciWindows.isNotEmpty ? sciWindows : session.sciWindows,
+      mouseCursor: mouseCursor ?? session.mouseCursor,
+      mouseCursorPosition: mouseCursorPosition ?? session.mouseCursorPosition,
+      showMouseCursor: showMouseCursor || session.showMouseCursor,
     ).paint(canvas, size);
     canvas.restore();
   }

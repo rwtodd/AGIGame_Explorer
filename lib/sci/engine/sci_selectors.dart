@@ -73,6 +73,9 @@ class SciSelectors {
   int message = -1;
   int modifiers = -1;
   int number = -1;
+  int state = -1;
+  int mode = -1;
+  int max = -1;
 
   SciSelectors();
 
@@ -168,6 +171,9 @@ class SciSelectors {
     message = findSelector('message') ?? -1;
     modifiers = findSelector('modifiers') ?? -1;
     number = findSelector('number') ?? -1;
+    state = findSelector('state') ?? -1;
+    mode = findSelector('mode') ?? -1;
+    max = findSelector('max') ?? -1;
   }
 
   /// Finds selector ID by name, or null if not found.

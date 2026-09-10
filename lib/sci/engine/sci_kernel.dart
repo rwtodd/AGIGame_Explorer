@@ -11,10 +11,15 @@ import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
+import 'package:flutter_agigame/domain/sierra_font.dart';
+import 'package:flutter_agigame/domain/sierra_view.dart';
+import 'package:flutter_agigame/sci/engine/sci_window_manager.dart';
+import 'package:flutter_agigame/sci/font/sci_font_parser.dart';
 import 'package:flutter_agigame/sci/view/sci_view.dart';
 import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
 import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 import 'package:flutter_agigame/sci/parser/sci_said_matcher.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 typedef SciKernelFunc = SciReg Function(SciVM vm, int argc, List<SciReg> argv);
@@ -135,9 +140,30 @@ class SciKernel {
   void Function(String text)? onDrawStatus;
   int getEventCallCount = 0;
 
+  // --- Windows, Controls & Typography (Stage 12) ---
+  final SciWindowManager windowManager = SciWindowManager();
+  final Map<int, SierraFont> _fontCache = {};
+  void Function()? onWindowsChanged;
+
   SciKernel() {
     initPriorityBands();
     _registerAll();
+  }
+
+  /// Retrieves or loads a SierraFont resource by its [fontId].
+  SierraFont? getFont(int fontId) {
+    if (_fontCache.containsKey(fontId)) {
+      return _fontCache[fontId];
+    }
+    if (volumeManager != null) {
+      try {
+        final bytes = volumeManager!.getResource(SciResourceType.font, fontId);
+        final font = SciFontParser.parse(bytes, fontNumber: fontId);
+        _fontCache[fontId] = font;
+        return font;
+      } catch (_) {}
+    }
+    return null;
   }
 
   /// Resets active picture, sprites, events, ports, and sound slots.
@@ -163,6 +189,9 @@ class SciKernel {
     currentStatusLine = null;
     activeCycleSaidSpecs.clear();
     getEventCallCount = 0;
+    windowManager.reset();
+    _fontCache.clear();
+    onWindowsChanged?.call();
   }
 
   void _register(int id, String name, SciKernelFunc func) {
@@ -354,9 +383,9 @@ class SciKernel {
     _register(0x16, 'DisposeWindow', _kDisposeWindow);
 
     // 0x17..0x1B: Controls & Display
-    _register(0x17, 'DrawControl', _kStub);
-    _register(0x18, 'HiliteControl', _kStub);
-    _register(0x19, 'EditControl', _kStub);
+    _register(0x17, 'DrawControl', _kDrawControl);
+    _register(0x18, 'HiliteControl', _kHiliteControl);
+    _register(0x19, 'EditControl', _kEditControl);
     _register(0x1A, 'TextSize', _kTextSize);
     _register(0x1B, 'Display', _kDisplay);
 
@@ -896,19 +925,46 @@ class SciKernel {
     }
   }
 
-  // --- Windows ---
+  // --- Windows, Controls & Display (Stage 12) ---
 
   SciReg _kNewWindow(SciVM vm, int argc, List<SciReg> argv) {
     final top = argc >= 1 ? argv[0].toSint16() : 0;
     final left = argc >= 2 ? argv[1].toSint16() : 0;
     final bottom = argc >= 3 ? argv[2].toSint16() : 100;
     final right = argc >= 4 ? argv[3].toSint16() : 200;
-    final winId = 1;
-    onNewWindow?.call(winId, top, left, bottom, right);
-    return SciReg.fromInt(winId);
+    String? title;
+    if (argc >= 5 && argv[4].segment != 0) {
+      title = vm.segManager.getString(argv[4]);
+    }
+    final style = argc >= 6 ? argv[5].toUint16() : 0;
+    final priority = argc >= 7 ? argv[6].toSint16() : 15;
+    final colorPen = argc >= 8 ? argv[7].toUint16() : 0;
+    final colorBack = argc >= 9 ? argv[8].toUint16() : 15;
+
+    final dims = ui.Rect.fromLTRB(
+      left.toDouble(),
+      top.toDouble(),
+      right.toDouble(),
+      bottom.toDouble(),
+    );
+
+    final wnd = windowManager.openWindow(
+      dims: dims,
+      title: title,
+      style: style,
+      priority: priority,
+      colorPen: colorPen,
+      colorBack: colorBack,
+    );
+    currentPort = wnd.id;
+    onNewWindow?.call(wnd.id, top, left, bottom, right);
+    onWindowsChanged?.call();
+    return SciReg.fromInt(wnd.id);
   }
 
-  SciReg _kGetPort(SciVM vm, int argc, List<SciReg> argv) => SciReg.fromInt(currentPort);
+  SciReg _kGetPort(SciVM vm, int argc, List<SciReg> argv) =>
+      SciReg.fromInt(windowManager.getPort());
+
   SciReg _kSetPort(SciVM vm, int argc, List<SciReg> argv) {
     // ScummVM kSetPort: 1 arg selects a window; 6/7 args set the pic window
     // (top, left, bottom, right, picTop, picLeft [, initPriBands]).
@@ -920,19 +976,402 @@ class SciKernel {
       }
       return const SciReg.fromInt(0);
     }
-    if (argc >= 1) currentPort = argv[0].toUint16();
+    if (argc >= 1) {
+      final portId = argv[0].toUint16();
+      currentPort = portId;
+      windowManager.setPort(portId);
+    }
     return const SciReg.fromInt(0);
   }
 
   SciReg _kDisposeWindow(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 1) {
-      onDisposeWindow?.call(argv[0].toUint16());
+      final winId = argv[0].toUint16();
+      windowManager.closeWindow(winId);
+      currentPort = windowManager.getPort();
+      onDisposeWindow?.call(winId);
+      onWindowsChanged?.call();
     }
     return const SciReg.fromInt(0);
   }
 
-  SciReg _kTextSize(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kDisplay(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+  /// Wraps [text] into lines fitting within [maxWidth] pixels using [font].
+  List<String> wrapText(String text, SierraFont? font, int maxWidth) {
+    if (text.isEmpty) return const [''];
+    if (maxWidth <= 0) return text.split(RegExp(r'\r\n|\r|\n'));
+
+    final paragraphs = text.split(RegExp(r'\r\n|\r|\n'));
+    final resultLines = <String>[];
+
+    for (final paragraph in paragraphs) {
+      if (paragraph.isEmpty) {
+        resultLines.add('');
+        continue;
+      }
+      final words = paragraph.split(' ');
+      var currentLine = StringBuffer();
+      var currentWidth = 0;
+
+      for (var i = 0; i < words.length; i++) {
+        final word = words[i];
+        final wordWidth = font != null ? font.measureTextWidth(word) : word.length * 8;
+        final spaceWidth = font != null ? font.measureTextWidth(' ') : 8;
+
+        if (currentLine.isEmpty) {
+          currentLine.write(word);
+          currentWidth = wordWidth;
+        } else {
+          if (currentWidth + spaceWidth + wordWidth <= maxWidth) {
+            currentLine.write(' ');
+            currentLine.write(word);
+            currentWidth += spaceWidth + wordWidth;
+          } else {
+            resultLines.add(currentLine.toString());
+            currentLine = StringBuffer(word);
+            currentWidth = wordWidth;
+          }
+        }
+      }
+      if (currentLine.isNotEmpty) {
+        resultLines.add(currentLine.toString());
+      }
+    }
+
+    return resultLines.isNotEmpty ? resultLines : const [''];
+  }
+
+  SciReg _kTextSize(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return const SciReg.fromInt(0);
+    final destPtr = argv[0];
+    final text = vm.segManager.getString(argv[1]);
+    final fontId = argc >= 3 ? argv[2].toUint16() : 0;
+    final maxWidth = argc >= 4 ? argv[3].toSint16() : 0;
+
+    final font = getFont(fontId);
+    final fontH = font?.fontHeight ?? 8;
+
+    int textWidth = 0;
+    int textHeight = 0;
+
+    if (text.isEmpty) {
+      textWidth = 0;
+      textHeight = 0;
+    } else if (maxWidth < 0) {
+      textWidth = font != null ? font.measureTextWidth(text) : text.length * 8;
+      textHeight = fontH;
+    } else {
+      final wrapWidth = maxWidth > 0 ? maxWidth : 192;
+      final lines = wrapText(text, font, wrapWidth);
+      var maxLineW = 0;
+      for (final line in lines) {
+        final w = font != null ? font.measureTextWidth(line) : line.length * 8;
+        if (w > maxLineW) maxLineW = w;
+      }
+      textWidth = maxWidth > 0 ? maxWidth : min(wrapWidth, maxLineW);
+      textHeight = lines.length * fontH;
+    }
+
+    vm.segManager.writeWord(destPtr, 0, const SciReg.fromInt(0), stack: vm.stack);
+    vm.segManager.writeWord(destPtr, 1, const SciReg.fromInt(0), stack: vm.stack);
+    vm.segManager.writeWord(destPtr, 2, SciReg.fromInt(textHeight), stack: vm.stack);
+    vm.segManager.writeWord(destPtr, 3, SciReg.fromInt(textWidth), stack: vm.stack);
+
+    return const SciReg.fromInt(0);
+  }
+
+  SciReg _kDrawControl(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return SciReg.nullReg;
+    _genericDrawControl(vm, argv[0], hilite: false);
+    return SciReg.nullReg;
+  }
+
+  SciReg _kHiliteControl(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return SciReg.nullReg;
+    _genericDrawControl(vm, argv[0], hilite: true);
+    return SciReg.nullReg;
+  }
+
+  void _genericDrawControl(SciVM vm, SciReg controlReg, {required bool hilite}) {
+    final obj = vm.segManager.getObject(controlReg);
+    if (obj == null) return;
+
+    final type = obj.getProp(vm.segManager, selectors.type).toSint16();
+    final state = obj.getProp(vm.segManager, selectors.state).toSint16();
+    final x = obj.getProp(vm.segManager, selectors.nsLeft).toSint16();
+    final y = obj.getProp(vm.segManager, selectors.nsTop).toSint16();
+    final r = obj.getProp(vm.segManager, selectors.nsRight).toSint16();
+    final b = obj.getProp(vm.segManager, selectors.nsBottom).toSint16();
+    final fontId = obj.getProp(vm.segManager, selectors.font).toUint16();
+    final textRef = obj.getProp(vm.segManager, selectors.text);
+    final text = !textRef.isNull ? vm.segManager.getString(textRef) : '';
+
+    final controlRect = ui.Rect.fromLTRB(
+      x.toDouble(),
+      y.toDouble(),
+      (r > x ? r : x).toDouble(),
+      (b > y ? b : y).toDouble(),
+    );
+
+    final font = getFont(fontId);
+
+    SciControlItem? controlItem;
+    switch (type) {
+      case 1: // Button
+        controlItem = SciButtonControl(
+          rect: controlRect,
+          text: text,
+          isPressed: hilite,
+          isFocused: hilite || (state & 0x0008) != 0,
+          font: font,
+        );
+        break;
+
+      case 2: // Text
+        final mode = obj.getProp(vm.segManager, selectors.mode).toSint16();
+        final align = mode == 1
+            ? ui.TextAlign.right
+            : (mode == 2 ? ui.TextAlign.center : ui.TextAlign.left);
+        controlItem = SciTextControl(
+          rect: controlRect,
+          text: text,
+          font: font,
+          align: align,
+        );
+        break;
+
+      case 3: // TextEdit
+        final maxChars = obj.getProp(vm.segManager, selectors.max).toUint16();
+        final cursor = obj.getProp(vm.segManager, selectors.cursor).toUint16();
+        controlItem = SciEditControl(
+          rect: controlRect,
+          text: text,
+          cursorPosition: cursor,
+          maxChars: maxChars > 0 ? maxChars : 40,
+          font: font,
+          isFocused: hilite,
+        );
+        break;
+
+      case 4: // Icon
+        final viewId = obj.getProp(vm.segManager, selectors.view).toUint16();
+        final l = obj.getProp(vm.segManager, selectors.loop).toSint16();
+        final loop = (l & 0x80) != 0 ? l - 256 : l;
+        final c = obj.getProp(vm.segManager, selectors.cel).toSint16();
+        final cel = (c & 0x80) != 0 ? c - 256 : c;
+
+        SierraView? view;
+        if (volumeManager != null) {
+          try {
+            final viewBytes = volumeManager!.getResource(SciResourceType.view, viewId);
+            view = SciViewParser.parse(viewBytes, viewNumber: viewId);
+          } catch (_) {}
+        }
+
+        controlItem = SciIconControl(
+          rect: controlRect,
+          view: view,
+          loopNumber: loop >= 0 ? loop : 0,
+          celNumber: cel >= 0 ? cel : 0,
+        );
+        break;
+
+      default:
+        break;
+    }
+
+    if (controlItem != null) {
+      windowManager.setControl(
+        controlRefOffset: controlReg.offset,
+        controlItem: controlItem,
+      );
+      onWindowsChanged?.call();
+    }
+  }
+
+  SciReg _kEditControl(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return SciReg.nullReg;
+    final controlReg = argv[0];
+    final eventReg = argv[1];
+
+    final controlObj = vm.segManager.getObject(controlReg);
+    final eventObj = vm.segManager.getObject(eventReg);
+    if (controlObj == null || eventObj == null) return SciReg.nullReg;
+
+    final type = controlObj.getProp(vm.segManager, selectors.type).toSint16();
+    if (type != 3) return SciReg.nullReg;
+
+    var cursor = controlObj.getProp(vm.segManager, selectors.cursor).toUint16();
+    final maxChars = controlObj.getProp(vm.segManager, selectors.max).toUint16();
+    final textRef = controlObj.getProp(vm.segManager, selectors.text);
+    if (textRef.isNull) return SciReg.nullReg;
+
+    var text = vm.segManager.getString(textRef);
+    final eventType = eventObj.getProp(vm.segManager, selectors.type).toUint16();
+    final message = eventObj.getProp(vm.segManager, selectors.message).toUint16();
+
+    if (eventType == SciEventType.keyDown) {
+      if (message == 8 || message == 0x0008) {
+        if (cursor > 0 && text.isNotEmpty) {
+          text = text.substring(0, cursor - 1) + text.substring(cursor);
+          cursor--;
+        }
+      } else if (message == 0x007F) {
+        if (cursor < text.length) {
+          text = text.substring(0, cursor) + text.substring(cursor + 1);
+        }
+      } else if (message == 0x4700) {
+        cursor = 0;
+      } else if (message == 0x4F00) {
+        cursor = text.length;
+      } else if (message == 0x4B00) {
+        if (cursor > 0) cursor--;
+      } else if (message == 0x4D00) {
+        if (cursor < text.length) cursor++;
+      } else if (message >= 32 && message <= 255 && (maxChars == 0 || text.length < maxChars)) {
+        final ch = String.fromCharCode(message);
+        text = text.substring(0, cursor) + ch + text.substring(cursor);
+        cursor++;
+      }
+
+      controlObj.setProp(vm.segManager, selectors.cursor, SciReg.fromInt(cursor));
+      vm.segManager.writeString(textRef, text, stack: vm.stack);
+      _genericDrawControl(vm, controlReg, hilite: true);
+    }
+
+    return SciReg.nullReg;
+  }
+
+  String _lookupText(int resId, int index) {
+    if (volumeManager == null) return '';
+    try {
+      final bytes = volumeManager!.getResource(SciResourceType.text, resId);
+      var currentIndex = 0;
+      var start = 0;
+      for (var i = 0; i < bytes.length; i++) {
+        if (bytes[i] == 0) {
+          if (currentIndex == index) {
+            return String.fromCharCodes(bytes.sublist(start, i));
+          }
+          currentIndex++;
+          start = i + 1;
+        }
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  SciReg _kDisplay(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return const SciReg.fromInt(0);
+
+    final textp = argv[0];
+    String text = '';
+    var argOffset = 1;
+
+    if (textp.segment != 0) {
+      text = vm.segManager.getString(textp);
+    } else if (textp.offset >= 100 && textp.offset <= 122) {
+      text = '';
+      argOffset = 0;
+    } else if (argc > 1 && argv[1].offset >= 100 && argv[1].offset <= 122) {
+      text = '';
+      argOffset = 1;
+    } else {
+      final index = argc > 1 ? argv[1].toUint16() : 0;
+      text = _lookupText(textp.offset, index);
+      argOffset = 2;
+    }
+
+    var x = 0;
+    var y = 0;
+    var mode = 0;
+    var colorPen = 0;
+    var colorBack = 15;
+    var fontId = 0;
+    var width = -1;
+    var saveUnder = false;
+
+    var i = argOffset;
+    while (i < argc) {
+      final code = argv[i].toUint16();
+      i++;
+      switch (code) {
+        case 100: // p_at
+          if (i + 1 < argc) {
+            x = argv[i].toSint16();
+            y = argv[i + 1].toSint16();
+            i += 2;
+          }
+          break;
+        case 101: // p_mode
+          if (i < argc) {
+            mode = argv[i].toSint16();
+            i++;
+          }
+          break;
+        case 102: // p_color
+          if (i < argc) {
+            colorPen = argv[i].toUint16();
+            i++;
+          }
+          break;
+        case 103: // p_back
+          if (i < argc) {
+            colorBack = argv[i].toUint16();
+            i++;
+          }
+          break;
+        case 105: // p_font
+          if (i < argc) {
+            fontId = argv[i].toUint16();
+            i++;
+          }
+          break;
+        case 106: // p_width
+          if (i < argc) {
+            width = argv[i].toSint16();
+            i++;
+          }
+          break;
+        case 107: // p_save
+          saveUnder = true;
+          break;
+        case 108: // p_restore
+          if (i < argc) {
+            final handle = argv[i].toUint16();
+            windowManager.restoreDisplay(handle);
+            onWindowsChanged?.call();
+            i++;
+            return const SciReg.fromInt(0);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    final font = getFont(fontId);
+    final align = mode == 1
+        ? ui.TextAlign.right
+        : (mode == 2 ? ui.TextAlign.center : ui.TextAlign.left);
+
+    final controlItem = SciTextControl(
+      rect: ui.Rect.fromLTWH(
+        x.toDouble(),
+        y.toDouble(),
+        (width > 0 ? width : 192).toDouble(),
+        12.0,
+      ),
+      text: text,
+      colorPen: colorPen,
+      colorBack: colorBack >= 0 && colorBack <= 15 ? colorBack : null,
+      font: font,
+      align: align,
+    );
+
+    final handle = windowManager.addDisplay(controlItem, saveUnder: saveUnder);
+    onWindowsChanged?.call();
+    return SciReg.fromInt(handle);
+  }
 
   // --- Parser & Events ---
 
@@ -1501,22 +1940,177 @@ class SciKernel {
     return argv[0];
   }
 
-  SciReg _kFormat(SciVM vm, int argc, List<SciReg> argv) => argc >= 1 ? argv[0] : SciReg.nullReg;
-  SciReg _kGetFarText(SciVM vm, int argc, List<SciReg> argv) => argc >= 3 ? argv[2] : SciReg.nullReg;
+  SciReg _kFormat(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return argc >= 1 ? argv[0] : SciReg.nullReg;
+    final dest = argv[0];
+    final formatSource = argv[1];
+
+    String formatStr;
+    int startArg;
+
+    if (formatSource.isPointer && formatSource.segment != 0) {
+      formatStr = vm.segManager.getString(formatSource, stack: vm.stack);
+      startArg = 2;
+    } else {
+      final resId = formatSource.toUint16();
+      final index = argc > 2 ? argv[2].toUint16() : 0;
+      formatStr = _lookupText(resId, index);
+      startArg = 3;
+    }
+
+    final out = StringBuffer();
+    var paramIndex = startArg;
+    var i = 0;
+
+    while (i < formatStr.length) {
+      final ch = formatStr[i];
+      if (ch != '%') {
+        out.write(ch);
+        i++;
+        continue;
+      }
+
+      i++; // Skip '%'
+      if (i >= formatStr.length) break;
+
+      if (formatStr[i] == '%') {
+        out.write('%');
+        i++;
+        continue;
+      }
+
+      // Format flags and width: e.g. %-10s, %02d, %=12s
+      var alignLeft = false;
+      var alignCenter = false;
+      var fillChar = ' ';
+
+      if (formatStr[i] == '-') {
+        alignLeft = true;
+        i++;
+      } else if (formatStr[i] == '=') {
+        alignCenter = true;
+        i++;
+      } else if (formatStr[i] == '0') {
+        fillChar = '0';
+        i++;
+      }
+
+      var widthDigits = '';
+      while (i < formatStr.length &&
+          formatStr.codeUnitAt(i) >= 48 &&
+          formatStr.codeUnitAt(i) <= 57) {
+        widthDigits += formatStr[i];
+        i++;
+      }
+      final minWidth = int.tryParse(widthDigits) ?? 0;
+
+      if (i >= formatStr.length) break;
+      final spec = formatStr[i];
+      i++;
+
+      String formattedArg = '';
+      switch (spec) {
+        case 's':
+          if (paramIndex < argc) {
+            final arg = argv[paramIndex];
+            if (arg.isPointer && arg.segment != 0) {
+              formattedArg = vm.segManager.getString(arg, stack: vm.stack);
+              paramIndex++;
+            } else {
+              final resId = arg.toUint16();
+              final msgIdx = (paramIndex + 1 < argc)
+                  ? argv[paramIndex + 1].toUint16()
+                  : 0;
+              formattedArg = _lookupText(resId, msgIdx);
+              paramIndex += 2;
+            }
+          }
+          break;
+
+        case 'd':
+          if (paramIndex < argc) {
+            formattedArg = argv[paramIndex].toSint16().toString();
+            paramIndex++;
+          }
+          break;
+
+        case 'u':
+          if (paramIndex < argc) {
+            formattedArg = argv[paramIndex].toUint16().toString();
+            paramIndex++;
+          }
+          break;
+
+        case 'x':
+          if (paramIndex < argc) {
+            formattedArg = argv[paramIndex].toUint16().toRadixString(16);
+            paramIndex++;
+          }
+          break;
+
+        case 'c':
+          if (paramIndex < argc) {
+            final code = argv[paramIndex].toUint16() & 0xFF;
+            if (code != 0) {
+              formattedArg = String.fromCharCode(code);
+            }
+            paramIndex++;
+          }
+          break;
+
+        default:
+          formattedArg = '%$spec';
+          break;
+      }
+
+      if (minWidth > 0 && formattedArg.length < minWidth) {
+        final padCount = minWidth - formattedArg.length;
+        if (alignCenter) {
+          final leftPad = padCount ~/ 2;
+          final rightPad = padCount - leftPad;
+          formattedArg = (fillChar * leftPad) + formattedArg + (fillChar * rightPad);
+        } else if (alignLeft) {
+          formattedArg = formattedArg + (fillChar * padCount);
+        } else {
+          formattedArg = (fillChar * padCount) + formattedArg;
+        }
+      }
+
+      out.write(formattedArg);
+    }
+
+    final resultStr = out.toString();
+    vm.segManager.writeString(dest, resultStr, stack: vm.stack);
+    return dest;
+  }
+
+  SciReg _kGetFarText(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 3) return SciReg.nullReg;
+    final resId = argv[0].toUint16();
+    final index = argv[1].toUint16();
+    final dest = argv[2];
+    final text = _lookupText(resId, index);
+    vm.segManager.writeString(dest, text, stack: vm.stack);
+    return dest;
+  }
 
   SciReg _kReadNumber(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 1) return const SciReg.fromInt(0);
-    final bytes = vm.segManager.bytesFor(argv[0]);
-    if (bytes == null) return const SciReg.fromInt(0);
-    var i = vm.segManager.byteIndexFor(argv[0]);
+    final text = vm.segManager.getString(argv[0], stack: vm.stack);
+    if (text.isEmpty) return const SciReg.fromInt(0);
+    var i = 0;
+    while (i < text.length &&
+        (text.codeUnitAt(i) == 32 || text.codeUnitAt(i) == 9)) {
+      i++;
+    }
     var sign = 1;
-    if (i < bytes.length && bytes[i] == 0x2D) {
+    if (i < text.length && text[i] == '-') {
       sign = -1;
       i++;
     }
     var n = 0;
-    while (i < bytes.length) {
-      final c = bytes[i];
+    while (i < text.length) {
+      final c = text.codeUnitAt(i);
       if (c < 0x30 || c > 0x39) break;
       n = n * 10 + (c - 0x30);
       i++;

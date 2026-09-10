@@ -1,5 +1,6 @@
 // Memory and Segment Manager for the Sierra SCI PMachine.
 
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
@@ -55,6 +56,7 @@ class SciSegManager {
   static const int nodeSegmentId = 0x1001;
   static const int cloneSegmentId = 0x1002;
   static const int hunkSegmentId = 0x1003;
+  static const int globalSegmentId = 0x1004;
 
   int _nextScriptSegmentId = 1;
 
@@ -89,6 +91,9 @@ class SciSegManager {
   /// Global variables array (in SCI0, corresponds to script 0 locals).
   List<SciReg> globals = [];
 
+  /// Active VM execution stack, allowing string and memory operations to access stack variables.
+  List<SciReg>? currentStack;
+
   /// Volume manager for on-demand script loading.
   SciVolumeManager? volumeManager;
 
@@ -109,6 +114,7 @@ class SciSegManager {
     hunkBuffers.clear();
     _nextHunkOffset = 1;
     globals.clear();
+    currentStack = null;
   }
 
   /// Loads the class-to-script mapping table from `VOCAB.996`.
@@ -451,90 +457,244 @@ class SciSegManager {
 
   Uint8List? bytesFor(SciReg ptr) {
     if (!ptr.isPointer) return null;
-    if (ptr.segment == hunkSegmentId) return hunkBuffers[ptr.offset];
+    if (ptr.segment == hunkSegmentId) {
+      if (hunkBuffers.containsKey(ptr.offset)) return hunkBuffers[ptr.offset];
+      for (final entry in hunkBuffers.entries) {
+        if (ptr.offset >= entry.key && ptr.offset < entry.key + entry.value.length) {
+          return entry.value;
+        }
+      }
+      return null;
+    }
     return loadedScripts[ptr.segment]?.bytes;
   }
 
-  int byteIndexFor(SciReg ptr) => ptr.segment == hunkSegmentId ? 0 : ptr.offset;
-
-  int strlen(SciReg ptr) {
-    final bytes = bytesFor(ptr);
-    if (bytes == null) return 0;
-    var i = byteIndexFor(ptr);
-    var n = 0;
-    while (i < bytes.length && bytes[i] != 0) {
-      n++;
-      i++;
+  int byteIndexFor(SciReg ptr) {
+    if (ptr.segment == hunkSegmentId) {
+      if (hunkBuffers.containsKey(ptr.offset)) return 0;
+      for (final entry in hunkBuffers.entries) {
+        if (ptr.offset >= entry.key && ptr.offset < entry.key + entry.value.length) {
+          return ptr.offset - entry.key;
+        }
+      }
+      return 0;
     }
-    return n;
+    return ptr.offset;
   }
 
-  int strcmp(SciReg a, SciReg b, [int? maxLen]) {
-    final ba = bytesFor(a);
-    final bb = bytesFor(b);
-    if (ba == null || bb == null) return 1;
-    var ia = byteIndexFor(a);
-    var ib = byteIndexFor(b);
-    var n = 0;
+  /// Reads a single byte at [ptr] + [byteOffset].
+  ///
+  /// Supports hunk memory, stack memory ([listSegmentId]), globals, and script resources/locals.
+  int? readByte(SciReg ptr, int byteOffset, {List<SciReg>? stack}) {
+    if (!ptr.isPointer) return null;
+    final effectiveStack = stack ?? currentStack;
+
+    if (ptr.segment == hunkSegmentId) {
+      if (hunkBuffers.containsKey(ptr.offset)) {
+        final buf = hunkBuffers[ptr.offset]!;
+        final i = byteOffset;
+        return (i >= 0 && i < buf.length) ? buf[i] : 0;
+      }
+      for (final entry in hunkBuffers.entries) {
+        final base = entry.key;
+        final buf = entry.value;
+        if (ptr.offset >= base && ptr.offset < base + buf.length) {
+          final i = (ptr.offset - base) + byteOffset;
+          return (i >= 0 && i < buf.length) ? buf[i] : 0;
+        }
+      }
+      return null;
+    }
+
+    if (ptr.segment == listSegmentId && effectiveStack != null) {
+      final totalByte = ptr.offset + byteOffset;
+      final wordIndex = totalByte >> 1;
+      if (wordIndex >= 0 && wordIndex < effectiveStack.length) {
+        final word = effectiveStack[wordIndex].toUint16();
+        return (totalByte & 1) == 0 ? (word & 0xFF) : ((word >> 8) & 0xFF);
+      }
+      return 0;
+    }
+
+    if (ptr.segment == globalSegmentId ||
+        (ptr.segment == 1 && !loadedScripts.containsKey(1)) ||
+        (scriptToSegment.containsKey(0) && ptr.segment == scriptToSegment[0] && ptr.offset >= (loadedScripts[ptr.segment]?.bytes.length ?? 0))) {
+      final totalByte = ptr.offset + byteOffset;
+      final wordIndex = totalByte >> 1;
+      if (wordIndex >= 0 && wordIndex < globals.length) {
+        final word = globals[wordIndex].toUint16();
+        return (totalByte & 1) == 0 ? (word & 0xFF) : ((word >> 8) & 0xFF);
+      }
+    }
+
+    final script = loadedScripts[ptr.segment];
+    if (script != null) {
+      final totalByte = ptr.offset + byteOffset;
+      if (totalByte >= 0 && totalByte < script.bytes.length) {
+        return script.bytes[totalByte];
+      }
+      final wordIndex = totalByte >> 1;
+      if (wordIndex >= 0 && wordIndex < script.locals.length) {
+        final word = script.locals[wordIndex].toUint16();
+        return (totalByte & 1) == 0 ? (word & 0xFF) : ((word >> 8) & 0xFF);
+      }
+    }
+
+    return null;
+  }
+
+  /// Writes a single byte at [ptr] + [byteOffset].
+  void writeByte(SciReg ptr, int byteOffset, int byteVal, {List<SciReg>? stack}) {
+    if (!ptr.isPointer) return;
+    final effectiveStack = stack ?? currentStack;
+    final b = byteVal & 0xFF;
+
+    if (ptr.segment == hunkSegmentId) {
+      if (hunkBuffers.containsKey(ptr.offset)) {
+        final buf = hunkBuffers[ptr.offset]!;
+        final i = byteOffset;
+        if (i >= 0 && i < buf.length) {
+          buf[i] = b;
+        }
+        return;
+      }
+      for (final entry in hunkBuffers.entries) {
+        final base = entry.key;
+        final buf = entry.value;
+        if (ptr.offset >= base && ptr.offset < base + buf.length) {
+          final i = (ptr.offset - base) + byteOffset;
+          if (i >= 0 && i < buf.length) {
+            buf[i] = b;
+          }
+          return;
+        }
+      }
+      return;
+    }
+
+    if (ptr.segment == listSegmentId && effectiveStack != null) {
+      final totalByte = ptr.offset + byteOffset;
+      final wordIndex = totalByte >> 1;
+      while (effectiveStack.length <= wordIndex) {
+        effectiveStack.add(SciReg.nullReg);
+      }
+      final word = effectiveStack[wordIndex].toUint16();
+      final newWord = (totalByte & 1) == 0
+          ? ((word & 0xFF00) | b)
+          : ((word & 0x00FF) | (b << 8));
+      effectiveStack[wordIndex] = SciReg.fromInt(newWord);
+      return;
+    }
+
+    if (ptr.segment == globalSegmentId ||
+        (ptr.segment == 1 && !loadedScripts.containsKey(1)) ||
+        (scriptToSegment.containsKey(0) && ptr.segment == scriptToSegment[0] && ptr.offset >= (loadedScripts[ptr.segment]?.bytes.length ?? 0))) {
+      final totalByte = ptr.offset + byteOffset;
+      final wordIndex = totalByte >> 1;
+      while (globals.length <= wordIndex) {
+        globals.add(SciReg.nullReg);
+      }
+      final word = globals[wordIndex].toUint16();
+      final newWord = (totalByte & 1) == 0
+          ? ((word & 0xFF00) | b)
+          : ((word & 0x00FF) | (b << 8));
+      globals[wordIndex] = SciReg.fromInt(newWord);
+      return;
+    }
+
+    final script = loadedScripts[ptr.segment];
+    if (script != null) {
+      final totalByte = ptr.offset + byteOffset;
+      if (totalByte >= 0 && totalByte < script.bytes.length) {
+        script.bytes[totalByte] = b;
+        return;
+      }
+      final wordIndex = totalByte >> 1;
+      while (script.locals.length <= wordIndex) {
+        script.locals.add(SciReg.nullReg);
+      }
+      final word = script.locals[wordIndex].toUint16();
+      final newWord = (totalByte & 1) == 0
+          ? ((word & 0xFF00) | b)
+          : ((word & 0x00FF) | (b << 8));
+      script.locals[wordIndex] = SciReg.fromInt(newWord);
+      return;
+    }
+  }
+
+  int strlen(SciReg ptr, {List<SciReg>? stack}) {
+    if (!ptr.isPointer) return 0;
+    var len = 0;
     while (true) {
-      if (maxLen != null && n >= maxLen) return 0;
-      final ca = ia < ba.length ? ba[ia] : 0;
-      final cb = ib < bb.length ? bb[ib] : 0;
+      final b = readByte(ptr, len, stack: stack);
+      if (b == null || b == 0) break;
+      len++;
+    }
+    return len;
+  }
+
+  int strcmp(SciReg a, SciReg b, [int? maxLen, List<SciReg>? stack]) {
+    var i = 0;
+    while (true) {
+      if (maxLen != null && i >= maxLen) return 0;
+      final ca = readByte(a, i, stack: stack) ?? 0;
+      final cb = readByte(b, i, stack: stack) ?? 0;
       if (ca != cb) return ca < cb ? -1 : 1;
       if (ca == 0) return 0;
-      ia++;
-      ib++;
-      n++;
+      i++;
     }
   }
 
-  bool strcpy(SciReg dest, SciReg src, {int? maxLen, bool rawCopy = false}) {
-    final db = bytesFor(dest);
-    final sb = bytesFor(src);
-    if (db == null || sb == null) return false;
-    var di = byteIndexFor(dest);
-    var si = byteIndexFor(src);
-    if (rawCopy && maxLen != null) {
-      final n = maxLen < (db.length - di) ? maxLen : (db.length - di);
-      for (var i = 0; i < n && si < sb.length; i++) {
-        db[di++] = sb[si++];
+  bool strcpy(SciReg dest, SciReg src, {int? maxLen, bool rawCopy = false, List<SciReg>? stack}) {
+    if (!dest.isPointer || !src.isPointer) return false;
+    var i = 0;
+    while (true) {
+      if (maxLen != null && i >= maxLen) break;
+      final b = readByte(src, i, stack: stack) ?? 0;
+      if (!rawCopy && b == 0) {
+        writeByte(dest, i, 0, stack: stack);
+        break;
       }
-      return true;
+      writeByte(dest, i, b, stack: stack);
+      i++;
     }
-    final limit = maxLen ?? (db.length - di);
-    var copied = 0;
-    while (copied < limit && di < db.length && si < sb.length && sb[si] != 0) {
-      db[di++] = sb[si++];
-      copied++;
-    }
-    if (di < db.length && (maxLen == null || copied < limit)) {
-      db[di] = 0;
+    if (!rawCopy && (maxLen == null || i < maxLen)) {
+      writeByte(dest, i, 0, stack: stack);
     }
     return true;
   }
 
-  int strAt(SciReg ptr, int index, [int? writeValue]) {
-    final bytes = bytesFor(ptr);
-    if (bytes == null) return 0;
-    final i = byteIndexFor(ptr) + index;
-    if (i < 0 || i >= bytes.length) return 0;
-    final old = bytes[i];
+  int strAt(SciReg ptr, int index, [int? writeValue, List<SciReg>? stack]) {
+    final old = readByte(ptr, index, stack: stack) ?? 0;
     if (writeValue != null) {
-      bytes[i] = writeValue & 0xFF;
+      writeByte(ptr, index, writeValue, stack: stack);
     }
     return old;
   }
 
   /// Reads a null-terminated ASCII/Latin-1 string starting at [ptr].
-  String getString(SciReg ptr) {
-    final bytes = bytesFor(ptr);
-    if (bytes == null) return '';
-    var i = byteIndexFor(ptr);
-    final start = i;
-    while (i < bytes.length && bytes[i] != 0) {
-      i++;
+  String getString(SciReg ptr, {List<SciReg>? stack}) {
+    if (!ptr.isPointer) return '';
+    final codeUnits = <int>[];
+    var offset = 0;
+    while (true) {
+      final b = readByte(ptr, offset, stack: stack);
+      if (b == null || b == 0) break;
+      codeUnits.add(b);
+      offset++;
     }
-    return String.fromCharCodes(bytes.sublist(start, i));
+    return String.fromCharCodes(codeUnits);
+  }
+
+  /// Writes [text] as null-terminated ASCII string into [ptr].
+  void writeString(SciReg ptr, String text, {List<SciReg>? stack, int? maxLen}) {
+    if (!ptr.isPointer) return;
+    final units = text.codeUnits;
+    final limit = maxLen != null ? min(maxLen - 1, units.length) : units.length;
+    for (var i = 0; i < limit; i++) {
+      writeByte(ptr, i, units[i], stack: stack);
+    }
+    writeByte(ptr, limit, 0, stack: stack);
   }
 
   /// Allocates a new null-terminated string buffer in hunk memory and returns its pointer.
@@ -606,6 +766,139 @@ class SciSegManager {
   Uint8List? getHunk(SciReg addr) {
     if (addr.segment != hunkSegmentId) return null;
     return hunkBuffers[addr.offset];
+  }
+
+  /// Writes a 16-bit word value at [ptr] + [wordOffset] (words).
+  ///
+  /// Supports globals, script locals, VM stack/temps/params, and hunk memory.
+  void writeWord(
+    SciReg ptr,
+    int wordOffset,
+    SciReg value, {
+    List<SciReg>? stack,
+  }) {
+    final wordIndex = (ptr.offset >> 1) + wordOffset;
+    final effectiveStack = stack ?? currentStack;
+
+    if (ptr.segment == globalSegmentId ||
+        (ptr.segment == 1 && !loadedScripts.containsKey(1)) ||
+        (scriptToSegment.containsKey(0) && ptr.segment == scriptToSegment[0] && ptr.offset >= (loadedScripts[ptr.segment]?.bytes.length ?? 0))) {
+      while (globals.length <= wordIndex) {
+        globals.add(SciReg.nullReg);
+      }
+      globals[wordIndex] = value;
+      return;
+    }
+
+    if (ptr.segment == listSegmentId && effectiveStack != null) {
+      while (effectiveStack.length <= wordIndex) {
+        effectiveStack.add(SciReg.nullReg);
+      }
+      effectiveStack[wordIndex] = value;
+      return;
+    }
+
+    final script = loadedScripts[ptr.segment];
+    if (script != null) {
+      final byteOffset = ptr.offset + wordOffset * 2;
+      if (byteOffset + 1 < script.bytes.length) {
+        script.bytes[byteOffset] = value.offset & 0xFF;
+        script.bytes[byteOffset + 1] = (value.offset >> 8) & 0xFF;
+        return;
+      }
+      while (script.locals.length <= wordIndex) {
+        script.locals.add(SciReg.nullReg);
+      }
+      script.locals[wordIndex] = value;
+      return;
+    }
+
+    if (ptr.segment == hunkSegmentId) {
+      Uint8List? buf = hunkBuffers[ptr.offset];
+      var base = ptr.offset;
+      if (buf == null) {
+        for (final entry in hunkBuffers.entries) {
+          if (ptr.offset >= entry.key && ptr.offset < entry.key + entry.value.length) {
+            buf = entry.value;
+            base = entry.key;
+            break;
+          }
+        }
+      }
+      if (buf != null) {
+        final byteOffset = (ptr.offset - base) + wordOffset * 2;
+        if (byteOffset + 1 < buf.length) {
+          buf[byteOffset] = value.offset & 0xFF;
+          buf[byteOffset + 1] = (value.offset >> 8) & 0xFF;
+        }
+      }
+      return;
+    }
+  }
+
+  /// Reads a 16-bit word value from [ptr] + [wordOffset] (words).
+  SciReg readWord(
+    SciReg ptr,
+    int wordOffset, {
+    List<SciReg>? stack,
+  }) {
+    final wordIndex = (ptr.offset >> 1) + wordOffset;
+    final effectiveStack = stack ?? currentStack;
+
+    if (ptr.segment == globalSegmentId ||
+        (ptr.segment == 1 && !loadedScripts.containsKey(1)) ||
+        (scriptToSegment.containsKey(0) && ptr.segment == scriptToSegment[0] && ptr.offset >= (loadedScripts[ptr.segment]?.bytes.length ?? 0))) {
+      if (wordIndex >= 0 && wordIndex < globals.length) {
+        return globals[wordIndex];
+      }
+      return SciReg.nullReg;
+    }
+
+    if (ptr.segment == listSegmentId && effectiveStack != null) {
+      if (wordIndex >= 0 && wordIndex < effectiveStack.length) {
+        return effectiveStack[wordIndex];
+      }
+      return SciReg.nullReg;
+    }
+
+    final script = loadedScripts[ptr.segment];
+    if (script != null) {
+      final byteOffset = ptr.offset + wordOffset * 2;
+      if (byteOffset + 1 < script.bytes.length) {
+        final lo = script.bytes[byteOffset];
+        final hi = script.bytes[byteOffset + 1];
+        return SciReg.fromInt(lo | (hi << 8));
+      }
+      if (wordIndex >= 0 && wordIndex < script.locals.length) {
+        return script.locals[wordIndex];
+      }
+      return SciReg.nullReg;
+    }
+
+    if (ptr.segment == hunkSegmentId) {
+      Uint8List? buf = hunkBuffers[ptr.offset];
+      var base = ptr.offset;
+      if (buf == null) {
+        for (final entry in hunkBuffers.entries) {
+          if (ptr.offset >= entry.key && ptr.offset < entry.key + entry.value.length) {
+            buf = entry.value;
+            base = entry.key;
+            break;
+          }
+        }
+      }
+      if (buf != null) {
+        final byteOffset = (ptr.offset - base) + wordOffset * 2;
+        if (byteOffset + 1 < buf.length) {
+          final lo = buf[byteOffset];
+          final hi = buf[byteOffset + 1];
+          return SciReg.fromInt(lo | (hi << 8));
+        }
+      }
+      return SciReg.nullReg;
+    }
+
+    return SciReg.nullReg;
   }
 }
 

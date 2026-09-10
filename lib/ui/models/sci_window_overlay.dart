@@ -24,6 +24,7 @@ abstract class SciControlItem {
 class SciTextControl extends SciControlItem {
   final String text;
   final int? colorPen;
+  final int? colorBack;
   final SierraFont? font;
   final TextAlign align;
 
@@ -31,6 +32,7 @@ class SciTextControl extends SciControlItem {
     required super.rect,
     required this.text,
     this.colorPen,
+    this.colorBack,
     this.font,
     this.align = TextAlign.left,
   });
@@ -46,6 +48,13 @@ class SciTextControl extends SciControlItem {
     final effectiveFont = font ?? defaultFont;
     final fg = colorPen ?? defaultColorPen;
     final drawPos = windowTopLeft + rect.topLeft;
+
+    if (colorBack != null) {
+      final bgPaint = Paint()
+        ..color = EgaColors.palette[colorBack!.clamp(0, 15)]
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(rect.shift(windowTopLeft), bgPaint);
+    }
 
     if (effectiveFont != null) {
       final lines = text.split('\n');
@@ -228,6 +237,113 @@ class SciIconControl extends SciControlItem {
   }
 }
 
+/// Single-line editable text control (e.g. filename prompt, save game description).
+class SciEditControl extends SciControlItem {
+  final String text;
+  final int cursorPosition;
+  final int maxChars;
+  final int? colorPen;
+  final int? colorBack;
+  final SierraFont? font;
+  final bool isFocused;
+
+  const SciEditControl({
+    required super.rect,
+    required this.text,
+    this.cursorPosition = 0,
+    this.maxChars = 40,
+    this.colorPen,
+    this.colorBack,
+    this.font,
+    this.isFocused = true,
+  });
+
+  @override
+  void paint(
+    Canvas canvas, {
+    required Offset windowTopLeft,
+    SierraFont? defaultFont,
+    int defaultColorPen = 0,
+    int defaultColorBack = 15,
+  }) {
+    final effectiveFont = font ?? defaultFont;
+    final fg = colorPen ?? defaultColorPen;
+    final bg = colorBack ?? defaultColorBack;
+    final editRect = rect.shift(windowTopLeft);
+
+    // Box background
+    final bgPaint = Paint()
+      ..color = EgaColors.palette[bg.clamp(0, 15)]
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(editRect, bgPaint);
+
+    // Box border
+    final borderPaint = Paint()
+      ..color = EgaColors.palette[fg.clamp(0, 15)]
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawRect(editRect, borderPaint);
+
+    final textPos = editRect.topLeft + const Offset(2.0, 2.0);
+
+    if (effectiveFont != null) {
+      final glyphPaint = Paint()
+        ..color = EgaColors.palette[fg.clamp(0, 15)]
+        ..style = PaintingStyle.fill;
+      var currentX = textPos.dx;
+      var cursorX = currentX;
+
+      for (var i = 0; i < text.length; i++) {
+        if (i == cursorPosition) {
+          cursorX = currentX;
+        }
+        final glyph = effectiveFont.getGlyph(text.codeUnitAt(i));
+        if (glyph != null) {
+          for (var gy = 0; gy < glyph.height; gy++) {
+            for (var gx = 0; gx < glyph.width; gx++) {
+              if (glyph.isPixelSet(gx, gy)) {
+                canvas.drawRect(
+                  Rect.fromLTWH(currentX + gx, textPos.dy + gy, 1.0, 1.0),
+                  glyphPaint,
+                );
+              }
+            }
+          }
+          currentX += glyph.width;
+        }
+      }
+      if (cursorPosition >= text.length) {
+        cursorX = currentX;
+      }
+
+      // Draw cursor underline/bar if focused
+      if (isFocused) {
+        final cursorPaint = Paint()
+          ..color = EgaColors.palette[fg.clamp(0, 15)]
+          ..style = PaintingStyle.fill;
+        canvas.drawRect(
+          Rect.fromLTWH(cursorX, textPos.dy + effectiveFont.fontHeight - 1.0, 6.0, 2.0),
+          cursorPaint,
+        );
+      }
+    } else {
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            color: EgaColors.palette[fg.clamp(0, 15)],
+            fontSize: 9,
+            fontFamily: 'Courier',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: editRect.width - 4.0);
+      textPainter.paint(canvas, textPos);
+      textPainter.dispose();
+    }
+  }
+}
+
 /// Active modal or modeless SCI Window Overlay (`kNewWindow`, `kDrawControl`).
 ///
 /// In authentic Sierra SCI, dialog windows were drawn into the visual buffer and
@@ -274,6 +390,30 @@ class SciWindowOverlay {
     this.hasDropShadow = true,
     this.controls = const [],
   });
+
+  SciWindowOverlay copyWith({
+    int? id,
+    Rect? rect,
+    String? title,
+    int? colorPen,
+    int? colorBack,
+    int? priority,
+    SierraFont? font,
+    bool? hasDropShadow,
+    List<SciControlItem>? controls,
+  }) {
+    return SciWindowOverlay(
+      id: id ?? this.id,
+      rect: rect ?? this.rect,
+      title: title ?? this.title,
+      colorPen: colorPen ?? this.colorPen,
+      colorBack: colorBack ?? this.colorBack,
+      priority: priority ?? this.priority,
+      font: font ?? this.font,
+      hasDropShadow: hasDropShadow ?? this.hasDropShadow,
+      controls: controls ?? this.controls,
+    );
+  }
 
   /// Paints this window frame, title bar, and all child controls to [canvas].
   void paint(Canvas canvas) {

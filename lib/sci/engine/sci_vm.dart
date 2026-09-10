@@ -106,6 +106,7 @@ class SciVM {
     required this.selectors,
     this.volumeManager,
   }) {
+    segManager.currentStack = stack;
     segManager.volumeManager ??= volumeManager;
     kernel.selectors = selectors;
     kernel.volumeManager ??= volumeManager;
@@ -120,6 +121,7 @@ class SciVM {
     r_prev = SciReg.nullReg;
     r_rest = 0;
     stack.clear();
+    segManager.currentStack = stack;
     executionStack.clear();
     executionStackBase = 0;
     stepCounter = 0;
@@ -850,7 +852,7 @@ class SciVM {
     // Returns immediate index or segment reference
     switch (type) {
       case SciVarType.global:
-        return SciReg.pointer(1, index * 2);
+        return SciReg.pointer(SciSegManager.globalSegmentId, index * 2);
       case SciVarType.local:
         return SciReg.pointer(frame.localSegment, index * 2);
       case SciVarType.temp:

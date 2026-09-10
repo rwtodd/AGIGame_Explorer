@@ -59,7 +59,8 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   List<PlayfieldActorSprite> get actors => kernel.currentSprites;
 
   @override
-  List<SciWindowOverlay> get sciWindows => const [];
+  List<SciWindowOverlay> get sciWindows =>
+      kernel.windowManager.toOverlays(fontResolver: kernel.getFont);
 
   @override
   SierraCursor? get mouseCursor => null;
@@ -133,6 +134,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     this.kernel.onRestartGameRequested ??= () => restartGame();
     this.kernel.onDrawStatus = (text) {
       _statusLine = text;
+      notifyListeners();
+    };
+    this.kernel.onWindowsChanged = () {
       notifyListeners();
     };
   }

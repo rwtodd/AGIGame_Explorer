@@ -392,42 +392,45 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     }
 
-    // 5. Direction controls ALWAYS control Ego/Session
-    switch (event.logicalKey) {
-      case LogicalKeyboardKey.arrowUp:
-      case LogicalKeyboardKey.numpad8:
-        _session.handleDirection(1);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.numpad9:
-        _session.handleDirection(2);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.arrowRight:
-      case LogicalKeyboardKey.numpad6:
-        _session.handleDirection(3);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.numpad3:
-        _session.handleDirection(4);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.arrowDown:
-      case LogicalKeyboardKey.numpad2:
-        _session.handleDirection(5);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.numpad1:
-        _session.handleDirection(6);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.arrowLeft:
-      case LogicalKeyboardKey.numpad4:
-        _session.handleDirection(7);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.numpad7:
-        _session.handleDirection(8);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.numpad5:
-        _session.handleDirection(0); // Stop
-        return KeyEventResult.handled;
+    final isSciWindowOpen = _sciEngine != null && _session.sciWindows.isNotEmpty;
+
+    // 5. Direction controls ALWAYS control Ego/Session (unless an SCI modal window is active)
+    if (!isSciWindowOpen) {
+      switch (event.logicalKey) {
+        case LogicalKeyboardKey.arrowUp:
+        case LogicalKeyboardKey.numpad8:
+          _session.handleDirection(1);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.numpad9:
+          _session.handleDirection(2);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.arrowRight:
+        case LogicalKeyboardKey.numpad6:
+          _session.handleDirection(3);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.numpad3:
+          _session.handleDirection(4);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.arrowDown:
+        case LogicalKeyboardKey.numpad2:
+          _session.handleDirection(5);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.numpad1:
+          _session.handleDirection(6);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.arrowLeft:
+        case LogicalKeyboardKey.numpad4:
+          _session.handleDirection(7);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.numpad7:
+          _session.handleDirection(8);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.numpad5:
+          _session.handleDirection(0); // Stop
+          return KeyEventResult.handled;
+      }
     }
 
-    // Register key press on session (for SCI, printable characters during input are handled by the integrated prompt)
     final rawKey = _getKeyCode(event);
     final isShift = HardwareKeyboard.instance.isShiftPressed;
     final isCtrl = HardwareKeyboard.instance.isControlPressed;
@@ -436,12 +439,63 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         ? event.character!.codeUnitAt(0)
         : rawKey;
 
-    final isPrintableChar = ascii >= 32 && ascii <= 126 && !isCtrl && !isAlt;
-    final isSciPromptActive = (_sciEngine != null && _session.isInputEnabled);
+    // --- SCI0 Modal Keyboard & Window Handling ---
+    if (_sciEngine != null) {
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+        // If a window is open, Enter submits or dismisses it.
+        // If no window is open, Enter triggers modal prompt via echo (32 ' ').
+        final asciiCode = isSciWindowOpen ? 13 : 32;
+        _session.handleKeyPress(13, ascii: asciiCode);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.space) {
+        _session.handleKeyPress(32, ascii: 32);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _session.handleKeyPress(27, ascii: 27);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.backspace) {
+        _session.handleKeyPress(8, ascii: 8);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.delete) {
+        _session.handleKeyPress(0x7F, ascii: 0x7F);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.home) {
+        _session.handleKeyPress(0x4700, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.end) {
+        _session.handleKeyPress(0x4F00, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        _session.handleKeyPress(0x4B00, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        _session.handleKeyPress(0x4D00, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _session.handleKeyPress(0x4800, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _session.handleKeyPress(0x5000, ascii: 0);
+        return KeyEventResult.handled;
+      }
 
-    if (!isSciPromptActive || !isPrintableChar) {
       _session.handleKeyPress(rawKey, ascii: ascii, shift: isShift, ctrl: isCtrl, alt: isAlt);
+      return KeyEventResult.handled;
     }
+
+    // --- AGI-style Keyboard & Integrated Prompt Handling ---
+    _session.handleKeyPress(rawKey, ascii: ascii, shift: isShift, ctrl: isCtrl, alt: isAlt);
 
     // 6. Command history navigation via PageUp/PageDown or F3
     if (event.logicalKey == LogicalKeyboardKey.pageUp ||
@@ -476,7 +530,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       } else if ((event.logicalKey == LogicalKeyboardKey.space || event.character == ' ') &&
           _currentInputText.isEmpty &&
           _commandHistory.isNotEmpty) {
-        // Spacebar on empty input recalls the last entered command (SCI-style QoL)
+        // Spacebar on empty input recalls the last entered command
         setState(() {
           _currentInputText = _commandHistory.last;
           _historyIndex = _commandHistory.length - 1;
