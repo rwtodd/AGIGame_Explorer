@@ -45,7 +45,7 @@ void main() {
       expect(decompiledText.contains('(script 0)'), isTrue);
       expect(decompiledText.contains('(exports'), isTrue);
       expect(decompiledText.contains('(local'), isTrue);
-      expect(decompiledText.contains('instance PQ of'), isTrue);
+      expect(decompiledText.contains('instance PQ of Game'), isTrue);
       expect(decompiledText.contains('(properties'), isTrue);
       expect(decompiledText.contains('(method'), isTrue);
     });

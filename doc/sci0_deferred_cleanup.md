@@ -32,6 +32,18 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 - **`Wait(0)` extra-pump is hardcoded to room 99.** `SciGameEngine._pumpVm` runs extra `doit` cycles only while `g11` (currentRoom) is 99, so PQ2's speed test can count a real `machineSpeed` instead of ~20. LSL2 also uses room 99 (`RM099.SC`); **LSL3 uses room 290**. QFG2 and other SCI0 titles may differ or skip the test. Do not treat 99 as universal. A portable version would extra-pump `Wait(0)` for ~1s of `GetTime` after boot, independent of room number, then cap at one cycle per tick even if scripts leave speed at 0.
 
+## Parser / Said leftovers
+
+- **`SciSaidMatcher.aiHook` is process-global.** A static mutable hook plus swallowed exceptions will leak across tests and engines. Prefer an instance/engine callback.
+- **`kSetSynonyms` never `clearSynonyms()`.** ScummVM clears then walks collection elements only. Old room synonyms persist, and `_applyScriptSynonyms` on the collection object itself may treat `Game.number` as a script id.
+- **`isInputEnabled` walks script 996 for `'User'` on every rebuild.** Cache the User object pointer (or `canInput`) after instantiate.
+- **VOCAB.900 GNF parse tree is not ported.** `kParse` now sets `parserIsValid` and calls `wordFail`/`syntaxFail` with Sierra acc/claimed, but Said still matches a flat word-group heuristic. Port `parser/grammar.cpp` + `parser/said.cpp` when optional/`<`/`>` forms keep drifting.
+
+## Overlay / compositor leftovers
+
+- **`toOverlays()` allocates new `SciWindowOverlay` objects every tick.** No value `==` on overlays, so `shouldRepaint` always sees a new list. Cache until `onWindowsChanged`, or implement overlay/control value equality.
+- **Title bars still use Courier `TextPainter` when no Sierra font is attached.** Prefer `SierraFont` (now used when `font` is set); Courier is the no-font fallback.
+
 ## Loader / UI leftovers
 
 - **Launcher `copyWith` sentinel** for `sciVolumeManager` is already fixed; keep using `_unset`, never `??`.

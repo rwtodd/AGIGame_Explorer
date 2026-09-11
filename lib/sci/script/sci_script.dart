@@ -15,7 +15,7 @@ class SciScript {
   /// Raw byte buffer of the script.
   final Uint8List bytes;
 
-  /// Public exports table (entry 0 is export count, followed by offsets).
+  /// Public export offsets (the on-disk count word is dropped by the parser).
   final List<int> exports;
 
   /// Local variables for this script.
@@ -91,7 +91,7 @@ class SciScript {
   List<int> get procedureOffsets {
     final set = <int>{};
     for (final exp in exports) {
-      if (!isObject(exp)) {
+      if (exp != 0 && !isObject(exp)) {
         set.add(exp);
       }
     }

@@ -157,6 +157,12 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       vocab.loadVocab000(vocab0Bytes);
       kernel.vocab = vocab;
     }
+    final vocab900Entry = volumeManager.resourceMap.findById(const SciResourceId(SciResourceType.vocab, 900));
+    if (vocab900Entry != null) {
+      try {
+        kernel.vocab900 = volumeManager.getResource(SciResourceType.vocab, 900);
+      } catch (_) {}
+    }
 
     final script0 = segManager.instantiateScript(0, volumeManager);
     final gameObjOffset = script0.exports[0];
@@ -346,74 +352,81 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
     kernel.activeCycleSaidSpecs.clear();
 
-    // Allocate an event object
-    final eventReg = SciReg.pointer(SciSegManager.cloneSegmentId, 9999);
-    final eventObj = SciObject(
-      pos: eventReg,
-      variables: List<SciReg>.filled(16, const SciReg.fromInt(0)),
-    );
-    segManager.clones[9999] = eventObj;
-
     final typeSel = selectors.type >= 0 ? selectors.type : (selectors.findSelector('type') ?? 83);
     final claimedSel = selectors.claimed >= 0 ? selectors.claimed : (selectors.findSelector('claimed') ?? 76);
     final messageSel = selectors.message >= 0 ? selectors.message : (selectors.findSelector('message') ?? 84);
     final modifiersSel = selectors.modifiers >= 0 ? selectors.modifiers : (selectors.findSelector('modifiers') ?? 85);
 
-    eventObj.baseVars.addAll([typeSel, messageSel, modifiersSel, claimedSel]);
+    final eventTemplate = SciObject(
+      pos: SciReg.nullReg,
+      variables: List<SciReg>.filled(16, const SciReg.fromInt(0)),
+      baseVars: [typeSel, messageSel, modifiersSel, claimedSel],
+    );
+    final eventObj = segManager.cloneObject(eventTemplate);
+    final eventReg = eventObj.pos;
     eventObj.setProp(segManager, typeSel, const SciReg.fromInt(128)); // saidEvent
     eventObj.setProp(segManager, claimedSel, const SciReg.fromInt(0));
 
     final strReg = segManager.allocString(trimmed);
+    try {
+      final parseRes = kernel.call(vm, 0x24, 2, [strReg, eventReg]);
+      if (parseRes.toUint16() == 0) {
+        notifyListeners();
+        return;
+      }
 
-    // Run Parse
-    final parseRes = kernel.call(vm, 0x24, 2, [strReg, eventReg]);
-    if (parseRes.toUint16() == 0) {
+      var dispatched = false;
+      final s996Seg = segManager.scriptToSegment[996];
+      if (s996Seg != null) {
+        final s996 = segManager.loadedScripts[s996Seg];
+        SciObject? user;
+        if (s996 != null) {
+          for (final o in s996.objects.values) {
+            if (o.nameString == 'User') {
+              user = o;
+              break;
+            }
+          }
+        }
+        if (user != null && !user.pos.isNull) {
+          final saidSel = selectors.findSelector('said');
+          if (saidSel != null) {
+            try {
+              vm.sendSelector(user.pos, saidSel, [eventReg]);
+              dispatched = true;
+            } catch (_) {}
+          }
+        }
+      }
+
+      final claimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
+      if (!dispatched || !claimed) {
+        if (segManager.globals.length > 1 && !segManager.globals[1].isNull) {
+          final curRoom = segManager.globals[1];
+          try {
+            vm.sendSelector(curRoom, selectors.handleEvent, [eventReg]);
+          } catch (_) {}
+        }
+      }
+
+      final finalClaimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
+      if (!finalClaimed && segManager.globals.isNotEmpty && !segManager.globals[0].isNull) {
+        final theGame = segManager.globals[0];
+        final pragmaFailSel = selectors.pragmaFail >= 0
+            ? selectors.pragmaFail
+            : selectors.findSelector('pragmaFail');
+        if (pragmaFailSel != null) {
+          try {
+            vm.sendSelector(theGame, pragmaFailSel, [strReg]);
+          } catch (_) {}
+        }
+      }
+
       notifyListeners();
-      return;
+    } finally {
+      if (kernel.parserEvent == eventReg) kernel.parserEvent = null;
+      segManager.disposeClone(eventReg);
     }
-
-    // Try dispatching through User.said first if User is present
-    var dispatched = false;
-    final s996Seg = segManager.scriptToSegment[996];
-    if (s996Seg != null) {
-      final s996 = segManager.loadedScripts[s996Seg];
-      final user = s996?.objects.values.firstWhere(
-        (o) => o.nameString == 'User',
-        orElse: () => SciObject(pos: SciReg.nullReg, variables: const []),
-      );
-      if (user != null && !user.pos.isNull) {
-        final saidSel = selectors.findSelector('said') ?? 75;
-        try {
-          vm.sendSelector(user.pos, saidSel, [eventReg]);
-          dispatched = true;
-        } catch (_) {}
-      }
-    }
-
-    // If User was not available, or event was not claimed, dispatch directly to curRoom
-    final claimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
-    if (!dispatched || !claimed) {
-      if (segManager.globals.length > 1 && !segManager.globals[1].isNull) {
-        final curRoom = segManager.globals[1];
-        try {
-          vm.sendSelector(curRoom, selectors.handleEvent, [eventReg]);
-        } catch (_) {}
-      }
-    }
-
-    // If still not claimed, call prsErr on theGame if available
-    final finalClaimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
-    if (!finalClaimed && segManager.globals.isNotEmpty && !segManager.globals[0].isNull) {
-      final theGame = segManager.globals[0];
-      final prsErrSel = selectors.findSelector('prsErr');
-      if (prsErrSel != null) {
-        try {
-          vm.sendSelector(theGame, prsErrSel, [eventReg]);
-        } catch (_) {}
-      }
-    }
-
-    notifyListeners();
   }
 
   /// Exports a comprehensive snapshot of the SCI engine state as a Map.

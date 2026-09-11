@@ -392,7 +392,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     }
 
-    final isSciWindowOpen = _sciEngine != null && _session.sciWindows.isNotEmpty;
+    final isSciWindowOpen =
+        _sciEngine != null && _sciEngine!.kernel.windowManager.windowStack.isNotEmpty;
 
     // 5. Direction controls ALWAYS control Ego/Session (unless an SCI modal window is active)
     if (!isSciWindowOpen) {
@@ -443,10 +444,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (_sciEngine != null) {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-        // If a window is open, Enter submits or dismisses it.
-        // If no window is open, Enter triggers modal prompt via echo (32 ' ').
-        final asciiCode = isSciWindowOpen ? 13 : 32;
-        _session.handleKeyPress(13, ascii: asciiCode);
+        // User.doit treats both Enter and Space as "open the parser".
+        // Always post 13 so Print "press enter" waits see the real key.
+        _session.handleKeyPress(13, ascii: 13);
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.space) {

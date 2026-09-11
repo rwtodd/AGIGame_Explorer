@@ -4,8 +4,8 @@ import 'package:flutter_agigame/sci/script/sci_disassembler.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/sci/script/sci_script.dart';
 
-/// Decompiler that reconstructs structured Sierra Script Language (.SC)
-/// representation from an instantiated [SciScript].
+/// Structured listing of an instantiated [SciScript] in Sierra Script (.SC)
+/// outline form. Method bodies are disassembly, not reconstructed `send`/`if`.
 class SciDecompiler {
   final SciDisassemblyContext context;
 
@@ -13,12 +13,12 @@ class SciDecompiler {
 
   SciScript get script => context.script;
 
-  /// Decompiles the entire script into a formatted Sierra Script (.SC) string.
+  /// Builds a formatted Sierra Script (.SC) outline of the script.
   String decompileScript() {
     final sb = StringBuffer();
 
     // 1. Script Banner
-    sb.writeln(';;; Sierra SCI0 Decompiled Script');
+    sb.writeln(';;; Sierra SCI0 script listing (disassembly in method bodies)');
     sb.writeln(';;; Script: ${script.scriptNumber} (Size: ${script.size} bytes)');
     sb.writeln();
     sb.writeln('(script ${script.scriptNumber})');
@@ -85,9 +85,7 @@ class SciDecompiler {
     final keyword = obj.isClass ? 'class' : 'instance';
     final name = obj.nameString ?? 'obj_0x${obj.pos.offset.toRadixString(16)}';
 
-    // SuperClass resolution
-    final superSpecies = obj.superClass.toUint16();
-    final superName = context.resolveClassName(superSpecies);
+    final superName = context.resolveSuperName(obj.superClass);
 
     sb.writeln('($keyword $name of $superName  ; at 0x${obj.pos.offset.toRadixString(16)}');
 

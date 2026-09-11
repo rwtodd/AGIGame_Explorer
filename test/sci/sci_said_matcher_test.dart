@@ -132,6 +132,75 @@ void main() {
       expect(SciSaidMatcher.match(spec, inputWithVerb), isTrue);
     });
 
+    test('look> is a partial match and does not require extra clauses', () {
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        0x03, 0xE8, // look
+        SciSaidOp.gt,
+        SciSaidOp.term,
+      ]));
+      expect(spec.isNonClaiming, isTrue);
+
+      final lookDoor = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'door', wordClass: SciVocab.classNoun, group: 1020),
+      ];
+      expect(SciSaidMatcher.match(spec, lookDoor), isTrue);
+    });
+
+    test('optional [open]/door matches door and open door, not close door', () {
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        SciSaidOp.bracketOpen,
+        0x03, 0xE9, // 1001 open
+        SciSaidOp.bracketClose,
+        SciSaidOp.slash,
+        0x03, 0xFC, // 1020 door
+        SciSaidOp.term,
+      ]));
+
+      final doorOnly = <SciVocabWord>[
+        const SciVocabWord(text: 'door', wordClass: SciVocab.classNoun, group: 1020),
+      ];
+      expect(SciSaidMatcher.match(spec, doorOnly), isTrue);
+
+      final openDoor = <SciVocabWord>[
+        const SciVocabWord(text: 'open', wordClass: SciVocab.classImperativeVerb, group: 1001),
+        const SciVocabWord(text: 'door', wordClass: SciVocab.classNoun, group: 1020),
+      ];
+      expect(SciSaidMatcher.match(spec, openDoor), isTrue);
+
+      final closeDoor = <SciVocabWord>[
+        const SciVocabWord(text: 'close', wordClass: SciVocab.classImperativeVerb, group: 1003),
+        const SciVocabWord(text: 'door', wordClass: SciVocab.classNoun, group: 1020),
+      ];
+      expect(SciSaidMatcher.match(spec, closeDoor), isFalse);
+    });
+
+    test('amp is AND: both conjuncts must be present', () {
+      // look / red & door
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        0x03, 0xE8, // 1000 look
+        SciSaidOp.slash,
+        0x03, 0xF2, // 1010 red
+        SciSaidOp.amp,
+        0x03, 0xFC, // 1020 door
+        SciSaidOp.term,
+      ]));
+      expect(spec.toSaidString(null), '1000/1010&1020');
+
+      final both = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'red', wordClass: SciVocab.classAdjective, group: 1010),
+        const SciVocabWord(text: 'door', wordClass: SciVocab.classNoun, group: 1020),
+      ];
+      expect(SciSaidMatcher.match(spec, both), isTrue);
+
+      final missingDoor = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'red', wordClass: SciVocab.classAdjective, group: 1010),
+      ];
+      expect(SciSaidMatcher.match(spec, missingDoor), isFalse);
+    });
+
     test('supports AI semantic matcher hook', () {
       final lookGroup = 1000;
       final carGroup = 1020;

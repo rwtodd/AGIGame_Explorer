@@ -66,6 +66,7 @@ void main() {
       final res = engine.kernel.call(engine.vm, 0x24, 2, [strReg, eventReg]);
 
       expect(res.toUint16(), 1);
+      expect(engine.kernel.parserIsValid, isTrue);
       expect(engine.kernel.lastParsedWords.length, 2);
       expect(engine.kernel.lastParsedWords[0].text, anyOf('look', 'gaze', 'examine', 'see'));
       expect(engine.kernel.lastParsedWords[1].text, 'car');
@@ -93,7 +94,8 @@ void main() {
       final strReg = engine.segManager.allocString('xyzzy frobozz');
       final res = engine.kernel.call(engine.vm, 0x24, 2, [strReg, eventReg]);
 
-      expect(res.toUint16(), 0);
+      expect(res.toUint16(), 1);
+      expect(engine.kernel.parserIsValid, isFalse);
       expect(engine.kernel.lastUnknownWord, 'xyzzy');
       expect(eventObj.getProp(engine.segManager, engine.selectors.claimed).toUint16(), 1);
     });

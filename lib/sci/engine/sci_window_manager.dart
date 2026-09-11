@@ -40,6 +40,9 @@ class SciWindowRecord extends SciPort {
   final int priority;
   final String? title;
   final bool hasDropShadow;
+  final bool noFrame;
+  final bool hasTitleBar;
+  final Offset contentOffset;
 
   final List<SciControlItem> controls = [];
   final Map<int, SciControlItem> controlsByRef = {};
@@ -48,17 +51,18 @@ class SciWindowRecord extends SciPort {
     required super.id,
     required this.dims,
     required this.restoreRect,
+    required super.left,
+    required super.top,
     this.style = 0,
     this.priority = 15,
     this.title,
     this.hasDropShadow = true,
+    this.noFrame = false,
+    this.hasTitleBar = false,
+    this.contentOffset = Offset.zero,
     super.penClr = 0,
     super.backClr = 15,
-  }) : super(
-          rect: dims,
-          left: dims.left.round(),
-          top: dims.top.round(),
-        );
+  }) : super(rect: dims);
 
   /// Adds or updates a control item inside this window.
   void setControl(int refOffset, SciControlItem control) {
@@ -81,12 +85,15 @@ class SciWindowRecord extends SciPort {
     return SciWindowOverlay(
       id: id,
       rect: dims,
-      title: title,
+      title: hasTitleBar ? title : null,
       colorPen: penClr,
       colorBack: backClr,
       priority: priority,
       font: font,
       hasDropShadow: hasDropShadow,
+      showChrome: true,
+      showFrame: !noFrame,
+      contentOffset: contentOffset,
       controls: List.unmodifiable(controls),
     );
   }
@@ -100,12 +107,15 @@ class SciWindowManager {
   static const int wmgrPortId = 0;
   static const int picWindId = 1;
   static const int firstScriptWindowId = 2;
+  static const int styleNoFrame = 0x0002;
+  static const int styleTitle = 0x0004;
 
   late final SciPort _wmgrPort;
   late final SciPort _picWind;
 
   final Map<int, SciPort> _ports = {};
   final List<SciWindowRecord> _windowStack = [];
+  final List<SciControlItem> _picDisplays = [];
   final Map<int, ({SciControlItem item, int portId})> _savedDisplays = {};
 
   SciPort _curPort;
@@ -141,6 +151,7 @@ class SciWindowManager {
   /// Resets all windows, ports, and saved displays.
   void reset() {
     _windowStack.clear();
+    _picDisplays.clear();
     _savedDisplays.clear();
     _ports.clear();
     _ports[wmgrPortId] = _wmgrPort;
@@ -187,22 +198,45 @@ class SciWindowManager {
       bottom = 200;
     }
 
-    final adjustedDims = Rect.fromLTRB(left, top, right, bottom);
-    final adjustedRestore = restoreRect ?? adjustedDims;
+    // Script args are the inner port. Chrome grows outward (ScummVM addWindow).
+    final inner = Rect.fromLTRB(left, top, right, bottom);
+    final noFrame = (style & styleNoFrame) != 0;
+    final hasTitleBar = (style & styleTitle) != 0 && title != null && title.isNotEmpty;
 
-    // Sierra style bit 1 = NOFRAME, bit 2 = TITLE
-    final hasDropShadow = (style & 0x0002) == 0;
+    var outerLeft = inner.left;
+    var outerTop = inner.top;
+    var outerRight = inner.right;
+    var outerBottom = inner.bottom;
+    if (!noFrame) {
+      outerLeft -= 1;
+      outerTop -= 1;
+      outerRight += 1;
+      outerBottom += 1;
+    }
+    if (hasTitleBar) {
+      outerTop -= 10;
+    }
+    outerLeft = math.max(0, outerLeft);
+    outerTop = math.max(0, outerTop);
+    outerRight = math.min(320, outerRight);
+    outerBottom = math.min(200, outerBottom);
+    final outer = Rect.fromLTRB(outerLeft, outerTop, outerRight, outerBottom);
 
     final wnd = SciWindowRecord(
       id: winId,
-      dims: adjustedDims,
-      restoreRect: adjustedRestore,
+      dims: outer,
+      restoreRect: restoreRect ?? outer,
+      left: inner.left.round(),
+      top: inner.top.round(),
       style: style,
       priority: priority >= 0 ? priority : 15,
       penClr: colorPen,
       backClr: colorBack,
       title: title,
-      hasDropShadow: hasDropShadow,
+      hasDropShadow: !noFrame,
+      noFrame: noFrame,
+      hasTitleBar: hasTitleBar,
+      contentOffset: Offset(inner.left - outer.left, inner.top - outer.top),
     );
 
     _ports[winId] = wnd;
@@ -261,11 +295,13 @@ class SciWindowManager {
 
     if (targetWindow != null) {
       targetWindow.controls.add(item);
+    } else {
+      _picDisplays.add(item);
     }
 
     if (saveUnder) {
       final handle = _nextDisplaySaveId++;
-      _savedDisplays[handle] = (item: item, portId: targetWindow?.id ?? _curPort.id);
+      _savedDisplays[handle] = (item: item, portId: targetWindow?.id ?? picWindId);
       return handle;
     }
     return 0;
@@ -278,16 +314,29 @@ class SciWindowManager {
       final target = _ports[entry.portId];
       if (target is SciWindowRecord) {
         target.controls.remove(entry.item);
+      } else {
+        _picDisplays.remove(entry.item);
       }
     }
   }
 
   /// Builds the current list of [SciWindowOverlay]s for the rendering pipeline.
   List<SciWindowOverlay> toOverlays({SierraFont? Function(int fontId)? fontResolver}) {
-    if (_windowStack.isEmpty) return const [];
-    return _windowStack.map((wnd) {
+    if (_windowStack.isEmpty && _picDisplays.isEmpty) return const [];
+    final overlays = _windowStack.map((wnd) {
       final font = fontResolver?.call(wnd.fontId);
       return wnd.toOverlay(font: font);
-    }).toList(growable: false);
+    }).toList();
+    if (_picDisplays.isNotEmpty) {
+      overlays.add(SciWindowOverlay(
+        id: picWindId,
+        rect: const Rect.fromLTWH(0, 0, 320, 200),
+        hasDropShadow: false,
+        showChrome: false,
+        controls: List.unmodifiable(_picDisplays),
+        font: fontResolver?.call(_picWind.fontId),
+      ));
+    }
+    return overlays;
   }
 }

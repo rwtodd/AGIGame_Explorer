@@ -12,7 +12,6 @@ import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 import 'package:flutter_agigame/domain/sierra_font.dart';
-import 'package:flutter_agigame/domain/sierra_view.dart';
 import 'package:flutter_agigame/sci/engine/sci_window_manager.dart';
 import 'package:flutter_agigame/sci/font/sci_font_parser.dart';
 import 'package:flutter_agigame/sci/view/sci_view.dart';
@@ -132,6 +131,8 @@ class SciKernel {
   // --- Parser, Vocabulary & Status (Stage 11) ---
   SciVocab? vocab;
   SciReg? parserEvent;
+  bool parserIsValid = false;
+  Uint8List? vocab900;
   final List<SciVocabWord> lastParsedWords = [];
   String lastParsedRaw = '';
   String? lastUnknownWord;
@@ -183,6 +184,7 @@ class SciKernel {
     recentCallLogs.clear();
     initPriorityBands();
     parserEvent = null;
+    parserIsValid = false;
     lastParsedWords.clear();
     lastParsedRaw = '';
     lastUnknownWord = null;
@@ -391,8 +393,8 @@ class SciKernel {
 
     // 0x1C..0x23: Events, Coordinates, Menu
     _register(0x1C, 'GetEvent', _kGetEvent);
-    _register(0x1D, 'GlobalToLocal', _kStub);
-    _register(0x1E, 'LocalToGlobal', _kStub);
+    _register(0x1D, 'GlobalToLocal', _kGlobalToLocal);
+    _register(0x1E, 'LocalToGlobal', _kLocalToGlobal);
     _register(0x1F, 'MapKeyToDir', _kMapKeyToDir);
     _register(0x20, 'DrawMenuBar', _kDrawMenuBar);
     _register(0x21, 'MenuSelect', _kMenuSelect);
@@ -984,6 +986,30 @@ class SciKernel {
     return const SciReg.fromInt(0);
   }
 
+  SciReg _kGlobalToLocal(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return vm.acc;
+    final obj = vm.segManager.getObject(argv[0]);
+    if (obj == null) return vm.acc;
+    final port = windowManager.currentPort;
+    final x = obj.getProp(vm.segManager, selectors.x).toSint16() - port.left;
+    final y = obj.getProp(vm.segManager, selectors.y).toSint16() - port.top;
+    obj.setProp(vm.segManager, selectors.x, SciReg.fromInt(x));
+    obj.setProp(vm.segManager, selectors.y, SciReg.fromInt(y));
+    return vm.acc;
+  }
+
+  SciReg _kLocalToGlobal(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return vm.acc;
+    final obj = vm.segManager.getObject(argv[0]);
+    if (obj == null) return vm.acc;
+    final port = windowManager.currentPort;
+    final x = obj.getProp(vm.segManager, selectors.x).toSint16() + port.left;
+    final y = obj.getProp(vm.segManager, selectors.y).toSint16() + port.top;
+    obj.setProp(vm.segManager, selectors.x, SciReg.fromInt(x));
+    obj.setProp(vm.segManager, selectors.y, SciReg.fromInt(y));
+    return vm.acc;
+  }
+
   SciReg _kDisposeWindow(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 1) {
       final winId = argv[0].toUint16();
@@ -998,6 +1024,13 @@ class SciKernel {
   /// Wraps [text] into lines fitting within [maxWidth] pixels using [font].
   List<String> wrapText(String text, SierraFont? font, int maxWidth) =>
       SciTextControl.wrapText(text, font, maxWidth);
+
+  /// SCI0 text just: 0 left, 1 center, -1 right (ScummVM `teJust*`).
+  ui.TextAlign _sciTextAlign(int mode) {
+    if (mode == 1) return ui.TextAlign.center;
+    if (mode == -1) return ui.TextAlign.right;
+    return ui.TextAlign.left;
+  }
 
 
   SciReg _kTextSize(SciVM vm, int argc, List<SciReg> argv) {
@@ -1088,9 +1121,7 @@ class SciKernel {
 
       case 2: // Text
         final mode = obj.getProp(vm.segManager, selectors.mode).toSint16();
-        final align = mode == 1
-            ? ui.TextAlign.right
-            : (mode == 2 ? ui.TextAlign.center : ui.TextAlign.left);
+        final align = _sciTextAlign(mode);
         controlItem = SciTextControl(
           rect: controlRect,
           text: text,
@@ -1108,7 +1139,7 @@ class SciKernel {
           cursorPosition: cursor,
           maxChars: maxChars > 0 ? maxChars : 40,
           font: font,
-          isFocused: hilite,
+          isFocused: hilite || (state & 0x0008) != 0,
         );
         break;
 
@@ -1119,13 +1150,7 @@ class SciKernel {
         final c = obj.getProp(vm.segManager, selectors.cel).toSint16();
         final cel = (c & 0x80) != 0 ? c - 256 : c;
 
-        SierraView? view;
-        if (volumeManager != null) {
-          try {
-            final viewBytes = volumeManager!.getResource(SciResourceType.view, viewId);
-            view = SciViewParser.parse(viewBytes, viewNumber: viewId);
-          } catch (_) {}
-        }
+        final view = getView(viewId);
 
         controlItem = SciIconControl(
           rect: controlRect,
@@ -1245,7 +1270,7 @@ class SciKernel {
     var y = 0;
     var mode = 0;
     var colorPen = 0;
-    var colorBack = 15;
+    var colorBack = -1;
     var fontId = 0;
     var width = -1;
     var saveUnder = false;
@@ -1310,16 +1335,19 @@ class SciKernel {
     }
 
     final font = getFont(fontId);
-    final align = mode == 1
-        ? ui.TextAlign.right
-        : (mode == 2 ? ui.TextAlign.center : ui.TextAlign.left);
+    final align = _sciTextAlign(mode);
+
+    final wrapWidth = width > 0 ? width : 192;
+    final fontH = font?.fontHeight ?? 8;
+    final lines = wrapText(text, font, wrapWidth);
+    final textHeight = max(fontH, lines.length * fontH);
 
     final controlItem = SciTextControl(
       rect: ui.Rect.fromLTWH(
         x.toDouble(),
         y.toDouble(),
-        (width > 0 ? width : 192).toDouble(),
-        12.0,
+        wrapWidth.toDouble(),
+        textHeight.toDouble(),
       ),
       text: text,
       colorPen: colorPen,
@@ -1392,10 +1420,8 @@ class SciKernel {
   SciReg _kDrawStatus(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 1 && !argv[0].isNull) {
       final text = vm.segManager.getString(argv[0]);
-      if (text.isNotEmpty && text != 'Replaying sound') {
-        currentStatusLine = text;
-        onDrawStatus?.call(text);
-      }
+      currentStatusLine = text;
+      onDrawStatus?.call(text);
     }
     return vm.r_acc;
   }
@@ -1407,6 +1433,7 @@ class SciKernel {
     final strPtr = argv[0];
     final evPtr = argv[1];
     parserEvent = evPtr;
+    parserIsValid = false;
 
     final evObj = vm.segManager.lookupObject(evPtr);
     final inputStr = vm.segManager.getString(strPtr);
@@ -1416,8 +1443,14 @@ class SciKernel {
 
     final tokens = _splitInputTokens(inputStr);
     if (tokens.isEmpty) {
-      evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(0));
+      evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(1));
       return const SciReg.fromInt(0);
+    }
+
+    if (vocab == null || vocab!.isEmpty) {
+      evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(1));
+      _invokeSyntaxFail(vm, strPtr);
+      return const SciReg.fromInt(1);
     }
 
     for (final token in tokens) {
@@ -1425,12 +1458,16 @@ class SciKernel {
       if (candidates == null || candidates.isEmpty) {
         lastUnknownWord = token;
         evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(1));
-        _invokeWordFail(vm, evPtr, strPtr, token);
-        return const SciReg.fromInt(0);
+        _invokeWordFail(vm, strPtr, token);
+        // Sierra returns TRUE after wordFail so the caller knows Parse ran.
+        return const SciReg.fromInt(1);
       }
       lastParsedWords.add(candidates.first);
     }
 
+    // VOCAB.900 GNF tree building is not ported yet; known tokens count as
+    // syntactically valid so Said can run. See doc/sci0_deferred_cleanup.md.
+    parserIsValid = true;
     evObj?.setProp(vm.segManager, selectors.claimed, const SciReg.fromInt(0));
     return const SciReg.fromInt(1);
   }
@@ -1444,19 +1481,28 @@ class SciKernel {
         .toList();
   }
 
-  void _invokeWordFail(SciVM vm, SciReg eventReg, SciReg strReg, String unknownWord) {
-    if (vm.segManager.globals.isNotEmpty && selectors.wordFail != -1) {
-      final theGame = vm.segManager.globals[0];
-      if (!theGame.isNull) {
-        try {
-          vm.sendSelector(theGame, selectors.wordFail, [eventReg, strReg]);
-        } catch (_) {}
-      }
-    }
+  void _invokeWordFail(SciVM vm, SciReg strReg, String unknownWord) {
+    if (vm.segManager.globals.isEmpty || selectors.wordFail < 0) return;
+    final theGame = vm.segManager.globals[0];
+    if (theGame.isNull) return;
+    final unknownReg = vm.segManager.allocString(unknownWord);
+    try {
+      vm.sendSelector(theGame, selectors.wordFail, [unknownReg, strReg]);
+    } catch (_) {}
+  }
+
+  void _invokeSyntaxFail(SciVM vm, SciReg strReg) {
+    if (vm.segManager.globals.isEmpty || selectors.syntaxFail < 0) return;
+    final theGame = vm.segManager.globals[0];
+    if (theGame.isNull) return;
+    try {
+      vm.sendSelector(theGame, selectors.syntaxFail, [strReg]);
+    } catch (_) {}
   }
 
   SciReg _kSaid(SciVM vm, int argc, List<SciReg> argv) {
     if (argc < 1) return const SciReg.fromInt(0);
+    if (!parserIsValid) return const SciReg.fromInt(0);
     final specPtr = argv[0];
     final bytes = vm.segManager.bytesFor(specPtr);
     if (bytes == null) return const SciReg.fromInt(0);

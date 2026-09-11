@@ -5,6 +5,7 @@ import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_opcodes.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
+import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/sci/script/sci_script.dart';
 
@@ -50,6 +51,15 @@ class SciDisassemblyContext {
       }
     }
     return 'Class_$species';
+  }
+
+  /// Superclass may be a species id or, after instantiate, a pointer.
+  String resolveSuperName(SciReg superClass) {
+    if (superClass.isPointer && segManager != null) {
+      final obj = segManager!.getObject(superClass);
+      if (obj?.nameString != null) return obj!.nameString!;
+    }
+    return resolveClassName(superClass.toUint16());
   }
 
   /// Resolves an object name at the given script [offset].
@@ -238,8 +248,8 @@ class SciDisassembler {
       final kind = obj.isClass ? 'Class' : 'Instance';
       final name = obj.nameString ?? 'obj_0x${obj.pos.offset.toRadixString(16)}';
       final speciesStr = obj.isClass
-          ? 'species: ${obj.species.toUint16()} [${context.resolveClassName(obj.species.toUint16())}]'
-          : 'species: ${obj.species.toUint16()}';
+          ? 'species: ${obj.species.toUint16()} [${context.resolveSuperName(obj.species)}]'
+          : 'species: ${context.resolveSuperName(obj.species)}';
 
       lines.add(
         SciDisassemblyLine(
@@ -329,8 +339,8 @@ class SciDisassembler {
       int? soundNum;
       final comments = <String>[];
 
-      // Jump / branch opcodes: 0x16 (bt), 0x17 (bnt), 0x18 (jmp)
-      if (instr.opcode == 0x16 || instr.opcode == 0x17 || instr.opcode == 0x18) {
+      // Jump / branch opcodes: 0x17 (bt), 0x18 (bnt), 0x19 (jmp)
+      if (instr.opcode == 0x17 || instr.opcode == 0x18 || instr.opcode == 0x19) {
         if (instr.operands.isNotEmpty) {
           final rel = instr.operands[0];
           final target = instrOffset + instr.length + rel;
@@ -463,7 +473,7 @@ class SciDisassembler {
     }
 
     // Custom formatting for jumps: bt 0x01a4
-    if (instr.opcode == 0x16 || instr.opcode == 0x17 || instr.opcode == 0x18) {
+    if (instr.opcode == 0x17 || instr.opcode == 0x18 || instr.opcode == 0x19) {
       if (instr.operands.isNotEmpty) {
         final rel = instr.operands[0];
         final target = pc + instr.length + rel;

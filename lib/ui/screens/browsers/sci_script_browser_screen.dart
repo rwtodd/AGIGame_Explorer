@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
+import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/script/sci_decompiler.dart';
@@ -50,6 +51,22 @@ class _ScriptHistoryEntry {
 }
 
 /// Outline symbol for quick jumping.
+class _CachedScriptListing {
+  final SciScript script;
+  final List<SciDisassemblyLine> disassemblyLines;
+  final String decompiledText;
+  final List<String> decompiledLines;
+  final List<_OutlineSymbol> symbols;
+
+  const _CachedScriptListing({
+    required this.script,
+    required this.disassemblyLines,
+    required this.decompiledText,
+    required this.decompiledLines,
+    required this.symbols,
+  });
+}
+
 class _OutlineSymbol {
   final String label;
   final int offset;
@@ -86,6 +103,7 @@ class _SciScriptBrowserScreenState
   String _decompiledText = '';
   List<String> _decompiledLines = [];
   List<_OutlineSymbol> _symbols = [];
+  final Map<int, _CachedScriptListing> _listingCache = {};
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -223,30 +241,37 @@ class _SciScriptBrowserScreenState
     try {
       _initEnvironment(vm);
 
-      final script = _segManager!.instantiateScript(scriptNum, vm);
+      var cached = _listingCache[scriptNum];
+      if (cached == null) {
+        final script = _segManager!.instantiateScript(scriptNum, vm);
 
-      final disContext = SciDisassemblyContext(
-        script: script,
-        selectors: _selectors,
-        segManager: _segManager,
-        kernel: _kernel,
-      );
+        final disContext = SciDisassemblyContext(
+          script: script,
+          selectors: _selectors,
+          segManager: _segManager,
+          kernel: _kernel,
+        );
 
-      final disasm = SciDisassembler(disContext);
-      final disLines = disasm.disassembleScript();
-
-      final decompiler = SciDecompiler(disContext);
-      final decompText = decompiler.decompileScript();
-      final decompLines = decompText.split('\n');
-
-      final symbols = _buildOutlineSymbols(script, _selectors);
+        final disasm = SciDisassembler(disContext);
+        final disLines = disasm.disassembleScript();
+        final decompiler = SciDecompiler(disContext);
+        final decompText = decompiler.decompileScript();
+        cached = _CachedScriptListing(
+          script: script,
+          disassemblyLines: disLines,
+          decompiledText: decompText,
+          decompiledLines: decompText.split('\n'),
+          symbols: _buildOutlineSymbols(script, _selectors),
+        );
+        _listingCache[scriptNum] = cached;
+      }
 
       setState(() {
-        _currentScript = script;
-        _disassemblyLines = disLines;
-        _decompiledText = decompText;
-        _decompiledLines = decompLines;
-        _symbols = symbols;
+        _currentScript = cached!.script;
+        _disassemblyLines = cached.disassemblyLines;
+        _decompiledText = cached.decompiledText;
+        _decompiledLines = cached.decompiledLines;
+        _symbols = cached.symbols;
         _isLoading = false;
       });
 
@@ -993,8 +1018,7 @@ class _SciScriptBrowserScreenState
       itemBuilder: (ctx, index) {
         final obj = sortedObjects[index];
         final name = obj.nameString ?? 'obj_0x${obj.pos.offset.toRadixString(16)}';
-        final superSpecies = obj.superClass.toUint16();
-        final superName = _contextClassName(superSpecies);
+        final superName = _contextClassNameFromReg(obj.superClass);
 
         return Card(
           color: AgiTheme.egaCardSurface,
@@ -1113,17 +1137,18 @@ class _SciScriptBrowserScreenState
     );
   }
 
-  String _contextClassName(int species) {
-    if (_segManager != null) {
-      final addr = _segManager!.getClassAddress(species);
-      if (!addr.isNull) {
-        final clObj = _segManager!.getObject(addr);
-        if (clObj?.nameString != null) {
-          return clObj!.nameString!;
-        }
-      }
+  String _contextClassNameFromReg(SciReg superClass) {
+    if (_segManager == null) return 'Class_${superClass.toUint16()}';
+    if (superClass.isPointer) {
+      final obj = _segManager!.getObject(superClass);
+      if (obj?.nameString != null) return obj!.nameString!;
     }
-    return 'Class_$species';
+    final addr = _segManager!.getClassAddress(superClass.toUint16());
+    if (!addr.isNull) {
+      final clObj = _segManager!.getObject(addr);
+      if (clObj?.nameString != null) return clObj!.nameString!;
+    }
+    return 'Class_${superClass.toUint16()}';
   }
 
   // --- TAB 3: Strings Table ---

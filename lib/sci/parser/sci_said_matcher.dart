@@ -45,6 +45,8 @@ class SciSaidToken {
       switch (operator) {
         case SciSaidOp.comma:
           return ',';
+        case SciSaidOp.amp:
+          return '&';
         case SciSaidOp.slash:
           return '/';
         case SciSaidOp.parenOpen:
@@ -185,11 +187,9 @@ class SciSaidMatcher {
     SciVocab? vocab,
   ) {
     if (inputWords.isEmpty) {
-      // Empty input only matches if spec is empty or all optional
       return _specMatchesEmpty(spec);
     }
 
-    // Split Said tokens into clauses divided by '/'
     final clauses = <List<SciSaidToken>>[];
     var currentClause = <SciSaidToken>[];
 
@@ -204,21 +204,27 @@ class SciSaidMatcher {
     }
     clauses.add(currentClause);
 
-    // Organize input words into semantic clauses (Action, DirectObj, IndirectObj)
-    final inputClauses = _partitionInput(inputWords);
+    var inputClauses = _partitionInput(inputWords);
 
-    // If input has more clauses than spec, no match
-    if (inputClauses.length > clauses.length) {
+    // Optional leading verb: "door" must match `[open]/door`, not sit in clause 0.
+    if (clauses.isNotEmpty &&
+        _clauseIsOptional(clauses.first) &&
+        inputClauses.isNotEmpty &&
+        !_matchClause(clauses.first, inputClauses.first, vocab)) {
+      inputClauses = [<SciVocabWord>[], ...inputClauses];
+    }
+
+    // `>` is a partial match: extra input clauses are allowed and the event
+    // is not claimed (ScummVM SAID_PARTIAL_MATCH).
+    if (!spec.isNonClaiming && inputClauses.length > clauses.length) {
       return false;
     }
 
-    // Match each clause
     for (int i = 0; i < clauses.length; i++) {
       final specClause = clauses[i];
-      final inputClause = i < inputClauses.length ? inputClauses[i] : <SciVocabWord>[];
-
-      final matched = _matchClause(specClause, inputClause, vocab);
-      if (!matched) return false;
+      final inputClause =
+          i < inputClauses.length ? inputClauses[i] : <SciVocabWord>[];
+      if (!_matchClause(specClause, inputClause, vocab)) return false;
     }
 
     return true;
@@ -272,8 +278,45 @@ class SciSaidMatcher {
   }
 
   /// Matches one alternative branch within a clause against input words.
+  ///
+  /// `&` is AND: every conjunct must match. `,` is OR and is split before
+  /// this is called.
   static bool _matchAlternative(
     List<SciSaidToken> altTokens,
+    List<SciVocabWord> inputWords,
+    SciVocab? vocab,
+  ) {
+    final andParts = <List<SciSaidToken>>[];
+    var current = <SciSaidToken>[];
+    var parenDepth = 0;
+    for (final t in altTokens) {
+      if (t.operator == SciSaidOp.parenOpen) parenDepth++;
+      if (t.operator == SciSaidOp.parenClose) parenDepth--;
+      if (t.operator == SciSaidOp.amp && parenDepth == 0) {
+        andParts.add(current);
+        current = <SciSaidToken>[];
+      } else {
+        current.add(t);
+      }
+    }
+    andParts.add(current);
+
+    for (final part in andParts) {
+      if (!_matchAndPart(part, inputWords, vocab)) return false;
+    }
+    return true;
+  }
+
+  static int _resolved(int group, SciVocab? vocab) =>
+      vocab?.resolveGroup(group) ?? group;
+
+  static bool _groupInInput(int group, Set<int> inputGroups, SciVocab? vocab) {
+    final resolved = _resolved(group, vocab);
+    return resolved == SciSaidOp.wordAny || inputGroups.contains(resolved);
+  }
+
+  static bool _matchAndPart(
+    List<SciSaidToken> tokens,
     List<SciVocabWord> inputWords,
     SciVocab? vocab,
   ) {
@@ -281,20 +324,21 @@ class SciSaidMatcher {
     final requiredGroups = <int>[];
     final optionalGroups = <int>[];
     final qualifiers = <int, List<int>>{};
+    final optionalQualifiers = <int, List<int>>{};
     int? currentTarget;
 
-    for (int i = 0; i < altTokens.length; i++) {
-      final t = altTokens[i];
+    for (int i = 0; i < tokens.length; i++) {
+      final t = tokens[i];
       if (t.operator == SciSaidOp.bracketOpen) {
         isOptional = true;
       } else if (t.operator == SciSaidOp.bracketClose) {
         isOptional = false;
       } else if (t.operator == SciSaidOp.lt) {
-        // Preposition qualifier following a noun: target < qualifier
-        if (currentTarget != null && i + 1 < altTokens.length) {
-          final next = altTokens[i + 1];
+        if (currentTarget != null && i + 1 < tokens.length) {
+          final next = tokens[i + 1];
           if (next.isWord) {
-            qualifiers.putIfAbsent(currentTarget, () => []).add(next.wordGroup!);
+            final dest = isOptional ? optionalQualifiers : qualifiers;
+            dest.putIfAbsent(currentTarget, () => []).add(next.wordGroup!);
             i++;
           }
         }
@@ -308,26 +352,32 @@ class SciSaidMatcher {
       }
     }
 
-    final inputGroups = inputWords.map((w) => vocab?.resolveGroup(w.group) ?? w.group).toSet();
+    final inputGroups =
+        inputWords.map((w) => _resolved(w.group, vocab)).toSet();
 
-    // If there are required words, at least one must match, or ANYWORD
     if (requiredGroups.isNotEmpty) {
       var found = false;
       for (final req in requiredGroups) {
-        final resolvedReq = vocab?.resolveGroup(req) ?? req;
-        if (resolvedReq == SciSaidOp.wordAny || inputGroups.contains(resolvedReq)) {
-          // Check qualifiers if any
+        if (_groupInInput(req, inputGroups, vocab)) {
           final reqQuals = qualifiers[req];
           if (reqQuals != null && reqQuals.isNotEmpty) {
-            final hasQual = reqQuals.any((q) =>
-                q == SciSaidOp.wordAny || inputGroups.contains(vocab?.resolveGroup(q) ?? q));
-            if (hasQual) found = true;
+            if (reqQuals.any((q) => _groupInInput(q, inputGroups, vocab))) {
+              found = true;
+            }
           } else {
             found = true;
           }
         }
       }
       if (!found) return false;
+    } else if (inputWords.isNotEmpty) {
+      // Optional-only clause: leftover words must belong to the optional set.
+      if (optionalGroups.isEmpty) return false;
+      final allowed = <int>{
+        for (final g in optionalGroups) _resolved(g, vocab),
+        SciSaidOp.wordAny,
+      };
+      if (!inputGroups.every(allowed.contains)) return false;
     }
 
     return true;

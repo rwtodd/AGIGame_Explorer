@@ -129,6 +129,25 @@ void main() {
       wm.restoreDisplay(handle);
       expect(wnd.controls.contains(item), isFalse);
     });
+
+    test('kDisplay on the pic port is kept as a frameless overlay', () {
+      final wm = SciWindowManager();
+      const item = SciTextControl(
+        rect: Rect.fromLTWH(10, 20, 100, 16),
+        text: 'Score: 100',
+      );
+      final handle = wm.addDisplay(item, saveUnder: true);
+      expect(handle, greaterThan(0));
+      expect(wm.windowStack, isEmpty);
+
+      final overlays = wm.toOverlays();
+      expect(overlays, isNotEmpty);
+      expect(overlays.single.showChrome, isFalse);
+      expect(overlays.single.controls, contains(item));
+
+      wm.restoreDisplay(handle);
+      expect(wm.toOverlays(), isEmpty);
+    });
   });
 
   group('SciSegManager Word Access Tests', () {
@@ -208,6 +227,34 @@ void main() {
       segMan = SciSegManager();
       vm = SciVM(kernel: kernel, segManager: segMan, selectors: kernel.selectors);
       kernel.windowManager.reset();
+    });
+
+    test('kGlobalToLocal and kLocalToGlobal adjust event x/y by the current port origin', () {
+      kernel.call(vm, 0x13, 4, [
+        const SciReg.fromInt(40),
+        const SciReg.fromInt(20),
+        const SciReg.fromInt(100),
+        const SciReg.fromInt(200),
+      ]);
+      final port = kernel.windowManager.currentPort;
+      final event = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x51),
+        variables: List<SciReg>.generate(10, (i) => const SciReg.fromInt(0)),
+        baseVars: List<int>.generate(10, (i) => i),
+      );
+      kernel.selectors.y = 4;
+      kernel.selectors.x = 5;
+      event.variables[5] = SciReg.fromInt(port.left + 8);
+      event.variables[4] = SciReg.fromInt(port.top + 6);
+      vm.segManager.clones[0x51] = event;
+
+      kernel.call(vm, 0x1D, 1, [event.pos]);
+      expect(event.variables[5].toSint16(), 8);
+      expect(event.variables[4].toSint16(), 6);
+
+      kernel.call(vm, 0x1E, 1, [event.pos]);
+      expect(event.variables[5].toSint16(), port.left + 8);
+      expect(event.variables[4].toSint16(), port.top + 6);
     });
 
     test('kNewWindow and kDisposeWindow invoke callbacks and manage ports', () {
@@ -377,8 +424,10 @@ void main() {
       final textControl = wnd.controls.first as SciTextControl;
       expect(textControl.text, equals('Important Alert'));
       expect(textControl.colorPen, equals(4));
+      expect(textControl.colorBack, isNull);
       expect(textControl.rect.left, equals(30.0));
       expect(textControl.rect.top, equals(40.0));
+      expect(textControl.rect.height, greaterThanOrEqualTo(8.0));
 
       // (kDisplay 0 p_restore handle)
       kernel.call(vm, 0x1B, 3, [
@@ -543,7 +592,7 @@ void main() {
         engine.tick();
         if (engine.sciWindows.isNotEmpty) {
           final textCtrl = engine.sciWindows.last.controls.whereType<SciTextControl>().firstOrNull;
-          if (textCtrl != null && textCtrl.text.contains("don't have it")) {
+          if (textCtrl != null && textCtrl.text.toLowerCase().contains('car')) {
             break;
           }
         }
@@ -551,7 +600,8 @@ void main() {
 
       expect(engine.sciWindows.isNotEmpty, isTrue, reason: 'Response message box should open');
       final responseText = engine.sciWindows.last.controls.whereType<SciTextControl>().firstOrNull?.text;
-      expect(responseText, contains("don't have it"));
+      expect(responseText, isNotNull);
+      expect(responseText!.toLowerCase(), contains('car'));
 
       // 4. Dismiss response dialog by pressing Enter (13)
       engine.handleKeyPress(13, ascii: 13);

@@ -123,6 +123,59 @@ class SciTextControl extends SciControlItem {
     return resultLines.isNotEmpty ? resultLines : const [''];
   }
 
+  static final Map<String, ui.Picture> _pictureCache = {};
+
+  static ui.Picture pictureFor({
+    required SierraFont font,
+    required List<String> lines,
+    required Color color,
+    required double boxWidth,
+    required TextAlign align,
+  }) {
+    final key = '${identityHashCode(font)}|$color|${boxWidth.toInt()}|$align|${lines.join('\n')}';
+    final cached = _pictureCache[key];
+    if (cached != null) return cached;
+    if (_pictureCache.length > 64) _pictureCache.clear();
+
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec);
+    final glyphPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    var yOffset = 0.0;
+    for (final line in lines) {
+      if (line.isNotEmpty) {
+        final lineWidth = font.measureTextWidth(line);
+        var xOffset = 0.0;
+        if (align == TextAlign.center) {
+          xOffset = (boxWidth - lineWidth) / 2.0;
+        } else if (align == TextAlign.right) {
+          xOffset = boxWidth - lineWidth;
+        }
+        var currentX = xOffset;
+        for (var i = 0; i < line.length; i++) {
+          final glyph = font.getGlyph(line.codeUnitAt(i));
+          if (glyph == null) continue;
+          for (var gy = 0; gy < glyph.height; gy++) {
+            for (var gx = 0; gx < glyph.width; gx++) {
+              if (glyph.isPixelSet(gx, gy)) {
+                c.drawRect(
+                  Rect.fromLTWH(currentX + gx, yOffset + gy, 1.0, 1.0),
+                  glyphPaint,
+                );
+              }
+            }
+          }
+          currentX += glyph.width;
+        }
+      }
+      yOffset += font.fontHeight;
+    }
+    final picture = rec.endRecording();
+    _pictureCache[key] = picture;
+    return picture;
+  }
+
   @override
   void paint(
     Canvas canvas, {
@@ -145,42 +198,17 @@ class SciTextControl extends SciControlItem {
     if (effectiveFont != null) {
       final wrapWidth = rect.width >= 16 ? rect.width.toInt() : 192;
       final lines = wrapText(text, effectiveFont, wrapWidth);
-      var yOffset = drawPos.dy;
-      final glyphPaint = Paint()
-        ..color = EgaColors.palette[fg.clamp(0, 15)]
-        ..style = PaintingStyle.fill;
-
-      for (final line in lines) {
-        if (line.isNotEmpty) {
-          final lineWidth = effectiveFont.measureTextWidth(line);
-          var xOffset = drawPos.dx;
-          if (align == TextAlign.center) {
-            xOffset += (rect.width - lineWidth) / 2.0;
-          } else if (align == TextAlign.right) {
-            xOffset += rect.width - lineWidth;
-          }
-
-          var currentX = xOffset;
-          for (var i = 0; i < line.length; i++) {
-            final glyph = effectiveFont.getGlyph(line.codeUnitAt(i));
-            if (glyph == null) {
-              continue;
-            }
-            for (var gy = 0; gy < glyph.height; gy++) {
-              for (var gx = 0; gx < glyph.width; gx++) {
-                if (glyph.isPixelSet(gx, gy)) {
-                  canvas.drawRect(
-                    Rect.fromLTWH(currentX + gx, yOffset + gy, 1.0, 1.0),
-                    glyphPaint,
-                  );
-                }
-              }
-            }
-            currentX += glyph.width;
-          }
-        }
-        yOffset += effectiveFont.fontHeight;
-      }
+      final picture = pictureFor(
+        font: effectiveFont,
+        lines: lines,
+        color: EgaColors.palette[fg.clamp(0, 15)],
+        boxWidth: rect.width,
+        align: align,
+      );
+      canvas.save();
+      canvas.translate(drawPos.dx, drawPos.dy);
+      canvas.drawPicture(picture);
+      canvas.restore();
     } else {
       // Fallback text rendering if no font resource is attached
       final textPainter = TextPainter(
@@ -287,6 +315,36 @@ class SciIconControl extends SciControlItem {
     this.directImage,
   });
 
+  static final Map<String, ui.Picture> _iconCache = {};
+
+  static ui.Picture _iconPicture(
+    SierraView v,
+    SierraViewCel cel,
+    int loopNumber,
+    int celNumber,
+  ) {
+    final key = '${identityHashCode(v)}|$loopNumber|$celNumber';
+    final cached = _iconCache[key];
+    if (cached != null) return cached;
+    if (_iconCache.length > 64) _iconCache.clear();
+
+    final pixels = cel.getPixels(parentView: v, celIndex: celNumber);
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec);
+    final paint = Paint()..filterQuality = FilterQuality.none;
+    for (var y = 0; y < cel.height; y++) {
+      for (var x = 0; x < cel.width; x++) {
+        final colorIdx = pixels[y * cel.width + x] & 0x0F;
+        if (colorIdx == cel.transparentColor) continue;
+        paint.color = EgaColors.palette[colorIdx];
+        c.drawRect(Rect.fromLTWH(x.toDouble(), y.toDouble(), 1.0, 1.0), paint);
+      }
+    }
+    final picture = rec.endRecording();
+    _iconCache[key] = picture;
+    return picture;
+  }
+
   @override
   void paint(
     Canvas canvas, {
@@ -305,21 +363,11 @@ class SciIconControl extends SciControlItem {
     if (v != null) {
       final cel = v.getCel(loopNumber, celNumber);
       if (cel != null) {
-        final pixels = cel.getPixels(parentView: v, celIndex: celNumber);
-        final paint = Paint()..filterQuality = FilterQuality.none;
-
-        for (var y = 0; y < cel.height; y++) {
-          for (var x = 0; x < cel.width; x++) {
-            final colorIdx = pixels[y * cel.width + x] & 0x0F;
-            if (colorIdx != cel.transparentColor) {
-              paint.color = EgaColors.palette[colorIdx];
-              canvas.drawRect(
-                Rect.fromLTWH(drawPos.dx + x, drawPos.dy + y, 1.0, 1.0),
-                paint,
-              );
-            }
-          }
-        }
+        final picture = _iconPicture(v, cel, loopNumber, celNumber);
+        canvas.save();
+        canvas.translate(drawPos.dx, drawPos.dy);
+        canvas.drawPicture(picture);
+        canvas.restore();
       }
     }
   }
@@ -376,36 +424,24 @@ class SciEditControl extends SciControlItem {
     final textPos = editRect.topLeft + const Offset(1.0, 0.0);
 
     if (effectiveFont != null) {
-      final glyphPaint = Paint()
-        ..color = EgaColors.palette[fg.clamp(0, 15)]
-        ..style = PaintingStyle.fill;
-      var currentX = textPos.dx;
-      var cursorX = currentX;
+      final picture = SciTextControl.pictureFor(
+        font: effectiveFont,
+        lines: [text],
+        color: EgaColors.palette[fg.clamp(0, 15)],
+        boxWidth: rect.width,
+        align: TextAlign.left,
+      );
+      canvas.save();
+      canvas.translate(textPos.dx, textPos.dy);
+      canvas.drawPicture(picture);
+      canvas.restore();
 
-      for (var i = 0; i < text.length; i++) {
-        if (i == cursorPosition) {
-          cursorX = currentX;
-        }
-        final glyph = effectiveFont.getGlyph(text.codeUnitAt(i));
-        if (glyph != null) {
-          for (var gy = 0; gy < glyph.height; gy++) {
-            for (var gx = 0; gx < glyph.width; gx++) {
-              if (glyph.isPixelSet(gx, gy)) {
-                canvas.drawRect(
-                  Rect.fromLTWH(currentX + gx, textPos.dy + gy, 1.0, 1.0),
-                  glyphPaint,
-                );
-              }
-            }
-          }
-          currentX += glyph.width;
-        }
-      }
-      if (cursorPosition >= text.length) {
-        cursorX = currentX;
-      }
+      var cursorX = textPos.dx;
+      final prefix = cursorPosition <= text.length
+          ? text.substring(0, cursorPosition.clamp(0, text.length))
+          : text;
+      cursorX += effectiveFont.measureTextWidth(prefix).toDouble();
 
-      // Draw cursor underline/bar if focused
       if (isFocused) {
         final cursorPaint = Paint()
           ..color = EgaColors.palette[fg.clamp(0, 15)]
@@ -468,6 +504,15 @@ class SciWindowOverlay {
   /// Child controls (labels, buttons, icons) inside the window.
   final List<SciControlItem> controls;
 
+  /// When false, only child controls are painted (kDisplay on the pic port).
+  final bool showChrome;
+
+  /// When false, skip the double border and drop shadow (`NOFRAME`).
+  final bool showFrame;
+
+  /// Inner-port origin relative to [rect] (title/frame inset).
+  final Offset contentOffset;
+
   const SciWindowOverlay({
     required this.id,
     required this.rect,
@@ -478,6 +523,9 @@ class SciWindowOverlay {
     this.font,
     this.hasDropShadow = true,
     this.controls = const [],
+    this.showChrome = true,
+    this.showFrame = true,
+    this.contentOffset = Offset.zero,
   });
 
   SciWindowOverlay copyWith({
@@ -490,6 +538,9 @@ class SciWindowOverlay {
     SierraFont? font,
     bool? hasDropShadow,
     List<SciControlItem>? controls,
+    bool? showChrome,
+    bool? showFrame,
+    Offset? contentOffset,
   }) {
     return SciWindowOverlay(
       id: id ?? this.id,
@@ -501,6 +552,9 @@ class SciWindowOverlay {
       font: font ?? this.font,
       hasDropShadow: hasDropShadow ?? this.hasDropShadow,
       controls: controls ?? this.controls,
+      showChrome: showChrome ?? this.showChrome,
+      showFrame: showFrame ?? this.showFrame,
+      contentOffset: contentOffset ?? this.contentOffset,
     );
   }
 
@@ -509,8 +563,21 @@ class SciWindowOverlay {
     final penColor = EgaColors.palette[colorPen.clamp(0, 15)];
     final backColor = EgaColors.palette[colorBack.clamp(0, 15)];
 
-    // 1. Optional 2px black drop shadow (authentic Sierra window style)
-    if (hasDropShadow) {
+    if (!showChrome) {
+      final origin = rect.topLeft + contentOffset;
+      for (final control in controls) {
+        control.paint(
+          canvas,
+          windowTopLeft: origin,
+          defaultFont: font,
+          defaultColorPen: colorPen,
+          defaultColorBack: colorBack,
+        );
+      }
+      return;
+    }
+
+    if (hasDropShadow && showFrame) {
       final shadowRect = rect.shift(const Offset(2.0, 2.0));
       final shadowPaint = Paint()
         ..color = const Color(0x66000000)
@@ -518,64 +585,73 @@ class SciWindowOverlay {
       canvas.drawRect(shadowRect, shadowPaint);
     }
 
-    // 2. Window solid background fill
     final bgPaint = Paint()
       ..color = backColor
       ..style = PaintingStyle.fill;
     canvas.drawRect(rect, bgPaint);
 
-    // 3. Window double border (outer pen border, 1px white inset, inner pen border)
-    final outerBorderPaint = Paint()
-      ..color = penColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-    canvas.drawRect(rect, outerBorderPaint);
-
-    if (rect.width > 6 && rect.height > 6) {
-      final innerBorderPaint = Paint()
+    if (showFrame) {
+      final outerBorderPaint = Paint()
         ..color = penColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0;
-      canvas.drawRect(rect.deflate(2.0), innerBorderPaint);
+      canvas.drawRect(rect, outerBorderPaint);
+
+      if (rect.width > 6 && rect.height > 6) {
+        final innerBorderPaint = Paint()
+          ..color = penColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0;
+        canvas.drawRect(rect.deflate(2.0), innerBorderPaint);
+      }
     }
 
-    // 4. Title bar (if title provided)
     if (title != null && title!.isNotEmpty) {
-      final titleHeight = 11.0;
+      final titleHeight = 10.0;
       final titleBarRect = Rect.fromLTWH(rect.left + 3, rect.top + 3, rect.width - 6, titleHeight);
-
-      // Title bar fill (pen color background for inverted title bar, or backColor)
       final titleBgPaint = Paint()
         ..color = penColor
         ..style = PaintingStyle.fill;
       canvas.drawRect(titleBarRect, titleBgPaint);
 
-      // Title text (inverted color)
-      final titleTextPainter = TextPainter(
-        text: TextSpan(
-          text: title,
-          style: TextStyle(
-            color: backColor,
-            fontSize: 8.5,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Courier',
+      if (font != null) {
+        final picture = SciTextControl.pictureFor(
+          font: font!,
+          lines: [title!],
+          color: backColor,
+          boxWidth: titleBarRect.width,
+          align: TextAlign.center,
+        );
+        canvas.save();
+        canvas.translate(titleBarRect.left, titleBarRect.top);
+        canvas.drawPicture(picture);
+        canvas.restore();
+      } else {
+        final titleTextPainter = TextPainter(
+          text: TextSpan(
+            text: title,
+            style: TextStyle(
+              color: backColor,
+              fontSize: 8.5,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Courier',
+            ),
           ),
-        ),
-        textAlign: TextAlign.center,
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: titleBarRect.width);
-
-      final titleX = titleBarRect.left + (titleBarRect.width - titleTextPainter.width) / 2.0;
-      final titleY = titleBarRect.top + (titleBarRect.height - titleTextPainter.height) / 2.0;
-      titleTextPainter.paint(canvas, Offset(titleX, titleY));
-      titleTextPainter.dispose();
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: titleBarRect.width);
+        final titleX = titleBarRect.left + (titleBarRect.width - titleTextPainter.width) / 2.0;
+        final titleY = titleBarRect.top + (titleBarRect.height - titleTextPainter.height) / 2.0;
+        titleTextPainter.paint(canvas, Offset(titleX, titleY));
+        titleTextPainter.dispose();
+      }
     }
 
-    // 5. Child controls
+    final origin = rect.topLeft + contentOffset;
     for (final control in controls) {
       control.paint(
         canvas,
-        windowTopLeft: rect.topLeft,
+        windowTopLeft: origin,
         defaultFont: font,
         defaultColorPen: colorPen,
         defaultColorBack: colorBack,
