@@ -251,6 +251,40 @@ void main() {
       expect(kernel.lastWaitTicks, 6);
     });
 
+    test('AddMenu and DrawMenuBar populate the 10px strip overlay', () {
+      final title = segMan.allocString('File');
+      final items = segMan.allocString('About`^a:Quit`^q:');
+      kernel.call(vm, 0x22, 2, [title, items]);
+      expect(kernel.menuBar.menus, hasLength(1));
+      expect(kernel.menuBar.menus.single.title, 'File');
+      expect(kernel.menuBar.menus.single.items, hasLength(2));
+      kernel.call(vm, 0x20, 1, [const SciReg.fromInt(1)]);
+      expect(kernel.menuBar.visible, isTrue);
+      final hud = kernel.menuBar.toOverlay();
+      expect(hud, isNotNull);
+      expect(hud!.rect.height, 10);
+    });
+
+    test('kGraph fill and restore round-trip on the pic port', () {
+      kernel.call(vm, 0x70, 5, [
+        const SciReg.fromInt(10), // FillBoxForeground
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(20),
+        const SciReg.fromInt(30),
+        const SciReg.fromInt(40),
+      ]);
+      expect(kernel.windowManager.toOverlays(), isNotEmpty);
+      final handle = kernel.call(vm, 0x70, 5, [
+        const SciReg.fromInt(7), // SaveBox
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(20),
+        const SciReg.fromInt(30),
+        const SciReg.fromInt(40),
+      ]);
+      expect(handle.toUint16(), greaterThan(0));
+      kernel.call(vm, 0x70, 2, [const SciReg.fromInt(8), handle]);
+    });
+
     test('keyboard events are posted as key-down not mouse-press', () {
       kernel.postKeyEvent(13);
       expect(kernel.eventQueue.single.type, SciEventType.keyDown);

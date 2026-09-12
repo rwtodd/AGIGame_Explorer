@@ -30,7 +30,7 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 ## VM / game loop
 
-- **`Wait(0)` extra-pump is hardcoded to room 99.** `SciGameEngine._pumpVm` runs extra `doit` cycles only while `g11` (currentRoom) is 99, so PQ2's speed test can count a real `machineSpeed` instead of ~20. LSL2 also uses room 99 (`RM099.SC`); **LSL3 uses room 290**. QFG2 and other SCI0 titles may differ or skip the test. Do not treat 99 as universal. A portable version would extra-pump `Wait(0)` for ~1s of `GetTime` after boot, independent of room number, then cap at one cycle per tick even if scripts leave speed at 0.
+- **`Wait(0)` extra-pump is a 1s wall-clock budget after the first unthrottled wait.** Independent of room number (PQ2/LSL2 room 99, LSL3 290). If a title's speed test is longer than 1s, raise the budget rather than special-casing rooms.
 
 ## Parser / Said leftovers
 
@@ -53,7 +53,7 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 - **Stage 13 (Playable first PQ2 room)**:
   - Menu bar + 10px status strip; `kGraph`; SetCursor; mouse events; window hit-test.
-  - `FE 08` priority-band tables; portable Wait(0) extra-pump (not room 99).
+  - `FE 08` priority-band tables (parsed on DrawPic). Wait(0) extra-pump is a 1s wall-clock budget.
 - **Stage 14 (VOCAB.900 GNF)**:
   - Real Said tree; `syntaxFail` on GNF failure.
 - **Stage 15 (FileIO / save / inventory)**:

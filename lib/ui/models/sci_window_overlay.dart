@@ -10,6 +10,9 @@ abstract class SciControlItem {
 
   const SciControlItem({required this.rect});
 
+  /// True if [local] (window-inner coordinates) is inside this control.
+  bool hitTest(Offset local) => rect.contains(local);
+
   /// Paints the control inside [canvas] relative to [windowTopLeft].
   void paint(
     Canvas canvas, {
@@ -227,6 +230,27 @@ class SciTextControl extends SciControlItem {
       textPainter.paint(canvas, drawPos);
       textPainter.dispose();
     }
+  }
+}
+
+/// Solid rectangle used by `kGraph` FillBox.
+class SciFillControl extends SciControlItem {
+  final int color;
+
+  const SciFillControl({required super.rect, required this.color});
+
+  @override
+  void paint(
+    Canvas canvas, {
+    required Offset windowTopLeft,
+    SierraFont? defaultFont,
+    int defaultColorPen = 0,
+    int defaultColorBack = 15,
+  }) {
+    final paint = Paint()
+      ..color = EgaColors.palette[color.clamp(0, 15)]
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(rect.shift(windowTopLeft), paint);
   }
 }
 

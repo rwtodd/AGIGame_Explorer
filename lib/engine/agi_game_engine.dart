@@ -202,6 +202,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   @override
   void handleMouseClick(ui.Offset playfieldPos) {}
 
+  @override
+  void handleMouseMove(ui.Offset playfieldPos) {}
+
   final AgiResourceLoader? resourceLoader;
   /// Player instance for AGI sound synthesis and PCM playback.
   final AgiSoundPlayer soundPlayer;

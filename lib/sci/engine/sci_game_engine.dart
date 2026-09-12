@@ -59,18 +59,22 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   List<PlayfieldActorSprite> get actors => kernel.currentSprites;
 
   @override
-  List<SciWindowOverlay> get sciWindows =>
-      kernel.windowManager.toOverlays(fontResolver: kernel.getFont);
-
-  @override
-  SierraCursor? get mouseCursor => null;
+  SierraCursor? get mouseCursor => kernel.currentCursor;
 
   @override
   ui.Offset? get mouseCursorPosition =>
       ui.Offset(kernel.mouseX.toDouble(), kernel.mouseY.toDouble());
 
   @override
-  bool get showMouseCursor => false;
+  bool get showMouseCursor => kernel.cursorVisible;
+
+  @override
+  List<SciWindowOverlay> get sciWindows {
+    final windows = kernel.windowManager.toOverlays(fontResolver: kernel.getFont);
+    final hud = kernel.menuBar.toOverlay(font: kernel.getFont(0));
+    if (hud == null) return windows;
+    return [hud, ...windows];
+  }
 
   @override
   String get statusLine => kernel.currentStatusLine ?? _statusLine;
@@ -241,6 +245,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
     _cycleCount = 0;
     _started = false;
+    _waitZeroPumpUntil = null;
 
     atlasManager.clear();
     segManager.reset();
@@ -285,33 +290,27 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     notifyListeners();
   }
 
-  /// SCI0 `g11` is `currentRoom` (PQ2 snapshot / LSL2 `GAME.SH`).
-  static const int _globalCurrentRoom = 11;
+  /// Extra-pump of `Wait(0)` for ~2s of wall clock after the first unthrottled
+  /// wait (speed test). After that, even if scripts leave speed at 0 (PQ2 intro),
+  /// we run one cycle per host tick. Independent of room number (LSL3 uses 290).
+  DateTime? _waitZeroPumpUntil;
 
-  int get _currentRoom {
-    if (segManager.globals.length > _globalCurrentRoom) {
-      return segManager.globals[_globalCurrentRoom].toUint16();
-    }
-    return 0;
-  }
-
-  /// Runs the VM until Animate yields.
-  ///
-  /// Extra-pump of `Wait(0)` is **PQ2/LSL2-specific**: those titles use room 99
-  /// as a 1-second speed test (`RM099.SC`). LSL3 uses room 290; other SCI0
-  /// games may use another room or none. After leaving 99, PQ2 keeps speed 0
-  /// for the intro — one cycle per engine tick so it can animate. See
-  /// `doc/sci0_deferred_cleanup.md`.
   void _pumpVm() {
     if (vm.executionStack.isEmpty || vm.abortScriptProcessing) return;
-    final sliceEnd = DateTime.now().add(const Duration(milliseconds: 12));
+    final extraPump = kernel.lastWaitTicks == 0 &&
+        (_waitZeroPumpUntil == null ||
+            !DateTime.now().isAfter(_waitZeroPumpUntil!));
+    final sliceEnd = DateTime.now().add(
+      Duration(milliseconds: extraPump ? 40 : 12),
+    );
     try {
       do {
         vm.yieldRequested = false;
         vm.runVm(100000, 0);
         if (!vm.yieldRequested) break;
         if (kernel.lastWaitTicks > 0) break;
-        if (_currentRoom != 99) break;
+        _waitZeroPumpUntil ??= DateTime.now().add(const Duration(seconds: 2));
+        if (DateTime.now().isAfter(_waitZeroPumpUntil!)) break;
       } while (!vm.abortScriptProcessing &&
           vm.executionStack.isNotEmpty &&
           DateTime.now().isBefore(sliceEnd));
@@ -341,8 +340,48 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   }
 
   @override
+  void handleMouseMove(ui.Offset playfieldPos) {
+    kernel.mouseX = playfieldPos.dx.round();
+    kernel.mouseY = playfieldPos.dy.round();
+  }
+
+  @override
   void handleMouseClick(ui.Offset playfieldPos) {
-    kernel.postMouseEvent(1, playfieldPos.dx.round(), playfieldPos.dy.round());
+    final x = playfieldPos.dx.round();
+    final y = playfieldPos.dy.round();
+    kernel.mouseX = x;
+    kernel.mouseY = y;
+    _hitTestWindows(x, y);
+    kernel.postMouseEvent(SciEventType.mousePress, x, y);
+  }
+
+  void _hitTestWindows(int x, int y) {
+    for (final wnd in kernel.windowManager.windowStack.reversed) {
+      final origin = ui.Offset(
+        wnd.dims.left + wnd.contentOffset.dx,
+        wnd.dims.top + wnd.contentOffset.dy,
+      );
+      final local = ui.Offset(x - origin.dx, y - origin.dy);
+      for (final control in wnd.controls.reversed) {
+        if (!control.hitTest(local)) continue;
+        if (control is SciButtonControl) {
+          wnd.setControl(
+            identityHashCode(control),
+            SciButtonControl(
+              rect: control.rect,
+              text: control.text,
+              isPressed: true,
+              isFocused: true,
+              colorPen: control.colorPen,
+              colorBack: control.colorBack,
+              font: control.font,
+            ),
+          );
+          notifyListeners();
+        }
+        return;
+      }
+    }
   }
 
   @override

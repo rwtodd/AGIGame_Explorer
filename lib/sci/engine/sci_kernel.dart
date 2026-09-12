@@ -13,6 +13,9 @@ import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 import 'package:flutter_agigame/domain/sierra_font.dart';
 import 'package:flutter_agigame/sci/engine/sci_window_manager.dart';
+import 'package:flutter_agigame/sci/engine/sci_menu_bar.dart';
+import 'package:flutter_agigame/sci/cursor/sci_cursor_parser.dart';
+import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/sci/font/sci_font_parser.dart';
 import 'package:flutter_agigame/sci/view/sci_view.dart';
 import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
@@ -143,8 +146,13 @@ class SciKernel {
 
   // --- Windows, Controls & Typography (Stage 12) ---
   final SciWindowManager windowManager = SciWindowManager();
+  final SciMenuBar menuBar = SciMenuBar();
   final Map<int, SierraFont> _fontCache = {};
   void Function()? onWindowsChanged;
+
+  SierraCursor? currentCursor;
+  bool cursorVisible = false;
+  final Map<int, SierraCursor> _cursorCache = {};
 
   SciKernel() {
     initPriorityBands();
@@ -192,7 +200,11 @@ class SciKernel {
     activeCycleSaidSpecs.clear();
     getEventCallCount = 0;
     windowManager.reset();
+    menuBar.reset();
     _fontCache.clear();
+    currentCursor = null;
+    cursorVisible = false;
+    _cursorCache.clear();
     onWindowsChanged?.call();
   }
 
@@ -406,7 +418,7 @@ class SciKernel {
     _register(0x25, 'Said', _kSaid);
     _register(0x26, 'SetSynonyms', _kSetSynonyms);
     _register(0x27, 'HaveMouse', _kHaveMouse);
-    _register(0x28, 'SetCursor', _kStub);
+    _register(0x28, 'SetCursor', _kSetCursor);
 
     // 0x29..0x2C: SCI0 FileIO
     _register(0x29, 'FOpen', _kStub);
@@ -475,8 +487,8 @@ class SciKernel {
     _register(0x5C, 'MemoryInfo', _kMemoryInfo);
     _register(0x5D, 'StackUsage', _kStub);
     _register(0x5E, 'Profiler', _kStub);
-    _register(0x5F, 'GetMenu', _kStub);
-    _register(0x60, 'SetMenu', _kStub);
+    _register(0x5F, 'GetMenu', _kGetMenu);
+    _register(0x60, 'SetMenu', _kSetMenu);
     _register(0x61, 'GetSaveFiles', _kStub);
     _register(0x62, 'GetCWD', _kStub);
     _register(0x63, 'CheckFreeSpace', _kStub);
@@ -494,7 +506,7 @@ class SciKernel {
     _register(0x6D, 'CosMult', _kCosMult);
     _register(0x6E, 'SinDiv', _kSinDiv);
     _register(0x6F, 'CosDiv', _kCosDiv);
-    _register(0x70, 'Graph', _kStub);
+    _register(0x70, 'Graph', _kGraph);
     _register(0x71, 'Joystick', _kStub);
   }
 
@@ -1413,17 +1425,194 @@ class SciKernel {
 
   // --- Menu & Status (Stage 11) ---
 
-  SciReg _kDrawMenuBar(SciVM vm, int argc, List<SciReg> argv) => vm.r_acc;
-  SciReg _kMenuSelect(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
-  SciReg _kAddMenu(SciVM vm, int argc, List<SciReg> argv) => vm.r_acc;
+  SciReg _kDrawMenuBar(SciVM vm, int argc, List<SciReg> argv) {
+    final show = argc >= 1 && !argv[0].isNull && argv[0].toSint16() != 0;
+    menuBar.visible = show;
+    if (show) menuBar.openMenuId = null;
+    onWindowsChanged?.call();
+    return vm.r_acc;
+  }
+
+  SciReg _kAddMenu(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return vm.r_acc;
+    final title = vm.segManager.getString(argv[0]);
+    final content = vm.segManager.getString(argv[1]);
+    menuBar.addMenu(title, content);
+    onWindowsChanged?.call();
+    return vm.r_acc;
+  }
+
+  SciReg _kSetMenu(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 3) return vm.r_acc;
+    final packed = argv[0].toUint16();
+    final item = menuBar.itemAt(packed >> 8, packed & 0xFF);
+    if (item == null) return vm.r_acc;
+    for (var i = 1; i + 1 < argc; i += 2) {
+      final attr = argv[i].toUint16();
+      final value = argv[i + 1];
+      switch (attr) {
+        case 30: // enabled
+          item.enabled = value.toSint16() != 0;
+          break;
+        case 31: // checked
+          item.checked = value.toSint16() != 0;
+          break;
+        case 32: // text
+          item.label = value.isPointer
+              ? vm.segManager.getString(value)
+              : value.toUint16().toString();
+          break;
+      }
+    }
+    onWindowsChanged?.call();
+    return vm.r_acc;
+  }
+
+  SciReg _kGetMenu(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 2) return const SciReg.fromInt(0);
+    final packed = argv[0].toUint16();
+    final item = menuBar.itemAt(packed >> 8, packed & 0xFF);
+    if (item == null) return const SciReg.fromInt(0);
+    switch (argv[1].toUint16()) {
+      case 30:
+        return SciReg.fromInt(item.enabled ? 1 : 0);
+      case 31:
+        return SciReg.fromInt(item.checked ? 1 : 0);
+      default:
+        return const SciReg.fromInt(0);
+    }
+  }
+
+  SciReg _kMenuSelect(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1 || !menuBar.visible) return const SciReg.fromInt(0);
+    final ev = vm.segManager.getObject(argv[0]);
+    if (ev == null) return const SciReg.fromInt(0);
+    final x = ev.getProp(vm.segManager, selectors.x).toSint16();
+    final y = ev.getProp(vm.segManager, selectors.y).toSint16();
+    final type = ev.getProp(vm.segManager, selectors.type).toUint16();
+    if (type != SciEventType.mousePress && type != SciEventType.keyDown) {
+      return const SciReg.fromInt(0);
+    }
+    final menuId = menuBar.menuIdAt(x, y, getFont(0));
+    if (menuId == 0) return const SciReg.fromInt(0);
+    menuBar.openMenuId = menuId;
+    onWindowsChanged?.call();
+    // First enabled non-separator item (1-based).
+    final menu = menuBar.menus[menuId - 1];
+    for (var i = 0; i < menu.items.length; i++) {
+      if (!menu.items[i].isSeparator && menu.items[i].enabled) {
+        return SciReg.fromInt((menuId << 8) | (i + 1));
+      }
+    }
+    return const SciReg.fromInt(0);
+  }
 
   SciReg _kDrawStatus(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 1 && !argv[0].isNull) {
       final text = vm.segManager.getString(argv[0]);
       currentStatusLine = text;
+      menuBar.statusText = text;
+      if (argc >= 2) menuBar.statusPen = argv[1].toSint16();
+      if (argc >= 3) menuBar.statusBack = argv[2].toSint16();
       onDrawStatus?.call(text);
+      onWindowsChanged?.call();
     }
     return vm.r_acc;
+  }
+
+  SciReg _kSetCursor(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return vm.r_acc;
+    var cursorId = argv[0].toSint16();
+    if (argc >= 4) {
+      mouseX = argv[2].toSint16();
+      mouseY = argv[3].toSint16();
+    }
+    if (argc >= 2 && argv[1].toSint16() == 0) {
+      cursorId = -1;
+    }
+    if (cursorId < 0) {
+      cursorVisible = false;
+      onWindowsChanged?.call();
+      return vm.r_acc;
+    }
+    currentCursor = _loadCursor(cursorId);
+    cursorVisible = currentCursor != null;
+    onWindowsChanged?.call();
+    return vm.r_acc;
+  }
+
+  SierraCursor? _loadCursor(int id) {
+    if (_cursorCache.containsKey(id)) return _cursorCache[id];
+    if (volumeManager == null) return null;
+    try {
+      final bytes = volumeManager!.getResource(SciResourceType.cursor, id);
+      final c = SciCursorParser.parse(bytes, cursorNumber: id, isSci0: true);
+      _cursorCache[id] = c;
+      return c;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  SciReg _kGraph(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 1) return const SciReg.fromInt(0);
+    final sub = argv[0].toUint16();
+    switch (sub) {
+      case 7: // SaveBox
+        if (argc < 5) return const SciReg.fromInt(0);
+        final item = SciFillControl(
+          rect: ui.Rect.fromLTRB(
+            argv[2].toSint16().toDouble(),
+            argv[1].toSint16().toDouble(),
+            argv[4].toSint16().toDouble(),
+            argv[3].toSint16().toDouble(),
+          ),
+          color: 15,
+        );
+        return SciReg.fromInt(windowManager.addDisplay(item, saveUnder: true));
+      case 8: // RestoreBox
+        if (argc >= 2) {
+          windowManager.restoreDisplay(argv[1].toUint16());
+          onWindowsChanged?.call();
+        }
+        return vm.r_acc;
+      case 9: // FillBoxBackground
+      case 10: // FillBoxForeground
+      case 11: // FillBoxAny
+        if (argc < 5) return vm.r_acc;
+        final color = sub == 9
+            ? 15
+            : (sub == 10
+                ? 0
+                : (argc > 5 ? argv[5].toSint16() : 0));
+        windowManager.addDisplay(
+          SciFillControl(
+            rect: ui.Rect.fromLTRB(
+              argv[2].toSint16().toDouble(),
+              argv[1].toSint16().toDouble(),
+              argv[4].toSint16().toDouble(),
+              argv[3].toSint16().toDouble(),
+            ),
+            color: color.clamp(0, 15),
+          ),
+        );
+        onWindowsChanged?.call();
+        return vm.r_acc;
+      case 12: // UpdateBox
+      case 13: // RedrawBox
+        onWindowsChanged?.call();
+        return vm.r_acc;
+      case 14: // AdjustPriority
+        if (argc >= 3) {
+          initPriorityBands(
+            top: argv[1].toUint16(),
+            bottom: argv[2].toUint16(),
+          );
+        }
+        return vm.r_acc;
+      default:
+        return vm.r_acc;
+    }
   }
 
   // --- Parser & Vocabulary (Stage 11) ---

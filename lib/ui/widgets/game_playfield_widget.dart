@@ -260,7 +260,6 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                   ? SystemMouseCursors.none
                   : MouseCursor.defer,
               onHover: (event) {
-                if (!widget.showMouseCursor && !_session.showMouseCursor) return;
                 if (playfieldWidth > 0 && playfieldHeight > 0) {
                   final normX = event.localPosition.dx / playfieldWidth;
                   final normY = event.localPosition.dy / playfieldHeight;
@@ -269,6 +268,8 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                     (normX * profile.width).floorToDouble(),
                     (normY * profile.height).floorToDouble(),
                   );
+                  _session.handleMouseMove(next);
+                  if (!widget.showMouseCursor && !_session.showMouseCursor) return;
                   if (_mousePosition == next) return;
                   setState(() {
                     _mousePosition = next;

@@ -89,6 +89,9 @@ abstract class SierraGameSession implements Listenable {
   /// Dispatches a mouse click on the playfield (in native coordinates).
   void handleMouseClick(ui.Offset playfieldPos);
 
+  /// Updates the playfield mouse position (native coordinates). Default no-op.
+  void handleMouseMove(ui.Offset playfieldPos) {}
+
   /// Submits a typed command string from the user.
   void submitCommand(String command);
 

@@ -598,8 +598,14 @@ void main() {
         }
       }
 
-      expect(engine.sciWindows.isNotEmpty, isTrue, reason: 'Response message box should open');
-      final responseText = engine.sciWindows.last.controls.whereType<SciTextControl>().firstOrNull?.text;
+      expect(engine.kernel.windowManager.windowStack, isNotEmpty,
+          reason: 'Response message box should open');
+      final responseText = engine.sciWindows
+          .expand((w) => w.controls)
+          .whereType<SciTextControl>()
+          .map((c) => c.text)
+          .where((t) => t.toLowerCase().contains('car'))
+          .firstOrNull;
       expect(responseText, isNotNull);
       expect(responseText!.toLowerCase(), contains('car'));
 
@@ -607,10 +613,11 @@ void main() {
       engine.handleKeyPress(13, ascii: 13);
       for (int t = 0; t < 5; t++) {
         engine.tick();
-        if (engine.sciWindows.isEmpty) break;
+        if (engine.kernel.windowManager.windowStack.isEmpty) break;
       }
 
-      expect(engine.sciWindows.isEmpty, isTrue, reason: 'Dialog should be dismissed');
+      expect(engine.kernel.windowManager.windowStack, isEmpty,
+          reason: 'Dialog should be dismissed');
     });
 
     test('SciTextControl.wrapText splits long strings into multiple lines according to maxWidth', () {
