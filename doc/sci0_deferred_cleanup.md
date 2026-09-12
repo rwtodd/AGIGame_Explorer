@@ -30,7 +30,7 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 ## VM / game loop
 
-- **`Wait(0)` extra-pump is a 1s wall-clock budget after the first unthrottled wait.** Independent of room number (PQ2/LSL2 room 99, LSL3 290). If a title's speed test is longer than 1s, raise the budget rather than special-casing rooms.
+- **`Wait(0)` extra-pump is capped at 80 `doit`s (6 per host tick).** A tight 40ms spin produced machineSpeed 20000+; PQ2 scripts use that as `cycles` and Print/room changes stall for seconds. 80 is an AT-class rating (LSL3 `pcAT` is 39, `pc386` 69).
 
 ## Parser / Said leftovers
 

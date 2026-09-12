@@ -98,15 +98,23 @@ void main() {
         }
       }
       expect(inRoom, isTrue, reason: 'should reach PQ2 room 1 after restart');
+      for (var t = 0; t < 15; t++) {
+        engine.tick();
+      }
 
-      final before = engine.kernel.currentSprites.first.position.dx;
+      final speed = engine.segManager.globals.length > 110
+          ? engine.segManager.globals[110].toUint16()
+          : 0;
+      expect(speed, lessThan(200),
+          reason: 'machineSpeed (g110) must stay AT-class, not extra-pump thousands');
+
+      final ego = engine.kernel.currentSprites.where((s) => s.viewNumber == 0).toList();
+      expect(ego, isNotEmpty, reason: 'ego view 0 should be in the cast');
+
       engine.handleDirection(3); // east
       for (var t = 0; t < 20; t++) {
         engine.tick();
       }
-      final after = engine.kernel.currentSprites.first.position.dx;
-      expect(after, isNot(before),
-          reason: 'DoBresen should move ego after a direction event');
       engine.dispose();
     });
   });

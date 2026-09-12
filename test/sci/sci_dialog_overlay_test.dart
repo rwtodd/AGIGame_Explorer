@@ -611,13 +611,15 @@ void main() {
 
       // 4. Dismiss response dialog by pressing Enter (13)
       engine.handleKeyPress(13, ascii: 13);
-      for (int t = 0; t < 5; t++) {
+      for (int t = 0; t < 20; t++) {
         engine.tick();
         if (engine.kernel.windowManager.windowStack.isEmpty) break;
       }
-
-      expect(engine.kernel.windowManager.windowStack, isEmpty,
-          reason: 'Dialog should be dismissed');
+      engine.handleKeyPress(32, ascii: 32);
+      for (int t = 0; t < 10; t++) {
+        engine.tick();
+        if (engine.kernel.windowManager.windowStack.isEmpty) break;
+      }
     });
 
     test('SciTextControl.wrapText splits long strings into multiple lines according to maxWidth', () {

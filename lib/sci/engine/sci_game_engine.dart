@@ -250,7 +250,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
     _cycleCount = 0;
     _started = false;
-    _waitZeroPumpUntil = null;
+    _unthrottledWaitPumps = 0;
 
     atlasManager.clear();
     segManager.reset();
@@ -295,30 +295,27 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     notifyListeners();
   }
 
-  /// Extra-pump of `Wait(0)` for ~2s of wall clock after the first unthrottled
-  /// wait (speed test). After that, even if scripts leave speed at 0 (PQ2 intro),
-  /// we run one cycle per host tick. Independent of room number (LSL3 uses 290).
-  DateTime? _waitZeroPumpUntil;
+  /// Extra `Wait(0)` pumps during the boot speed test only.
+  ///
+  /// A real 8088/AT does ~20–80 `doit`s in the 1s GetTime window. Tight-looping
+  /// Wait(0) produced machineSpeed 20000+ (PQ2 g110), which scripts then use as
+  /// `cycles` / delay — Print and room changes take seconds. Cap at 6 pumps per
+  /// host tick and 80 total, then 20 Hz even if speed stays 0 (PQ2 intro).
+  int _unthrottledWaitPumps = 0;
 
   void _pumpVm() {
     if (vm.executionStack.isEmpty || vm.abortScriptProcessing) return;
-    final extraPump = kernel.lastWaitTicks == 0 &&
-        (_waitZeroPumpUntil == null ||
-            !DateTime.now().isAfter(_waitZeroPumpUntil!));
-    final sliceEnd = DateTime.now().add(
-      Duration(milliseconds: extraPump ? 40 : 12),
-    );
+    var pumpsThisTick = 0;
     try {
-      do {
+      while (true) {
         vm.yieldRequested = false;
         vm.runVm(100000, 0);
         if (!vm.yieldRequested) break;
         if (kernel.lastWaitTicks > 0) break;
-        _waitZeroPumpUntil ??= DateTime.now().add(const Duration(seconds: 2));
-        if (DateTime.now().isAfter(_waitZeroPumpUntil!)) break;
-      } while (!vm.abortScriptProcessing &&
-          vm.executionStack.isNotEmpty &&
-          DateTime.now().isBefore(sliceEnd));
+        _unthrottledWaitPumps++;
+        pumpsThisTick++;
+        if (_unthrottledWaitPumps > 80 || pumpsThisTick >= 6) break;
+      }
     } catch (e, st) {
       if (kernel.verboseLogging) {
         debugPrint('[SciEngine] ERROR in tick: $e\n$st');

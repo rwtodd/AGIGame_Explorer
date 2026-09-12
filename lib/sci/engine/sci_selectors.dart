@@ -76,6 +76,7 @@ class SciSelectors {
   int state = -1;
   int mode = -1;
   int max = -1;
+  int horizon = -1;
 
   SciSelectors();
 
@@ -174,6 +175,7 @@ class SciSelectors {
     state = findSelector('state') ?? -1;
     mode = findSelector('mode') ?? -1;
     max = findSelector('max') ?? -1;
+    horizon = findSelector('horizon') ?? -1;
   }
 
   /// Finds selector ID by name, or null if not found.
