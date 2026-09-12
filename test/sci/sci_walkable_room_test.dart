@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
@@ -72,6 +73,41 @@ void main() {
       final sonny = kernel.currentSprites.first;
       expect(sonny.viewNumber, isNonNegative);
       expect(sonny.baselineY, greaterThan(0));
+    });
+
+    test('restarted PQ2 room 1 lets ego x change after a direction event', () {
+      final pq2Dir = Directory('reference_games/police-quest-2');
+      if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+
+      final engine = SciGameEngine(
+        volumeManager: SciVolumeManager.fromDirectory(pq2Dir.path),
+      );
+      engine.initializeGame();
+      engine.restartGame();
+
+      var inRoom = false;
+      for (var t = 0; t < 120; t++) {
+        engine.tick();
+        if (engine.kernel.currentPic?.picNumber == 1 &&
+            engine.kernel.currentSprites.isNotEmpty) {
+          inRoom = true;
+          break;
+        }
+      }
+      expect(inRoom, isTrue, reason: 'should reach PQ2 room 1 after restart');
+
+      final before = engine.kernel.currentSprites.first.position.dx;
+      engine.handleDirection(3); // east
+      for (var t = 0; t < 20; t++) {
+        engine.tick();
+      }
+      final after = engine.kernel.currentSprites.first.position.dx;
+      expect(after, isNot(before),
+          reason: 'DoBresen should move ego after a direction event');
+      engine.dispose();
     });
   });
 }

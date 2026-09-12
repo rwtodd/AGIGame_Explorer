@@ -70,10 +70,15 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
   @override
   List<SciWindowOverlay> get sciWindows {
+    final font = kernel.getFont(0);
     final windows = kernel.windowManager.toOverlays(fontResolver: kernel.getFont);
-    final hud = kernel.menuBar.toOverlay(font: kernel.getFont(0));
-    if (hud == null) return windows;
-    return [hud, ...windows];
+    final hud = kernel.menuBar.toOverlay(font: font);
+    final drop = kernel.menuBar.dropdownOverlay(font: font);
+    return [
+      ?hud,
+      ?drop,
+      ...windows,
+    ];
   }
 
   @override

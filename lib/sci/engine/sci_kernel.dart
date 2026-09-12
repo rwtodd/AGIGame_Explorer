@@ -205,6 +205,7 @@ class SciKernel {
     currentCursor = null;
     cursorVisible = false;
     _cursorCache.clear();
+    suspendCallk = false;
     onWindowsChanged?.call();
   }
 
@@ -223,7 +224,12 @@ class SciKernel {
 
   String getKernelName(int id) => _entries[id]?.name ?? 'k_0x${id.toRadixString(16)}';
 
+  /// When true after a kernel call, the VM rewinds `callk` and yields so a
+  /// modal kernel (MenuSelect) can resume on the next tick.
+  bool suspendCallk = false;
+
   SciReg call(SciVM vm, int kernelId, int argc, List<SciReg> argv) {
+    suspendCallk = false;
     final entry = _entries[kernelId];
     SciReg result;
     if (entry != null) {
@@ -1484,27 +1490,86 @@ class SciKernel {
   }
 
   SciReg _kMenuSelect(SciVM vm, int argc, List<SciReg> argv) {
-    if (argc < 1 || !menuBar.visible) return const SciReg.fromInt(0);
-    final ev = vm.segManager.getObject(argv[0]);
-    if (ev == null) return const SciReg.fromInt(0);
-    final x = ev.getProp(vm.segManager, selectors.x).toSint16();
-    final y = ev.getProp(vm.segManager, selectors.y).toSint16();
-    final type = ev.getProp(vm.segManager, selectors.type).toUint16();
-    if (type != SciEventType.mousePress && type != SciEventType.keyDown) {
+    if (argc < 1 || !menuBar.visible || menuBar.menus.isEmpty) {
       return const SciReg.fromInt(0);
     }
-    final menuId = menuBar.menuIdAt(x, y, getFont(0));
-    if (menuId == 0) return const SciReg.fromInt(0);
-    menuBar.openMenuId = menuId;
-    onWindowsChanged?.call();
-    // First enabled non-separator item (1-based).
-    final menu = menuBar.menus[menuId - 1];
-    for (var i = 0; i < menu.items.length; i++) {
-      if (!menu.items[i].isSeparator && menu.items[i].enabled) {
-        return SciReg.fromInt((menuId << 8) | (i + 1));
+    final font = getFont(0);
+    if (menuBar.openMenuId == null) {
+      final ev = vm.segManager.getObject(argv[0]);
+      final type = ev?.getProp(vm.segManager, selectors.type).toUint16() ?? 0;
+      final msg = ev?.getProp(vm.segManager, selectors.message).toUint16() ?? 0;
+      final x = ev?.getProp(vm.segManager, selectors.x).toSint16() ?? 0;
+      final y = ev?.getProp(vm.segManager, selectors.y).toSint16() ?? 0;
+      var menuId = 0;
+      if (type == SciEventType.mousePress) {
+        menuId = menuBar.menuIdAt(x, y, font);
+      } else if (type == SciEventType.keyDown && (msg == 27 || msg == 0x1b)) {
+        menuId = 1;
       }
+      if (menuId == 0) return const SciReg.fromInt(0);
+      menuBar.openMenu(menuId);
+      onWindowsChanged?.call();
     }
+
+    final result = _menuSelectConsumeQueue(font);
+    if (result != null) {
+      menuBar.closeMenu();
+      onWindowsChanged?.call();
+      return SciReg.fromInt(result);
+    }
+    suspendCallk = true;
+    vm.yieldRequested = true;
+    onWindowsChanged?.call();
     return const SciReg.fromInt(0);
+  }
+
+  int? _menuSelectConsumeQueue(SierraFont? font) {
+    while (eventQueue.isNotEmpty) {
+      final ev = eventQueue.removeAt(0);
+      final picked = _menuSelectHandleEvent(ev, font);
+      if (picked != null) return picked;
+    }
+    return null;
+  }
+
+  /// `null` = keep waiting; `0` = cancel; `>0` = packed menu/item id.
+  int? _menuSelectHandleEvent(SciInputEvent ev, SierraFont? font) {
+    final openId = menuBar.openMenuId;
+    if (openId == null) return 0;
+    if (ev.type == SciEventType.keyDown) {
+      switch (ev.message) {
+        case 27:
+          return 0;
+        case 13:
+          return menuBar.packedSelection(openId, menuBar.highlightedItemId) ?? 0;
+        case 0x4800: // up
+          menuBar.moveHighlight(-1);
+          return null;
+        case 0x5000: // down
+          menuBar.moveHighlight(1);
+          return null;
+        case 0x4B00: // left
+          if (openId > 1) menuBar.openMenu(openId - 1);
+          return null;
+        case 0x4D00: // right
+          if (openId < menuBar.menus.length) menuBar.openMenu(openId + 1);
+          return null;
+      }
+      return null;
+    }
+    if (ev.type == SciEventType.mousePress) {
+      final onTitle = menuBar.menuIdAt(ev.x, ev.y, font);
+      if (onTitle != 0) {
+        menuBar.openMenu(onTitle);
+        return null;
+      }
+      final itemId = menuBar.itemIdAt(ev.x, ev.y, font);
+      if (itemId != 0) {
+        return menuBar.packedSelection(openId, itemId) ?? 0;
+      }
+      return 0;
+    }
+    return null;
   }
 
   SciReg _kDrawStatus(SciVM vm, int argc, List<SciReg> argv) {
@@ -1558,6 +1623,17 @@ class SciKernel {
     if (argc < 1) return const SciReg.fromInt(0);
     final sub = argv[0].toUint16();
     switch (sub) {
+      case 4: // DrawLine  y0 x0 y1 x1 color [pri] [control]
+        if (argc < 6) return vm.r_acc;
+        windowManager.addDisplay(
+          SciLineControl(
+            p0: ui.Offset(argv[2].toSint16().toDouble(), argv[1].toSint16().toDouble()),
+            p1: ui.Offset(argv[4].toSint16().toDouble(), argv[3].toSint16().toDouble()),
+            color: argv[5].toSint16().clamp(0, 15),
+          ),
+        );
+        onWindowsChanged?.call();
+        return vm.r_acc;
       case 7: // SaveBox
         if (argc < 5) return const SciReg.fromInt(0);
         final item = SciFillControl(

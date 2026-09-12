@@ -36,6 +36,7 @@ class SciMenuBar {
   int statusPen = 0;
   int statusBack = 15;
   int? openMenuId;
+  int highlightedItemId = 1;
 
   void reset() {
     menus.clear();
@@ -44,6 +45,79 @@ class SciMenuBar {
     statusPen = 0;
     statusBack = 15;
     openMenuId = null;
+    highlightedItemId = 1;
+  }
+
+  void openMenu(int menuId) {
+    if (menuId < 1 || menuId > menus.length) return;
+    openMenuId = menuId;
+    highlightedItemId = _firstEnabledItem(menus[menuId - 1]);
+  }
+
+  void closeMenu() {
+    openMenuId = null;
+    highlightedItemId = 1;
+  }
+
+  int _firstEnabledItem(SciMenu menu) {
+    for (var i = 0; i < menu.items.length; i++) {
+      if (!menu.items[i].isSeparator && menu.items[i].enabled) return i + 1;
+    }
+    return 1;
+  }
+
+  void moveHighlight(int delta) {
+    final id = openMenuId;
+    if (id == null) return;
+    final items = menus[id - 1].items;
+    if (items.isEmpty) return;
+    var idx = highlightedItemId;
+    for (var n = 0; n < items.length; n++) {
+      idx += delta;
+      if (idx < 1) idx = items.length;
+      if (idx > items.length) idx = 1;
+      final item = items[idx - 1];
+      if (!item.isSeparator && item.enabled) {
+        highlightedItemId = idx;
+        return;
+      }
+    }
+  }
+
+  /// Packed Sierra menu result, or null if [itemId] is not selectable.
+  int? packedSelection(int menuId, int itemId) {
+    final item = itemAt(menuId, itemId);
+    if (item == null || item.isSeparator || !item.enabled) return null;
+    return (menuId << 8) | itemId;
+  }
+
+  /// Hit-test a dropdown item. Returns 1-based item id or 0.
+  int itemIdAt(int x, int y, SierraFont? font) {
+    final id = openMenuId;
+    if (id == null) return 0;
+    final menu = menus[id - 1];
+    final drop = _dropdownRect(font);
+    if (!drop.contains(Offset(x.toDouble(), y.toDouble()))) return 0;
+    final row = ((y - drop.top) / 10).floor();
+    if (row < 0 || row >= menu.items.length) return 0;
+    return row + 1;
+  }
+
+  Rect _dropdownRect(SierraFont? font) {
+    final id = openMenuId!;
+    var cx = 8.0;
+    for (final menu in menus) {
+      final w = (font?.measureTextWidth(menu.title) ?? menu.title.length * 8) + 8;
+      if (menu.id == id) {
+        final menuW = menu.items.fold<int>(w.toInt(), (m, it) {
+          final iw = (font?.measureTextWidth(it.label) ?? it.label.length * 8) + 16;
+          return iw > m ? iw : m;
+        });
+        return Rect.fromLTWH(cx, 10, menuW.toDouble(), menu.items.length * 10.0);
+      }
+      cx += w;
+    }
+    return const Rect.fromLTWH(8, 10, 80, 40);
   }
 
   /// Parses Sierra `AddMenu` content (`label\`key:label2:…`).
@@ -125,6 +199,43 @@ class SciMenuBar {
       hasDropShadow: false,
       showChrome: true,
       showFrame: false,
+      controls: controls,
+    );
+  }
+
+  /// Pull-down list under the open menu title, or null.
+  SciWindowOverlay? dropdownOverlay({SierraFont? font}) {
+    final id = openMenuId;
+    if (id == null || !visible) return null;
+    final menu = menus[id - 1];
+    final drop = _dropdownRect(font);
+    final controls = <SciControlItem>[];
+    for (var i = 0; i < menu.items.length; i++) {
+      final item = menu.items[i];
+      final row = Rect.fromLTWH(1, 1.0 + i * 10, drop.width, 10);
+      if (item.isSeparator) {
+        controls.add(SciFillControl(rect: row, color: 7));
+        continue;
+      }
+      final hi = (i + 1) == highlightedItemId;
+      controls.add(SciTextControl(
+        rect: row,
+        text: item.checked ? '*${item.label}' : item.label,
+        colorPen: hi ? 15 : 0,
+        colorBack: hi ? 0 : 15,
+        font: font,
+      ));
+    }
+    return SciWindowOverlay(
+      id: 0,
+      rect: Rect.fromLTWH(drop.left - 1, drop.top - 1, drop.width + 2, drop.height + 2),
+      colorPen: 0,
+      colorBack: 15,
+      priority: 15,
+      font: font,
+      hasDropShadow: true,
+      showChrome: true,
+      showFrame: true,
       controls: controls,
     );
   }

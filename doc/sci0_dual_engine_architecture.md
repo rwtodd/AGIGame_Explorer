@@ -16,7 +16,7 @@ Leftover nits (do not block the VM): [sci0_deferred_cleanup.md](sci0_deferred_cl
 | Engine relationship | **Sibling engines** (`agi` and `sci`) behind a thin session facade | VMs are unrelated; graphics are not |
 | Shared code | **Graphics kernel + audio sinks + UI chrome** | Both are 320×200 EGA with 16 depth bands |
 | AGI rename | **Not in this phase** | Working AGI must stay green; extract as SCI needs it |
-| First SCI title | Police Quest 2 (SCI0 late) | Game data linked under `reference_games/police-quest-2/` |
+| First SCI title | Police Quest 2 (SCI0 late) | `reference_games/police-quest-2/`. Also linked: LSL2/3, SQ3, ICEMAN, Colonel's Bequest, Camelot, KQ4 SCI, QFG1/2. See [sci0_reference_index.md](sci0_reference_index.md). |
 | 16-color SCI scope | SCI0 + SCI01 + SCI1 EGA (QFG2) | Same pic/view model; QFG2 differs in compression/kernel |
 | VGA SCI1+ | Out of scope | Bitmap pics, 256-color palettes, point-and-click UI |
 | Control vs priority | SCI keeps a **third buffer**; do not pack it into priority | Matches Sierra/ScummVM; slicing stays 16 visual layers |

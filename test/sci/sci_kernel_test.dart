@@ -8,6 +8,7 @@ import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/sci/script/sci_script.dart';
 import 'package:flutter_agigame/sci/view/sci_view.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 
 void main() {
   group('SciKernel Tests', () {
@@ -249,6 +250,56 @@ void main() {
       expect(kernel.lastWaitTicks, 0);
       kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
       expect(kernel.lastWaitTicks, 6);
+    });
+
+    test('MenuSelect opens a dropdown and selects on a second click', () {
+      final title = segMan.allocString('File');
+      final items = segMan.allocString('About`^a:Quit`^q:');
+      kernel.call(vm, 0x22, 2, [title, items]);
+      kernel.call(vm, 0x20, 1, [const SciReg.fromInt(1)]);
+
+      final ev = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x70),
+        variables: List<SciReg>.generate(10, (i) => const SciReg.fromInt(0)),
+        baseVars: List<int>.generate(10, (i) => i),
+      );
+      kernel.selectors.type = 0;
+      kernel.selectors.message = 1;
+      kernel.selectors.x = 5;
+      kernel.selectors.y = 4;
+      ev.variables[0] = const SciReg.fromInt(SciEventType.mousePress);
+      ev.variables[5] = const SciReg.fromInt(12);
+      ev.variables[4] = const SciReg.fromInt(4);
+      segMan.clones[0x70] = ev;
+
+      final first = kernel.call(vm, 0x21, 1, [ev.pos]);
+      expect(first.toUint16(), 0);
+      expect(kernel.suspendCallk, isTrue);
+      expect(kernel.menuBar.openMenuId, 1);
+      expect(kernel.menuBar.dropdownOverlay(), isNotNull);
+
+      kernel.postMouseEvent(SciEventType.mousePress, 16, 15);
+      final picked = kernel.call(vm, 0x21, 1, [ev.pos]);
+      expect(kernel.suspendCallk, isFalse);
+      expect(picked.toUint16(), (1 << 8) | 1); // File / About
+      expect(kernel.menuBar.openMenuId, isNull);
+    });
+
+    test('kGraph DrawLine adds a line overlay', () {
+      kernel.call(vm, 0x70, 6, [
+        const SciReg.fromInt(4),
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(50),
+        const SciReg.fromInt(80),
+        const SciReg.fromInt(4),
+      ]);
+      final overlays = kernel.windowManager.toOverlays();
+      expect(overlays, isNotEmpty);
+      expect(
+        overlays.last.controls.whereType<SciLineControl>(),
+        isNotEmpty,
+      );
     });
 
     test('AddMenu and DrawMenuBar populate the 10px strip overlay', () {

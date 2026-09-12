@@ -43,11 +43,22 @@ Paths relative to `reference_docs/scummvm_sci-2026-09/`.
 
 ## Local game data (not in this repo)
 
+Volumes live under gitignored `reference_games/`. LSL2/3 *source* is also in `reference_docs/original_sierra_sci_src/`.
+
 | Game | Path | Notes |
 |---|---|---|
-| Police Quest 2 | `reference_games/police-quest-2/` | **First playable target.** SCI0 late. `RESOURCE.MAP` + `RESOURCE.001`–`003`. |
-| Quest for Glory 2 | `reference_games/quest-for-glory-2/` | SCI1 EGA (`SCI_VERSION_1_EGA_ONLY`). Same 16-color vector pics, different compression. |
-| LSL2 / LSL3 / QFG1 EGA volumes | — | Not linked at harvest. LSL2/3 *source* is in `reference_docs/original_sierra_sci_src/`. |
+| Police Quest 2 | `reference_games/police-quest-2/` | **First playable target.** SCI0 late. |
+| Leisure Suit Larry 2 | `reference_games/lsl-2/` | SCI0 late. Stage 19 portability (room-99 speed test, different scripts). |
+| Leisure Suit Larry 3 | `reference_games/lsl-3/` | SCI0 late. Speed test is **room 290**, not 99. |
+| Space Quest III | `reference_games/space-quest-3/` | SCI0 late. FileIO / Graph coverage. |
+| Codename: ICEMAN | `reference_games/codename-iceman/` | SCI0 late. |
+| The Colonel's Bequest | `reference_games/colonels-bequest/` | SCI0 late. |
+| Conquests of Camelot | `reference_games/conquests-of-camelot/` | SCI0 late. |
+| King's Quest IV (SCI) | `reference_games/kings-quest-4-sci/` | SCI0 **early** (unshifted kernel IDs). Distinct from `kings-quest-4-agi/`. |
+| Quest for Glory 1 EGA | `reference_games/quest-for-glory-1/` | SCI01 / SCI1-EGA stepping stone. |
+| Quest for Glory 2 | `reference_games/quest-for-glory-2/` | SCI1 EGA. LZW1 + `paletteOffset`. Stage 17. |
+
+AGI titles in the same folder (KQ1–3, KQ4 AGI, PQ1, SQ1–2, Black Cauldron) stay on the AGI engine.
 
 ## Web sources that fetched cleanly
 

@@ -521,6 +521,14 @@ class SciVM {
               obs.onKernelCall(kernelNr, kernel.getKernelName(kernelNr), callkArgc, argv, res);
             }
           }
+          if (kernel.suspendCallk) {
+            push(SciReg.fromInt(callkArgc));
+            for (final arg in argv) {
+              push(arg);
+            }
+            frame.pc = frame.pc - instr.length;
+            yieldRequested = true;
+          }
           break;
 
         case 0x22: // callb (call base script 0)

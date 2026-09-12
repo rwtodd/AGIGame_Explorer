@@ -14,8 +14,10 @@ Reference engines, specifications, and test game data are kept in the primary re
 - **Reference Java Parser**: `/Users/rtodd/src/org.rwtodd.agi`
   - User's prior modular Java implementation for AGI v2 and v3 parsing.
 - **Reference Game Assets (for testing)**: `/Users/rtodd/src/flutter_agigame/reference_games/` (gitignored)
-  - AGI: `black-cauldron/`, `kings-quest-1-agi/`, `kings-quest-2/`, `kings-quest-3/`, `kings-quest-4-agi/`, `police-quest-1/`, `space-quest-1/`, `space-quest-2/`
-  - SCI `police-quest-2`, `quest-for-glory-2`.
+  - **AGI:** `black-cauldron/`, `kings-quest-1-agi/`, `kings-quest-2/`, `kings-quest-3/`, `kings-quest-4-agi/`, `police-quest-1/`, `space-quest-1/`, `space-quest-2/`
+  - **SCI0 late (16-color, FileIO-shifted kernel):** `police-quest-2/` (first playable target), `lsl-2/`, `lsl-3/` (speed test is room 290), `space-quest-3/`, `codename-iceman/`, `colonels-bequest/`, `conquests-of-camelot/`
+  - **SCI0 early:** `kings-quest-4-sci/` (unshifted kernel IDs / pic-port; not the AGI original)
+  - **SCI01 / SCI1-EGA:** `quest-for-glory-1/`, `quest-for-glory-2/` (LZW1, `paletteOffset`; Stage 17)
 
 ---
 

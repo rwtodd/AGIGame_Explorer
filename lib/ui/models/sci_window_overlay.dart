@@ -233,6 +233,31 @@ class SciTextControl extends SciControlItem {
   }
 }
 
+/// Line used by `kGraph` DrawLine.
+class SciLineControl extends SciControlItem {
+  final Offset p0;
+  final Offset p1;
+  final int color;
+
+  SciLineControl({required this.p0, required this.p1, required this.color})
+      : super(rect: Rect.fromPoints(p0, p1).inflate(1));
+
+  @override
+  void paint(
+    Canvas canvas, {
+    required Offset windowTopLeft,
+    SierraFont? defaultFont,
+    int defaultColorPen = 0,
+    int defaultColorBack = 15,
+  }) {
+    final paint = Paint()
+      ..color = EgaColors.palette[color.clamp(0, 15)]
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(windowTopLeft + p0, windowTopLeft + p1, paint);
+  }
+}
+
 /// Solid rectangle used by `kGraph` FillBox.
 class SciFillControl extends SciControlItem {
   final int color;
