@@ -1,8 +1,8 @@
 # SCI0 deferred cleanup
 
-Nits noticed while landing pictures, views, fonts, cursors, the compositor, and the VM skeleton. None of these block Stage 10 (Kernel Animate & Ego Motion). Do **not** start a drive-by cleanup pass unless a bug forces it.
+Nits noticed while landing pictures, views, fonts, cursors, the compositor, the VM, parser, and dialogs. None of these block Stage 13 (playable first PQ2 room). Do **not** start a drive-by cleanup pass unless a bug forces it.
 
-Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–9 done; Stage 10 Animate & Ego Motion next).
+Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §8 (stages 1–12 done; Stage 13 walkable room next).
 
 ## Pictures / raster
 
@@ -49,18 +49,18 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 - **Launcher `copyWith` sentinel** for `sciVolumeManager` is already fixed; keep using `_unset`, never `??`.
 - **VGA-in-EGA views** (`flags == 0x80`) and **SCI1.1 views** (`version == 1`) should keep failing closed in the EGA parser.
 
-## Roadmap mapping for remaining items (Stages 10–15)
+## Roadmap mapping for remaining items (Stages 13–20)
 
-- **Stage 10 (Kernel Animate & Ego Motion)**:
-  - `SierraGameSession` / `GameScreen(SierraGameSession)` session facade.
-  - `FE 08` priority-band table parsing and dynamic priority mapping.
-  - Actor `nsTop`/`nsLeft`/`nsBottom`/`nsRight` coordinate bounding boxes.
-- **Stage 11 (Text Parser & Menu Bar)**:
-  - Status bar and menu bar item hit-testing.
-- **Stage 12 (Dialog Windows & Typography)**:
-  - SaveBits/RestoreBits as an overlay *stack* (`kNewWindow` / `kDisposeWindow`).
-  - Kernel `TextWidth` / `GetLongest` and `|c` / `|f` tokenization.
-  - High-res Font 0/1 substitution (video setting; fonts ≥ 2 stay bitmap).
-  - Hit-testing on overlay controls.
-- **Stage 15 (QFG2 & SCI1-EGA)**:
-  - QFG2 SCI1-EGA gray cursors and view `paletteOffset` 8×16 translation.
+- **Stage 13 (Playable first PQ2 room)**:
+  - Menu bar + 10px status strip; `kGraph`; SetCursor; mouse events; window hit-test.
+  - `FE 08` priority-band tables; portable Wait(0) extra-pump (not room 99).
+- **Stage 14 (VOCAB.900 GNF)**:
+  - Real Said tree; `syntaxFail` on GNF failure.
+- **Stage 15 (FileIO / save / inventory)**:
+  - FOpen family; kSaveGame/kRestoreGame; `gInventory showSelf:`.
+- **Stage 16 (SCI0 audio)**:
+  - Sequencer + Tandy/OPL3 into existing PCM sinks.
+- **Stage 17 (QFG2)**:
+  - LZW1; view `paletteOffset` 8×16; SCI1-EGA gray cursors.
+- **Stage 20 (Workbench)**:
+  - Overlay `==` / `toOverlays` cache; `|c`/`|f` / GetLongest; hi-res Font 0/1 as a setting.

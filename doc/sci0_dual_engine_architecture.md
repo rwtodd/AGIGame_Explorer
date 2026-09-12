@@ -7,7 +7,7 @@ Font & typography architecture: [sci0_fonts_and_text_architecture.md](sci0_fonts
 References: [sci0_reference_index.md](sci0_reference_index.md).  
 Leftover nits (do not block the VM): [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
 
-**Progress (branch `sci0`):** stages 1–4 and launcher detection are done. Next is FONT (parser + Font Browser), then CURSOR, then compositor decoupling. See [§8](#8-roadmap-status-branch-sci0).
+**Progress (branch `sci0`):** stages 1–12 are in. PQ2 boots, plays the intro, parses commands, and draws modal Print/GetInput windows. Next is a **walkable first room** (menu bar, cursor, Graph, ego motion in a real room) — not save/audio/QFG2. See [§8](#8-roadmap-status-branch-sci0).
 
 ## 1. Decision summary
 
@@ -107,40 +107,22 @@ class DisplayProfile {
 
 `PictureSlicer.slice` takes `DisplayProfile` (or `horizontalDouble` and `scanControlLines`) instead of hardcoding `AgiDisplay` constants and downward column scans. AGI tests must stay pixel-identical.
 
-## 4. Session facade (still later — when SCI can tick a room)
+## 4. Session facade — done
 
-Today `GameScreen` / `LauncherScreen` take `AgiGameEngine` and `AgiResourceLoader` concretely. When SCI can boot a room, introduce a narrow interface the UI already almost uses:
+`SierraGameSession` is implemented by `AgiGameEngine` and `SciGameEngine`. `GameScreen` / `GamePlayfieldWidget` take the session. Do **not** put kernel/VM types on this interface.
 
-```dart
-abstract class SierraGameSession {
-  DisplayProfile get display;
-  Listenable get frameListenable;
-  Map<int, PictureSlice>? get pictureSlices;
-  List<PlayfieldActorSprite> get actors;
-  String get statusLine;
-  String get promptLine;
-  Future<void> tick();
-  void handleDirection(int dir);
-  void submitCommand(String text);
-}
-```
-
-AGI implements it with the existing engine. SCI implements it with kernel `Animate` output. The compositor stays engine-agnostic: slices + actor sprites + window overlay + CRT.
+The compositor stays engine-agnostic: slices + actor sprites + window overlay + CRT.
 
 **Dialog boxes and windows:**
 SCI dialogs, message boxes, and text controls (`kNewWindow`, `kDrawControl`) are drawn using bitmap `FONT` resources (resource type 7). They are rendered as a **top-level overlay pass** on top of the 16 composited slices rather than burning into the visual buffer (which would force an expensive full 16-slice reslice on every keystroke or cursor blink).
 
-Do **not** put kernel/VM types on this interface.
-
 ## 5. Launcher detection — done
 
-`LauncherNotifier.scanDirectory` forks on `RESOURCE.MAP` (case-insensitive) vs AGI (`AGIDATA.OVL` / `*DIR`). SCI shows resource counts and opens Pic / View browsers. Remaining tiles (Font, Cursor, Sound, Text, Vocab, Script) get `onTap` when that parser exists — not a separate launcher PR.
+`LauncherNotifier.scanDirectory` forks on `RESOURCE.MAP` (case-insensitive) vs AGI (`AGIDATA.OVL` / `*DIR`). SCI shows resource counts and opens Pic, View, Font, Cursor, and Script browsers.
 
 | AGI | SCI0 |
 |---|---|
 | Logic, Picture, View, Sound, Objects, Words | Script, Picture, View, Sound, Text, Vocab, Font, Cursor |
-
-Script disassembly still waits for the VM.
 
 ## 6. SCI module sketch
 
@@ -153,9 +135,9 @@ lib/sci/
   view/       DONE  sci_view, sci_view_parser (kViewEga)
   font/       DONE  sci_font, sci_font_parser + Font Browser
   cursor/     DONE  sci_cursor, sci_cursor_parser + Cursor Browser
-  engine/     NEXT  vm, kernel, object heap
-  parser/     LATER vocab, said
-  sound/      LATER sequencer, tandy, opl3, munt
+  engine/     DONE  vm, kernel, window manager, game session
+  parser/     DONE  vocab.000, said heuristic (GNF still later)
+  sound/      PARTIAL  kDoSound cues; no PCM sequencer yet
 ```
 
 `SciPic` holds three `Uint8List`s plus the dithered visual used for slicing, and exposes the same `Map<int, PictureSlice>` the painter already consumes.
@@ -174,15 +156,17 @@ lib/sci/
 | Dialog boxes burn into visual buffer | `lib/ui/screens/game/game_screen.dart` | **Done.** `SciWindowOverlay` pass renders on top of composited slices without GPU slice invalidation. |
 | In-game fonts assume 8×8 monospace | `lib/ui/widgets/agi_picture_canvas.dart` | **Done.** `SciWindowOverlay` uses `SierraFont` bitmap text rendering. |
 | No mouse pointer support | `lib/ui/widgets/game_playfield_widget.dart` | **Done.** Custom in-game Sierra cursor rendering and mouse tracking in `PlayfieldPainter` and `GamePlayfieldWidget`. |
-| GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Still coupled.** Session facade when SCI can tick a room (Stage 10). |
+| GameScreen(AgiGameEngine) | `lib/ui/screens/game/game_screen.dart` | **Done.** `GameScreen(SierraGameSession)`. AGI-only menu/inventory paths remain behind `_agiEngine`. |
 | `AgiResourceLoader.fromDirectory` | `lib/loader/resource_loader.dart` | **Done.** Detection fork is in the launcher, not this class. |
 | Dither mode hardcoded | `lib/ui/widgets/av_settings_dialog.dart` | **Partial.** Toggle exists in settings; nothing reads it yet. See [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md). |
 
 ## 8. Roadmap status (branch `sci0`)
 
-Pattern that has worked and should continue: **parse the resource, put it behind a shared interface, open a diagnostic browser.** Do not wait for the VM. Do not rename every `Agi*` class. Extract (`DisplayProfile`, `SierraPicture`, `SierraView`) when the SCI feature needs it.
+Pattern that has worked and should continue: **parse the resource, put it behind a shared interface, open a diagnostic browser.** Do not rename every `Agi*` class. Extract (`DisplayProfile`, `SierraPicture`, `SierraView`) when the SCI feature needs it.
 
 Each remaining stage independently reviewable; AGI tests green throughout. SCI-only work is `flutter test test/sci/`. Shared graphics (atlas, compositor, slicer) runs both suites.
+
+**Why the remaining order changed.** Stages 10–12 landed as a playable *intro* plus parser/dialogs, not as a walkable game. Save, AdLib, QFG2, and MT-32 do not unblock “Sonny walks around the station and types `look locker`.” The next stage is that room. Parser GNF is its own stage because it is large and you need a room to test it. A second SCI0 title (LSL2) sits after PQ2 is a game, so we catch PQ2-shaped assumptions (room-99 speed test, kernel IDs) before QFG2.
 
 | # | Stage | Status | Deliverables / Milestone |
 |---|---|---|---|
@@ -191,127 +175,86 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 | 3 | SCI pic interpreter + Pic Browser | **Done.** | Three 320×200 maps, dither / undithered, vector replay. |
 | 4 | SCI view parser + atlas + View Browser | **Done.** | `kViewEga`, `SierraView`, atlas packs native pixels, `pixelScaleX` 1. |
 | 5 | FONT parser + Font Browser | **Done.** | Authentic 1-bit glyphs, PQ2 SYSFONT/USERFONT in workbench. |
-| 6 | CURSOR parser + Cursor Browser | **Done.** | 68-byte `CURSOR` (type 8), `SierraCursor` domain interface, workbench Cursor Browser with live sandbox. |
-| 7 | Launcher detection + workbench | **Done.** | Remaining tiles (`onTap`) ship with stages 5, 6, sound, VM. |
-| 8 | Compositor: `PlayfieldPainter`, `PlayfieldActorSprite`, window overlay | **Done.** | Actor `scaleX` / displacement / elevation `z`; `SciWindowOverlay` pass; in-game cursor overlay; `sciEnableDithering` setting. |
-| 9 | SCI VM skeleton + PMachine pipeline | **Done.** | PMachine VM (128 opcodes), SegManager, VOCAB.996/997, 0x00..0x71 kernel table, SciVmObserver hooks, PQ2 boot test. |
-| 10 | Kernel `Animate`, Ego Motion & Game Session Facade | **Next.** | First walkable PQ2 room! Real-time cast drawing, room lifecycle, input events, barrier collision, `SierraGameSession`. |
-| 11 | Text Parser, `Said` Matcher, Command Prompt & Menu Bar | Planned. | `VOCAB.000` tokenizer, `kParse`, `kSaid` bytecode matcher, `kDrawStatus`, interactive text prompt, top menu bar. |
-| 12 | Dialog Windows, Text Layout, Controls & Hi-Res Typography | Planned. | `kNewWindow`, `kDisposeWindow`, `kDrawControl`, `kTextWidth`, modal dialog overlays, closed-loop vector Font 0/1. |
-| 13 | Save/Load State & Inventory System | Planned. | SCI heap serialization, `kSaveGame`/`kRestoreGame`, item inspection dialogs, Tab inventory browser. |
-| 14 | SCI0 Audio Tier 1 & 2 (Tandy 3-Voice & OPL3 FM Synthesis) | Planned. | SCI0 MIDI sequencer, `PcmSynthesizer` Tandy playback, AdLib/OPL3 2-op FM synth, shared PCM sinks. |
-| 15 | QFG2 Support (`kCompLZW1` Decompression & SCI1-EGA Views) | Planned. | 1.5-pass LZW1 decompression, `paletteOffset` 8×16 EGA color mapping, QFG2 room exploration. |
-| 16 | Roland MT-32 Synthesis via Munt (`libmt32emu`) | Planned. | Native C/C++ asset via Dart Native Assets, user ROM loader, 32kHz studio orchestral playback. |
+| 6 | CURSOR parser + Cursor Browser | **Done.** | 68-byte `CURSOR` (type 8), `SierraCursor`, Cursor Browser sandbox. |
+| 7 | Launcher detection + workbench | **Done.** | Engine fork; Pic/View/Font/Cursor/Script tiles. |
+| 8 | Compositor: painter, sprites, window overlay | **Done.** | Displacement / `z`; overlay windows; cursor overlay. |
+| 9 | SCI VM skeleton + PMachine pipeline | **Done.** | 128 opcodes, SegManager, VOCAB.996/997, kernel table, PQ2 boot. |
+| 10 | `Animate`, ego motion, `SierraGameSession` | **Done.** | Cast sprites, DrawPic/SetNowSeen/CanBeHere/OnControl, Wait, Bresen, session facade, PQ2 intro. Leftovers: FE 08 bands, portable Wait(0) pump. |
+| 11 | Text parser, Said, command prompt | **Done.** | VOCAB.000, kParse/kSaid/kSetSynonyms/kDrawStatus, GetInput loop. Leftovers: menu bar, VOCAB.900 GNF (→ 13 / 14). |
+| 12 | Dialog windows, controls, wrapping | **Done.** | NewWindow/DrawControl/EditControl/Display/TextSize, inner port, GlobalToLocal. Leftovers: `|c`/`|f`, GetLongest, Graph, hi-res Font 0/1. |
+| 13 | Playable first PQ2 room | **Next.** | Menu bar + status strip, SetCursor, Graph, mouse events, window hit-test, walk a real room, type `look`. |
+| 14 | VOCAB.900 GNF Said matcher | Planned. | Port ScummVM `parser/grammar.cpp` + `parser/said.cpp`. Heuristic matcher stays until this lands. |
+| 15 | FileIO, save/load, inventory | Planned. | FOpen/FGets, kSaveGame/kRestoreGame, `gInventory showSelf:`. |
+| 16 | SCI0 audio (Tandy + OPL3) | Planned. | Hearable `kDoSound`: sequencer into existing PCM sinks. |
+| 17 | QFG2 SCI1-EGA | Planned. | LZW1 volumes, `paletteOffset` 8×16, QFG2 boot. After PQ2 is a game. |
+| 18 | Roland MT-32 via Munt | Planned. | Native asset + user ROMs. Last audio tier. |
+| 19 | Second SCI0 title (LSL2) | Planned. | Portability check: not room 99, not PQ2 script numbers. |
+| 20 | Workbench & debug depth | Planned. | Overlay cache/`==`, script send from inspector, Graph debug, `|c`/`|f` if still open. |
 
 ---
 
-### 8.1 Detailed Roadmap for Upcoming Stages
+### 8.1 Detailed roadmap for upcoming stages
 
-#### Stage 10: Kernel `Animate`, Ego Motion & Game Session Facade (Active Next Step)
-- **Goal**: Render the first walkable room in Police Quest 2 directly in `GameScreen` using `SierraGameSession`.
-- **Key Deliverables**:
-  1. **Kernel `Animate(cast, cycle)` (`0x0B`)**:
-     - Iterates through the `cast` list from `SciSegManager` (`SciList`).
-     - Inspects actor properties: `view`, `loop`, `cel`, `x`, `y`, `z`, `priority`, `signal`, `nsTop`, `nsLeft`, `nsBottom`, `nsRight`.
-     - Processes Sierra `signal` bitfield flags: `kSignalStopUpdate (0x0001)`, `kSignalViewHidden (0x0008)`, `kSignalFixedPriority (0x0010)`, `kSignalNoUpdate (0x0002)`, `kSignalIgnoreActor (0x4000)`.
-     - Maps baseline Y to priority band using the 14-band table (`bands[y]` for Y in 42..190).
-     - Updates bounding box extents (`nsTop`, `nsLeft`, `nsBottom`, `nsRight`) on the object (`SetNowSeen`).
-     - Emits sorted `PlayfieldActorSprite` instances (`scaleX: 1.0`, `scaleY: 1.0`, `displaceX`, `displaceY`, `z`, priority).
-     - Forwards sprite list to `PlayfieldPainter`.
-  2. **Room & Picture Lifecycle**:
-     - `kDrawPic(picNum, style, clearPic, palette)` (`0x08`): Loads and rasterizes `PICTURE` resources via `SciPicInterpreter`, setting visual, priority, and control buffers.
-     - `kPicNotValid` (`0x0A`) and `kShow` (`0x09`): Controls deferral and presentation of newly drawn rooms.
-  3. **Collision & Space Testing**:
-     - `kOnControl(screen, x, y, x2, y2)` (`0x52`): Samples control buffer values under points or rectangles.
-     - `kCanBeHere(actor, cast)` (`0x51`) / `kCantBeHere`: Validates actor position against control map barrier lines (`ctlWHITE` / 15) and other non-ignored actors.
-  4. **Input Event Translation**:
-     - `kGetEvent(mask, eventObj)` (`0x1C`): Translates Flutter keyboard inputs (arrow keys, Enter, Esc) and mouse movement/clicks into SCI event object properties (`type`, `message`, `modifiers`). Kernel IDs are the SCI0 FileIO-inserted layout (`SciKernel._registerAll`), not the unshifted `s_defaultKernelNames` comments.
-  5. **Session Facade (`SierraGameSession`)**:
-     - Abstract interface uniting `AgiGameEngine` and `SciGameEngine` behind `GameScreen`.
-     - `SciGameEngine`: Drives the 60 Hz tick / 20 Hz script cycle:
-       1. Polls user events into `kGetEvent`.
-       2. Executes `(gGame doit:)` in the VM.
-       3. `kAnimate` builds and updates the actor sprite list.
-       4. Passes the active `SciPic` and `PlayfieldActorSprite` list to `GamePlayfieldWidget`.
-- **Verification**: `test/sci/sci_walkable_room_test.dart` and booting PQ2 into a room where Sonny Bonds walks and animates.
+#### Stages 10–12 (landed — do not reopen as “next”)
 
-#### Stage 11: Text Parser, `Said` Matcher, Command Prompt & Menu Bar
-- **Goal**: Full command-line text input ("look around", "open locker", "talk to marie") and top menu bar navigation.
-- **Key Deliverables**:
-  1. **`VOCAB.000` Vocabulary Subsystem**:
-     - Binary parser for vocabulary word groups, word classes, synonyms, and group IDs.
-  2. **Kernel `Parse(inputString, eventObj)` (`0x24`)**:
-     - Strips punctuation and noise words.
-     - Tokenizes text into word group IDs matching `VOCAB.000`.
-     - Identifies unknown words and flags them for the game script's response.
-  3. **Kernel `Said(saidSpecPointer)` (`0x25`)**:
-     - Evaluates compiled Sierra `Said` specs (sequence of word group IDs, `ANYWORD` wildcard 1, `ROL` wildcard 9999, operators like `,`, `/`, `&`, `[]`).
-     - Matches parsed event tokens against script `Said` expressions.
-  4. **Status & Menu Bar**:
-     - `kDrawStatus(text)` (`0x1F`): Draws or updates the top status bar (score, sound status, room title).
-     - `kAddMenu(title, text)` (`0x24`), `kSetMenu(item, ...)` (`0x25`), `kGetMenu(item, ...)` (`0x26`): Populates and updates standard Sierra pull-down menus.
-  5. **UI Integration**:
-     - Connects bottom command line in `GameScreen` to `kParse`, providing history and auto-focus.
-- **Verification**: `test/sci/sci_parser_test.dart` verifying `VOCAB.000` tokenization and `Said` expression evaluation.
+- **10:** `SciGameEngine` ticks `(Game play:)`, `kAnimate` emits sprites, BaseSetter/CanBeHere/OnControl, InitBresen/DoBresen, pic port origin, PQ2 intro. Session facade is live.
+- **11:** VOCAB.000, Parse/Said/synonyms, DrawStatus, User.said / GetInput. Menu bar kernels are still stubs.
+- **12:** Window manager + overlay controls, wrap, Display on pic port, inner-port chrome. `kGraph` is still a stub.
 
-#### Stage 12: Dialog Windows, Text Layout, Controls & Hi-Res Typography
-- **Goal**: Authentic modal dialogs, item inspection boxes, input prompt dialogs, and high-resolution typography.
-- **Key Deliverables**:
-  1. **Window Stack Management**:
-     - `kNewWindow(rect, title, type, pri, bg, fg)` (`0x13`): Creates a window record, pushing it to the overlay window stack.
-     - `kDisposeWindow(windowHandle)` (`0x16`): Pops and disposes the window.
-     - `kDrawControl(controlObj)` (`0x17`), `kHiliteControl(controlObj)` (`0x18`), `kEditControl(controlObj)` (`0x19`): Renders dialog buttons, text controls, and editable fields.
-  2. **Text Metrics & Word Wrapping**:
-     - `kTextSize(rect, text, font, maxWidth)` (`0x28`): Measures multiline text dimensions for window sizing.
-     - `kTextWidth(text, font)`: Character advance width metrics.
-  3. **Overlay & Typography Integration**:
-     - Connects active windows to `SciWindowOverlay` on `PlayfieldPainter`.
-     - Tokenizes embedded format codes: `|c` (color changes) and `|f` (font switching).
-     - High-res vector typography substitution for Font 0 and Font 1: closed feedback loop supplying vector metrics to `kTextWidth`/`kTextSize` so scripts construct perfectly proportioned windows without text clipping. Authentic bitmap fallback available via video settings.
-- **Verification**: `test/sci/sci_dialog_overlay_test.dart` asserting modal dialog rendering, button bevels, and typography metrics.
+Nits that are not a stage: [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
 
-#### Stage 13: Save/Load State & Inventory System
-- **Goal**: Full game persistence, checkpoint restoration, and inventory management.
-- **Key Deliverables**:
-  1. **SCI0 Heap State Serialization**:
-     - `kSaveGame(desc, slot, version)` (`0x43`): Serializes dynamic SCI0 heap (modified object properties, global variables, script instances, node lists).
-     - `kRestoreGame(slot, version)` (`0x44`): Deserializes and restores game state.
-     - `kCheckFreeSpace(path)` (`0x45`), `kRestartGame()` (`0x46`).
-  2. **Inventory Subsystem**:
-     - Standard inventory browser dialog triggered by `(gInventory showSelf:)` or Tab key.
-     - Item view cel rendering in `SciIconControl`.
-- **Verification**: `test/sci/sci_save_load_test.dart` validating state serialization round-trip.
+#### Stage 13: Playable first PQ2 room (**next**)
 
-#### Stage 14: SCI0 Audio Tier 1 & 2 (Tandy 3-Voice & OPL3 FM Synthesis)
-- **Goal**: Authentic soundtrack and sound effects playback on macOS and Windows.
-- **Key Deliverables**:
-  1. **Sound Resource Format & Sequencer**:
-     - `SOUND` (type 4) multi-track MIDI format parser.
-     - Loop points, priority channels, track markers.
-     - `kDoSound` (`0x40`): Sub-ops for `MasterVol`, `SoundOn`, `Restore`, `Init`, `Play`, `Stop`, `Pause`, `Resume`, `Fade`, `CheckDriver`.
-  2. **Synthesizers**:
-     - **Tier 1 (Tandy 1000 / PCjr 3-Voice)**: Reuses existing `PcmSynthesizer` square wave generator.
-     - **Tier 2 (OPL3 / AdLib FM)**: 2-operator Yamaha FM synthesis emulation using Sierra `PATCH.001` instrument banks.
-     - Directly streams synthesized 44.1kHz stereo PCM into `AudioQueueSink` (macOS) and `WaveOutSink` (Windows).
-- **Verification**: `test/sci/sci_sound_sequencer_test.dart` and live audio playback in PQ2.
+- **Goal:** Skip or finish the intro, stand in a gameplay room (car / station), walk with arrows, type `look`, see a 10px status/menu strip and a mouse cursor.
+- **Why this is next:** Everything else (save, AdLib, QFG2) assumes a room you can occupy. The intro does not prove ego motion, control maps, or menus.
+- **Key deliverables:**
+  1. **Menu bar + status strip.** `kAddMenu` / `kDrawMenuBar` / `kMenuSelect` / `kGetMenu` / `kSetMenu`. Paint rows 0..9. Gameplay pic port stays `(0, 10)–(320, 200)`.
+  2. **Cursor.** `kSetCursor`; `SciGameEngine.showMouseCursor` true; mouse press/release into `kGetEvent`.
+  3. **`kGraph`.** Enough of SaveBits/RestoreBits/Fill/Update for Print and in-room redraws (overlay stack, not a 16-slice reslice).
+  4. **Hit-testing.** Click DButton / DEdit; `GlobalToLocal` already exists.
+  5. **Pic `FE 08` priority bands** if the first room embeds a custom table.
+  6. **Portable Wait(0) extra-pump** (not hardcoded room 99) so other SCI0 titles can boot.
+  7. **Walk.** DirLoop + DoBresen + CanBeHere on a real control map; ego cycles while moving.
+- **Verification:** `test/sci/sci_walkable_room_test.dart` plus a live PQ2 room: Sonny walks, `look` prints the room text, Esc/click opens the menu.
 
-#### Stage 15: QFG2 Support (`kCompLZW1` Decompression & SCI1-EGA Views)
-- **Goal**: Full support for Quest for Glory 2: Trial by Fire.
-- **Key Deliverables**:
-  1. **Decompression Algorithm**:
-     - 1.5-pass `kCompLZW1` dictionary decompressor for SCI1-EGA volumes.
-  2. **Graphics Translation**:
-     - SCI1-EGA view decoding with `paletteOffset` 8×16 color translation.
-- **Verification**: `test/sci/sci_qfg2_boot_test.dart` verifying QFG2 resource loading, room exploration, and character portraits.
+#### Stage 14: VOCAB.900 GNF Said matcher
 
-#### Stage 16: Roland MT-32 Synthesis via Munt (`libmt32emu`)
-- **Goal**: Studio-quality Roland MT-32 orchestral synthesis.
-- **Key Deliverables**:
-  1. **Native Integration**:
-     - C ABI dynamic library integration using Dart Native Assets (`hook/build.dart`).
-     - User-supplied MT-32 ROM loader (`MT32_CONTROL.ROM`, `MT32_PCM.ROM`).
-     - Real-time 32kHz stereo PCM rendering into platform audio sinks.
-- **Verification**: `test/sci/sci_mt32_synth_test.dart` validating Munt initialization and MIDI stream synthesis.
+- **Goal:** `look locker`, `open door<steel`, `look>` then `/key` match Sierra, not the clause heuristic.
+- **Deliverables:** Port ScummVM `parseGNF` + `said()`; keep the heuristic only as a fallback behind a flag. Wire `syntaxFail` to real tree failure.
+- **Verification:** PQ2 Said goldens from script 33 / station rooms; `look>` no longer steals more specific patterns incorrectly.
+
+#### Stage 15: FileIO, save/load, inventory
+
+- **Goal:** Persistence and `gInventory`.
+- **Deliverables:** `FOpen`/`FPuts`/`FGets`/`FClose` on a save directory; `kSaveGame` / `kRestoreGame` / `kGetSaveFiles` / `kCheckSaveGame`; inventory window via existing DIcon/DButton (Tab or menu).
+- **Verification:** Save in a room, restore, inventory showSelf.
+
+#### Stage 16: SCI0 audio (Tandy + OPL3)
+
+- **Goal:** Hear PQ2. `kDoSound` already pumps SCI0 cues; this stage is PCM.
+- **Deliverables:** SOUND sequencer; Tandy 3-voice via existing `PcmSynthesizer`; AdLib/OPL3 2-op with `PATCH.001`; shared AudioQueue / waveOut sinks.
+- **Verification:** Title music and a room sting. MT-32 stays Stage 18.
+
+#### Stage 17: QFG2 SCI1-EGA
+
+- After PQ2 is a game. LZW1 volumes, view `paletteOffset`, QFG2 boot/room.
+
+#### Stage 18: Roland MT-32 (Munt)
+
+- Native asset + user ROMs. Last audio tier.
+
+#### Stage 19: Second SCI0 title (LSL2)
+
+- **Goal:** Prove the engine is not a PQ2 special case.
+- **Deliverables:** Boot LSL2, leave its speed-test room (99, same number, different scripts), walk one room, one Said. Note LSL3 uses room 290.
+- **Verification:** `test/sci/` LSL2 boot + one walkable room. Do this before spending a stage on QFG2 if PQ2 still has PQ2-only gates.
+
+#### Stage 20: Workbench & debug depth
+
+- Overlay `==` / cache (`toOverlays` every tick).
+- Inspector: send selector, dump parse tree, Graph bits.
+- `|c` / `|f` / GetLongest if Stage 13 did not need them.
+- Hi-res Font 0/1 as a **video setting**, not a blocker. Bitmap metrics stay the script-facing truth unless we close the loop.
 
 ---
 
@@ -321,12 +264,17 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 
 - Sibling engines, shared graphics, no shared VM.
 - Leave AGI files in place. No `lib/graphics/` or `lib/agi/` move-everything PR.
-- Workbench-first for each resource type (pics, views, fonts, cursors).
 - SCI windows stay an **overlay pass**, never burned into the visual buffer.
-- High-res Font 0/1 substitution requires the closed-loop metrics feedback in Stage 12.
-- Session facade (`SierraGameSession`) connects in Stage 10 when SCI can tick a room.
-- QFG2 compression / EGA mapping follows PQ2 completion.
-- Sound progression: Tandy 3-Voice & OPL3 first (Stage 14), Munt MT-32 last (Stage 16).
+- QFG2 compression / EGA mapping follows PQ2 being a game (Stage 17, after 13–16).
+- Sound: hearable Tandy/OPL3 (16) before Munt (18).
+
+**Changed**
+
+- Do **not** treat save/load or QFG2 as the next stage. A walkable PQ2 room is the gate.
+- Menu bar moved out of Stage 11 leftovers into Stage 13 (it is the 10px gameplay port).
+- VOCAB.900 GNF is Stage 14, not a drive-by inside Parse.
+- Hi-res Font 0/1 is polish (Stage 20), not a closed-loop blocker for dialogs.
+- Add LSL2 (19) as a portability check before SCI1-EGA.
 
 ## 9. Testing policy
 
