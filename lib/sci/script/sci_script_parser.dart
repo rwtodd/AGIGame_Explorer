@@ -122,9 +122,9 @@ class SciScriptParser {
     return SciScript(
       scriptNumber: scriptNumber,
       segmentId: segmentId,
-      bytes: data,
+      bytes: Uint8List.fromList(data),
       exports: exports,
-      locals: locals,
+      locals: List<SciReg>.from(locals),
       objects: objects,
       strings: strings,
       synonyms: synonyms,

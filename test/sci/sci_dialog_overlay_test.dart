@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
@@ -693,6 +695,69 @@ void main() {
         returnsNormally,
       );
     });
+
+    test('session.sciWindows dynamically includes new dialogs and updates overlays', () {
+      final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
+      final engine = SciGameEngine(volumeManager: vol);
+      engine.initializeGame();
+
+      // Initially only menu bar overlays (hud, etc.), no dialog window
+      final initialCount = engine.sciWindows.length;
+      expect(engine.sciWindows.any((w) => w.id >= 2), isFalse);
+
+      // Open a dialog window via kernel window manager
+      engine.kernel.windowManager.openWindow(
+        title: 'Test Window',
+        style: SciWindowManager.styleTitle,
+        dims: const Rect.fromLTRB(20, 30, 200, 80),
+      );
+
+      // Verify that engine.sciWindows immediately reflects the new dialog
+      expect(engine.sciWindows.length, equals(initialCount + 1));
+      expect(engine.sciWindows.any((w) => w.id == 2 && w.title == 'Test Window'), isTrue);
+
+      engine.dispose();
+    });
+
+    testWidgets('GamePlayfieldWidget dynamically paints new dialog windows on session notification without mouse moves', (tester) async {
+      final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
+      final engine = SciGameEngine(volumeManager: vol);
+      engine.initializeGame();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 640,
+                height: 400,
+                child: GamePlayfieldWidget(session: engine),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open a dialog window in the engine and notify session listeners
+      engine.kernel.windowManager.openWindow(
+        title: 'Dynamic Test Window',
+        style: SciWindowManager.styleTitle,
+        dims: const Rect.fromLTRB(20, 30, 200, 80),
+      );
+      engine.notifyListeners();
+
+      // Pump frame without moving mouse or rebuilding GamePlayfieldWidget
+      await tester.pump();
+
+      // Retrieve the custom painter and verify that it paints the new dialog window
+      final customPaintFinder = find.byType(CustomPaint);
+      expect(customPaintFinder, findsWidgets);
+
+      expect(engine.sciWindows.any((w) => w.id == 2 && w.title == 'Dynamic Test Window'), isTrue);
+
+      engine.dispose();
+    });
   });
 }
+
 

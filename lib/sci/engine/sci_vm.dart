@@ -522,6 +522,7 @@ class SciVM {
             }
           }
           if (kernel.suspendCallk) {
+            kernel.suspendCallk = false;
             push(SciReg.fromInt(callkArgc));
             for (final arg in argv) {
               push(arg);
@@ -862,7 +863,7 @@ class SciVM {
       case SciVarType.global:
         return SciReg.pointer(SciSegManager.globalSegmentId, index * 2);
       case SciVarType.local:
-        return SciReg.pointer(frame.localSegment, index * 2);
+        return SciReg.pointer(SciSegManager.localSegmentForScript(frame.localSegment), index * 2);
       case SciVarType.temp:
         return SciReg.pointer(SciSegManager.listSegmentId, (frame.fp + index) * 2);
       case SciVarType.param:

@@ -30,7 +30,9 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 ## VM / game loop
 
-- **Host throttles like DOSBox, not ScummVM script patches.** Each `tick()` steps the 60 Hz PIT by `60/speedHz` (3 at 20 Hz) and allows that many Wait(0) `doit`s. PQ2’s room-99 test still runs and should land g110 around 40–80. ScummVM instead patches rm99:doit to `g110=$7fff` / `gSpeed=6`. Do not add that patch unless a title’s test still overflows. GetTime spin loops yield after two identical reads (Dialog.doit).
+- **Host throttles like DOSBox, not ScummVM script patches.** Each `tick()` steps the 60 Hz PIT by `60/speedHz` (3 at 20 Hz) and allows that many Wait(0) `doit`s. PQ2’s room-99 test still runs and should land g110 around 40–80. ScummVM instead patches rm99:doit to `g110=$7fff` / `gSpeed=6`. Do not add that patch unless a title’s test still overflows.
+- **`GetTime` spin loops (`Dialog.doit` debounce):** `Dialog.doit` executes `(while (== t (GetTime)))` 60 times to eat clicks when a dialog has no buttons. Yielding per-read caused a 3-second freeze (60 host frames). Streak detection (`_getTimeStreak > 2`) now advances `_sciTicks++` in-VM, allowing the debounce loop to complete in <1ms without UI latency.
+- **Local Segment Isolation:** `SciVM._getVarAddress` returns pointers in the `localSegmentBase = 0x2000` namespace. `SciSegManager` redirects read/write for local segments to `script.locals`, ensuring local pointer writes (e.g. `User::getInput` `lea 2, 0`) never corrupt `script.bytes` bytecode block headers.
 
 ## Parser / Said leftovers
 
@@ -41,6 +43,7 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 ## Overlay / compositor leftovers
 
+- **Playfield Painter dynamic `sciWindows` evaluation (done):** `_GamePlayfieldPainter.paint` dynamically evaluates `session.sciWindows` on every paint call instead of caching it at widget build time. This ensures text input boxes and modal dialogs appear/disappear immediately on engine ticks without requiring mouse motion or widget rebuilds.
 - **`toOverlays()` allocates new `SciWindowOverlay` objects every tick.** No value `==` on overlays, so `shouldRepaint` always sees a new list. Cache until `onWindowsChanged`, or implement overlay/control value equality.
 - **Title bars still use Courier `TextPainter` when no Sierra font is attached.** Prefer `SierraFont` (now used when `font` is set); Courier is the no-font fallback.
 

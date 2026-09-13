@@ -57,6 +57,11 @@ class SciSegManager {
   static const int cloneSegmentId = 0x1002;
   static const int hunkSegmentId = 0x1003;
   static const int globalSegmentId = 0x1004;
+  static const int localSegmentBase = 0x2000;
+
+  static int localSegmentForScript(int segId) => localSegmentBase | (segId & 0x0FFF);
+  static bool isLocalSegment(int seg) => (seg & 0xF000) == localSegmentBase;
+  static int scriptSegFromLocalSeg(int localSeg) => localSeg & 0x0FFF;
 
   int _nextScriptSegmentId = 1;
 
@@ -153,6 +158,7 @@ class SciSegManager {
     final segId = allocateScriptSegment(scriptNr);
     final scriptBytes = volumeMgr.getResource(SciResourceType.script, scriptNr);
     final scriptParser = parser ?? SciScriptParser();
+
     final script = scriptParser.parse(scriptNr, scriptBytes, segId, this);
 
     loadedScripts[segId] = script;
@@ -171,6 +177,7 @@ class SciSegManager {
         registerClass(species, obj.pos);
       }
     }
+
 
     // Resolve classes and instances
     for (final obj in script.objects.values) {
@@ -230,6 +237,7 @@ class SciSegManager {
     }
     return SciReg.nullReg;
   }
+
 
   /// Retrieves an object by its VM address [addr] or by class species ID if [addr.isNumber].
   SciObject? getObject(SciReg addr) {
@@ -527,6 +535,20 @@ class SciSegManager {
       }
     }
 
+    if (isLocalSegment(ptr.segment)) {
+      final scriptSeg = scriptSegFromLocalSeg(ptr.segment);
+      final script = loadedScripts[scriptSeg];
+      if (script != null) {
+        final totalByte = ptr.offset + byteOffset;
+        final wordIndex = totalByte >> 1;
+        if (wordIndex >= 0 && wordIndex < script.locals.length) {
+          final word = script.locals[wordIndex].toUint16();
+          return (totalByte & 1) == 0 ? (word & 0xFF) : ((word >> 8) & 0xFF);
+        }
+      }
+      return 0;
+    }
+
     final script = loadedScripts[ptr.segment];
     if (script != null) {
       final totalByte = ptr.offset + byteOffset;
@@ -602,22 +624,30 @@ class SciSegManager {
       return;
     }
 
+    if (isLocalSegment(ptr.segment)) {
+      final scriptSeg = scriptSegFromLocalSeg(ptr.segment);
+      final script = loadedScripts[scriptSeg];
+      if (script != null) {
+        final totalByte = ptr.offset + byteOffset;
+        final wordIndex = totalByte >> 1;
+        while (script.locals.length <= wordIndex) {
+          script.locals.add(SciReg.nullReg);
+        }
+        final word = script.locals[wordIndex].toUint16();
+        final newWord = (totalByte & 1) == 0
+            ? ((word & 0xFF00) | b)
+            : ((word & 0x00FF) | (b << 8));
+        script.locals[wordIndex] = SciReg.fromInt(newWord);
+      }
+      return;
+    }
+
     final script = loadedScripts[ptr.segment];
     if (script != null) {
       final totalByte = ptr.offset + byteOffset;
       if (totalByte >= 0 && totalByte < script.bytes.length) {
         script.bytes[totalByte] = b;
-        return;
       }
-      final wordIndex = totalByte >> 1;
-      while (script.locals.length <= wordIndex) {
-        script.locals.add(SciReg.nullReg);
-      }
-      final word = script.locals[wordIndex].toUint16();
-      final newWord = (totalByte & 1) == 0
-          ? ((word & 0xFF00) | b)
-          : ((word & 0x00FF) | (b << 8));
-      script.locals[wordIndex] = SciReg.fromInt(newWord);
       return;
     }
   }
@@ -798,18 +828,25 @@ class SciSegManager {
       return;
     }
 
+    if (isLocalSegment(ptr.segment)) {
+      final scriptSeg = scriptSegFromLocalSeg(ptr.segment);
+      final script = loadedScripts[scriptSeg];
+      if (script != null) {
+        while (script.locals.length <= wordIndex) {
+          script.locals.add(SciReg.nullReg);
+        }
+        script.locals[wordIndex] = value;
+      }
+      return;
+    }
+
     final script = loadedScripts[ptr.segment];
     if (script != null) {
       final byteOffset = ptr.offset + wordOffset * 2;
       if (byteOffset + 1 < script.bytes.length) {
         script.bytes[byteOffset] = value.offset & 0xFF;
         script.bytes[byteOffset + 1] = (value.offset >> 8) & 0xFF;
-        return;
       }
-      while (script.locals.length <= wordIndex) {
-        script.locals.add(SciReg.nullReg);
-      }
-      script.locals[wordIndex] = value;
       return;
     }
 
@@ -857,6 +894,17 @@ class SciSegManager {
     if (ptr.segment == listSegmentId && effectiveStack != null) {
       if (wordIndex >= 0 && wordIndex < effectiveStack.length) {
         return effectiveStack[wordIndex];
+      }
+      return SciReg.nullReg;
+    }
+
+    if (isLocalSegment(ptr.segment)) {
+      final scriptSeg = scriptSegFromLocalSeg(ptr.segment);
+      final script = loadedScripts[scriptSeg];
+      if (script != null) {
+        if (wordIndex >= 0 && wordIndex < script.locals.length) {
+          return script.locals[wordIndex];
+        }
       }
       return SciReg.nullReg;
     }

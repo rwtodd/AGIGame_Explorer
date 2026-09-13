@@ -200,6 +200,7 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 - **10:** `SciGameEngine` ticks `(Game play:)`, `kAnimate` emits sprites, BaseSetter/CanBeHere/OnControl, InitBresen/DoBresen, pic port origin, PQ2 intro. Session facade is live.
 - **11:** VOCAB.000, Parse/Said/synonyms, DrawStatus, User.said / GetInput. Menu bar kernels are still stubs.
 - **12:** Window manager + overlay controls, wrap, Display on pic port, inner-port chrome. `kGraph` is still a stub.
+  - *Hardening:* Local variables segregated to `0x2000` namespace (preventing `lea local` string inputs from corrupting script headers); `Dialog.doit` debounce spin loops stepped via streak detection; `_GamePlayfieldPainter.paint` queries `session.sciWindows` dynamically on each tick without requiring mouse hover or widget rebuilds.
 
 Nits that are not a stage: [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
 

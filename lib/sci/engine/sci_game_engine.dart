@@ -244,14 +244,12 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
   @override
   void restartGame({int startingRoom = 0}) {
-    final wasPaused = _isPaused;
     _isPaused = true;
     _tickTimer?.cancel();
     _tickTimer = null;
 
     _cycleCount = 0;
     _started = false;
-    _pq2RestartDriveUpDone = false;
 
     atlasManager.clear();
     segManager.reset();
@@ -281,11 +279,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       tick();
     });
 
-    if (wasPaused) {
-      pause();
-    } else {
-      notifyListeners();
-    }
+    notifyListeners();
   }
 
   bool _inTick = false;
@@ -298,43 +292,12 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       _cycleCount++;
       // Step the 60 Hz PIT from the outside (DOSBox-style). At 20 Hz host
       // this is 3 SCI ticks; the speed test then measures ~60 doits/sec.
-      _finishPq2RestartDriveUp();
       kernel.advanceSciClock(hostHz: speedHz);
       _pumpVm();
       _restorePq2SpeedAfterTest();
       notifyListeners();
     } finally {
       _inTick = false;
-    }
-  }
-
-  /// PQ2 restart: `Btst 167` → room 1 → `driveUpScript`. State 0 does
-  /// `(ego posn: 0 0)` on purpose and waits for `ourCar setMotion: MoveTo`.
-  /// `rm1::doit` still runs every cycle and `(ego inRect: 4 11 122 18)` is
-  /// the "entrance is the other way" Print. If the car never `cue:`s, we
-  /// never reach state 1 (`newRoom: 33`) and the lot script game-overs.
-  /// Cue state 1 ourselves — that *is* the script's success path when
-  /// `g160` is 0. Do not poke Motion dest slots; those are not `x`/`y`.
-  bool _pq2RestartDriveUpDone = false;
-
-  void _finishPq2RestartDriveUp() {
-    if (_pq2RestartDriveUpDone) return;
-    final g = segManager.globals;
-    if (g.length <= 12) return;
-    if (g[11].toUint16() != 1 || g[12].toUint16() != 99) return;
-    final changeSel = selectors.findSelector('changeState');
-    final scriptSel = selectors.findSelector('script');
-    if (changeSel == null || scriptSel == null || g.length <= 2) return;
-    final room = segManager.getObject(g[2]);
-    if (room == null) return;
-    final scriptReg = room.getProp(segManager, scriptSel);
-    final script = segManager.getObject(scriptReg);
-    if (script == null || script.nameString != 'driveUpScript') return;
-    _pq2RestartDriveUpDone = true;
-    try {
-      vm.sendSelector(scriptReg, changeSel, [const SciReg.fromInt(1)]);
-    } catch (_) {
-      _pq2RestartDriveUpDone = false;
     }
   }
 
@@ -348,9 +311,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     if (g[110].toUint16() == 0) return;
     final gSpeed = g.length > 18 ? g[18].toUint16() : 0;
     final gameSpeed = g.length > 3 ? g[3].toUint16() : 0;
-    if (gSpeed == 0 && gameSpeed == 0) {
-      g[3] = const SciReg.fromInt(6);
-      if (g.length > 18) g[18] = const SciReg.fromInt(6);
+    if (gSpeed == 0 || gameSpeed == 0) {
+      if (gameSpeed == 0) g[3] = const SciReg.fromInt(6);
+      if (g.length > 18 && gSpeed == 0) g[18] = const SciReg.fromInt(6);
     }
   }
 
@@ -362,6 +325,12 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   /// machineSpeed stays AT-class. Wait(n>0) still ends the pump: one frame.
   void _pumpVm() {
     if (vm.executionStack.isEmpty || vm.abortScriptProcessing) return;
+    if (kernel.lastWaitTicks > 0 &&
+        (kernel.currentSciTicks - kernel.lastWaitTime) < kernel.lastWaitTicks &&
+        !kernel.hasPendingInput) {
+      return;
+    }
+
     final atBudget = speedHz <= 0 ? 1 : max(1, (60.0 / speedHz).round());
     var wait0Pumps = 0;
     var inputPumps = 0;
@@ -375,7 +344,6 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
           if (inputPumps > 64) break;
           continue;
         }
-        if (kernel.waitingForPit) break;
         if (kernel.lastWaitTicks > 0) break;
         wait0Pumps++;
         if (wait0Pumps >= atBudget) break;

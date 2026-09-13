@@ -397,7 +397,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           cursorBlink: _cursorBlink,
                           buildActors: _buildActorSprites,
                           displayProfile: widget.displayProfile ?? _session.displayProfile,
-                          sciWindows: widget.sciWindows.isNotEmpty ? widget.sciWindows : _session.sciWindows,
+                          sciWindows: widget.sciWindows,
                           mouseCursor: widget.mouseCursor ?? _session.mouseCursor,
                           mouseCursorPosition: _mousePosition ?? _session.mouseCursorPosition,
                           showMouseCursor: widget.showMouseCursor || _session.showMouseCursor,

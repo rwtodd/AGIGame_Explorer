@@ -252,40 +252,28 @@ void main() {
       expect(kernel.lastWaitTicks, 6);
     });
 
-    test('GetTime spin yields after two identical PIT reads', () {
+    test('GetTime returns clock ticks without yielding', () {
       vm.yieldRequested = false;
-      kernel.call(vm, 0x46, 0, []);
+      final t1 = kernel.call(vm, 0x46, 0, []);
       expect(vm.yieldRequested, isFalse);
-      kernel.call(vm, 0x46, 0, []);
-      expect(vm.yieldRequested, isTrue,
-          reason: 'Dialog.doit while(GetTime==t) must not burn runVm maxSteps');
-      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(0)]);
-      vm.yieldRequested = false;
-      kernel.call(vm, 0x46, 0, []);
+      final t2 = kernel.call(vm, 0x46, 0, []);
       expect(vm.yieldRequested, isFalse,
-          reason: 'a non-GetTime kernel resets the spin streak');
+          reason: 'GetTime must never yield the VM; Dialog.doit and typing must stay responsive');
+      expect(t1.toUint16(), equals(t2.toUint16()));
     });
 
-    test('host clock steps GetTime; Wait(n) suspends until enough ticks', () {
+    test('host clock steps GetTime; Wait(n) records ticks and returns elapsed', () {
       expect(kernel.currentSciTicks, lessThan(2));
       kernel.advanceSciClock(hostHz: 20); // +3
       expect(kernel.currentSciTicks, greaterThanOrEqualTo(3));
-      vm.executionStack.add(
-        SciExecStack(
-          objp: SciReg.nullReg,
-          pc: SciReg.nullReg,
-          localSegment: 0,
-          sp: 0,
-          fp: 0,
-        ),
-      );
-      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
-      expect(kernel.waitingForPit, isTrue);
-      expect(kernel.suspendCallk, isTrue);
-      kernel.advanceSciClock(hostHz: 20); // +3, total 6
-      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
-      expect(kernel.waitingForPit, isFalse);
+      vm.yieldRequested = false;
+      final res = kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
+      expect(kernel.suspendCallk, isFalse,
+          reason: 'Wait must not rewind bytecode or suspend callk');
+      expect(vm.yieldRequested, isFalse,
+          reason: 'Wait returns without VM yield; Animate yields at frame boundaries');
       expect(kernel.lastWaitTicks, 6);
+      expect(res.toUint16(), greaterThanOrEqualTo(1));
     });
 
     test('MenuSelect opens a dropdown and selects on a second click', () {
@@ -449,6 +437,75 @@ void main() {
       ]);
       kernel.call(vm, 0x0B, 2, [list, const SciReg.fromInt(0)]);
       expect(kernel.currentSprites.single.position.dy, 100 - 16 + 1);
+    });
+
+    test('CanBeHere actor collision respects signal ignore flags', () {
+      // Create Actor 1 (e.g. ego) with bounding rect [0, 0, 10, 10]
+      final ego = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x10),
+        variables: List<SciReg>.generate(25, (i) => const SciReg.fromInt(0)),
+        baseVars: List<int>.generate(25, (i) => i),
+      );
+      ego.variables[selectors.brLeft] = const SciReg.fromInt(0);
+      ego.variables[selectors.brTop] = const SciReg.fromInt(0);
+      ego.variables[selectors.brRight] = const SciReg.fromInt(10);
+      ego.variables[selectors.brBottom] = const SciReg.fromInt(10);
+      ego.variables[selectors.signal] = const SciReg.fromInt(0);
+      ego.variables[selectors.illegalBits] = const SciReg.fromInt(0);
+      segMan.clones[0x10] = ego;
+
+      // Create Actor 2 (e.g. Keith) with overlapping bounding rect [0, 0, 10, 10]
+      final other = SciObject(
+        pos: const SciReg.pointer(SciSegManager.cloneSegmentId, 0x20),
+        variables: List<SciReg>.generate(25, (i) => const SciReg.fromInt(0)),
+        baseVars: List<int>.generate(25, (i) => i),
+      );
+      other.variables[selectors.brLeft] = const SciReg.fromInt(0);
+      other.variables[selectors.brTop] = const SciReg.fromInt(0);
+      other.variables[selectors.brRight] = const SciReg.fromInt(10);
+      other.variables[selectors.brBottom] = const SciReg.fromInt(10);
+      other.variables[selectors.signal] = const SciReg.fromInt(0);
+      other.variables[selectors.illegalBits] = const SciReg.fromInt(0);
+      segMan.clones[0x20] = other;
+
+      final castList = kernel.call(vm, 0x32, 0, []); // NewList
+      final node1 = kernel.call(vm, 0x34, 2, [ego.pos, const SciReg.fromInt(1)]);
+      final node2 = kernel.call(vm, 0x34, 2, [other.pos, const SciReg.fromInt(2)]);
+      kernel.call(vm, 0x3D, 2, [castList, node1]);
+      kernel.call(vm, 0x3D, 2, [castList, node2]);
+
+      // When other has signal = 0, collision occurs -> CanBeHere returns 0
+      other.variables[selectors.signal] = const SciReg.fromInt(0);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 0);
+
+      // When other is stopUpd (0x0001), it should NOT block -> CanBeHere returns 1
+      other.variables[selectors.signal] = const SciReg.fromInt(0x0001);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
+
+      // When other is noUpd (0x0004), it should NOT block -> CanBeHere returns 1
+      other.variables[selectors.signal] = const SciReg.fromInt(0x0004);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
+
+      // When other is stopUpd | forceUpdate (0x0041, e.g. Keith in PQ2 rm1) -> returns 1
+      other.variables[selectors.signal] = const SciReg.fromInt(0x0041);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
+
+      // When other is hidden (0x0008) -> returns 1
+      other.variables[selectors.signal] = const SciReg.fromInt(0x0008);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
+
+      // When other is removeView (0x0080) -> returns 1
+      other.variables[selectors.signal] = const SciReg.fromInt(0x0080);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
+
+      // When other is ignoreActor (0x4000) -> returns 1
+      other.variables[selectors.signal] = const SciReg.fromInt(0x4000);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
+
+      // When ego itself has ignoreActor (0x4000), actor collision check is bypassed
+      other.variables[selectors.signal] = const SciReg.fromInt(0);
+      ego.variables[selectors.signal] = const SciReg.fromInt(0x4000);
+      expect(kernel.call(vm, 0x51, 2, [ego.pos, castList]).toSint16(), 1);
     });
   });
 }

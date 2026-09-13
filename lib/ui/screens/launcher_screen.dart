@@ -447,7 +447,7 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                                   initialSettings: ref.read(settingsProvider),
                                 ),
                               ),
-                            );
+                            ).then((_) => engine.dispose());
                           } else {
                             Navigator.of(context).push(
                               MaterialPageRoute(

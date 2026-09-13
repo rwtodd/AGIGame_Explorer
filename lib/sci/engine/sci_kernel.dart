@@ -1244,6 +1244,7 @@ class SciKernel {
     if (textRef.isNull) return SciReg.nullReg;
 
     var text = vm.segManager.getString(textRef);
+
     final eventType = eventObj.getProp(vm.segManager, selectors.type).toUint16();
     final message = eventObj.getProp(vm.segManager, selectors.message).toUint16();
 
@@ -2023,24 +2024,16 @@ class SciKernel {
     return _sciTicks > wall ? _sciTicks : wall;
   }
 
+  int get lastWaitTime => _lastWaitTime;
+
   SciReg _kWait(SciVM vm, int argc, List<SciReg> argv) {
     final ticks = argc >= 1 ? argv[0].toUint16() : 0;
     lastWaitTicks = ticks;
     waitingForPit = false;
+    getEventCallCount = 0;
+    _getTimeStreak = 0;
     final now = currentSciTicks;
     final elapsed = now - _lastWaitTime;
-    if (ticks > 0 &&
-        elapsed < ticks &&
-        vm.executionStack.isNotEmpty &&
-        !hasPendingInput) {
-      // Same idea as ScummVM EngineState::wait: do not return until [ticks]
-      // of PIT time have elapsed. We yield instead of sleeping the isolate.
-      // Keys skip the sleep so User.doit / Dialog.doit can run this pump.
-      waitingForPit = true;
-      suspendCallk = true;
-      vm.yieldRequested = true;
-      return vm.r_acc;
-    }
     _lastWaitTime = now;
     return SciReg.fromInt((elapsed < 0 ? 0 : elapsed) & 0xFFFF);
   }
@@ -2066,19 +2059,11 @@ class SciKernel {
     }
   }
 
-  /// Dialog.doit busy-waits `(while (== t (GetTime)))` and, with no `theItem`,
-  /// does that 60 times ("eat the mice"). Yielding each wait made every
-  /// keystroke wait on the 20 Hz host timer (~3 s). If a key is queued, step
-  /// the PIT so the while exits in this `runVm`; otherwise yield.
   SciReg _ticksGetTime(SciVM vm) {
     _getTimeStreak++;
-    if (_getTimeStreak >= 2) {
-      if (hasPendingInput) {
-        _sciTicks++;
-        _getTimeStreak = 0;
-      } else {
-        vm.yieldRequested = true;
-      }
+    if (_getTimeStreak > 2) {
+      _sciTicks++;
+      _getTimeStreak = 0;
     }
     return SciReg.fromInt(currentSciTicks & 0x7FFF);
   }
@@ -2585,7 +2570,7 @@ class SciKernel {
           final other = vm.segManager.getObject(otherReg);
           if (other == null) continue;
           final otherSignal = other.getProp(vm.segManager, selectors.signal).toUint16();
-          if ((otherSignal & 0x4088) != 0) continue; // ignore actor / hidden / removeView
+          if ((otherSignal & 0x408D) != 0) continue; // ignore actor / hidden / removeView / stopUpd / noUpd
 
           final oLeft = other.getProp(vm.segManager, selectors.brLeft).toSint16();
           final oTop = other.getProp(vm.segManager, selectors.brTop).toSint16();
