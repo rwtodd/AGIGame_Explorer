@@ -37,20 +37,9 @@ import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
-/// Available audio output modes for [AgiGameEngine].
-enum AgiSoundMode {
-  /// Sound muted (Flag %f9 = false).
-  off,
+import 'package:flutter_agigame/domain/sound.dart';
 
-  /// Authentic 1-Channel IBM PC Speaker square wave (%v22 = 1).
-  ibmPc,
-
-  /// Authentic 3-Voice Tone + Noise PCjr / Tandy 1000 emulation (%v22 = 3).
-  pcJr,
-
-  /// Modern synthesizer with custom waveforms & reverb DSP (%v22 = 3).
-  enhanced,
-}
+export 'package:flutter_agigame/domain/sound.dart' show AgiSoundMode;
 
 /// Represents the type of user input requested by an input prompt dialog.
 enum AgiInputPromptType {
@@ -207,6 +196,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
 
   final AgiResourceLoader? resourceLoader;
   /// Player instance for AGI sound synthesis and PCM playback.
+  @override
   final AgiSoundPlayer soundPlayer;
   final bool _ownsSoundPlayer;
   final AgiMemory memory;
@@ -905,12 +895,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Active sound output mode.
+  @override
   AgiSoundMode get soundMode => _soundMode;
 
   /// Active synthesizer DSP configuration.
+  @override
   SynthesizerConfig get synthesizerConfig => _synthesizerConfig;
 
   /// Whether sound is actively enabled and outputting audio.
+  @override
   bool get isSoundOn => _soundMode != AgiSoundMode.off && memory.getFlag(9);
 
   /// Sets sound enable flag (Flag 9) and updates audio engine.
@@ -926,6 +919,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Sets sound output hardware emulation mode.
+  @override
   void setSoundMode(AgiSoundMode mode) {
     _soundMode = mode;
     switch (mode) {
@@ -965,6 +959,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Configures synthesizer parameters and updates mode accordingly.
+  @override
   void setSynthesizerConfig(SynthesizerConfig config) {
     _synthesizerConfig = config;
     if (_soundMode != AgiSoundMode.off) {

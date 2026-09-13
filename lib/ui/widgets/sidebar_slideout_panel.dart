@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
+import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
@@ -21,6 +22,7 @@ class SidebarSlideoutPanel extends ConsumerStatefulWidget {
   final bool isOpen;
   final SidebarPanelTab activeTab;
   final AgiGameEngine? engine;
+  final SierraGameSession? session;
   final ValueChanged<SidebarPanelTab> onTabChanged;
   final VoidCallback onClose;
 
@@ -43,6 +45,7 @@ class SidebarSlideoutPanel extends ConsumerStatefulWidget {
     required this.isOpen,
     required this.activeTab,
     this.engine,
+    this.session,
     required this.onTabChanged,
     required this.onClose,
     required this.showCrtShader,
@@ -67,6 +70,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   AgiSoundPlayer? _previewPlayer;
   bool _isPlayingPreview = false;
 
+  SierraGameSession? get _effectiveSession => widget.session ?? widget.engine;
+
   final TextEditingController _apiKeyController = TextEditingController();
   bool _obscureApiKey = true;
   bool _isTestingApiKey = false;
@@ -76,7 +81,11 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   @override
   void initState() {
     super.initState();
+    _apiKeyController.text = widget.engine?.aiApiKey ?? '';
+
+    // Initialize preview player for synthesizer testing
     _previewPlayer = AgiSoundPlayer();
+    _previewPlayer!.initialize();
     _previewPlayer!.onFinished = () {
       if (mounted) {
         setState(() {
@@ -88,7 +97,6 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
 
   @override
   void dispose() {
-    _previewPlayer?.stop();
     _previewPlayer?.dispose();
     _apiKeyController.dispose();
     super.dispose();
@@ -113,8 +121,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   /// Synthesizes and plays a short preview arpeggio/melody using the active synthesizer config.
   Future<void> _playTestSound() async {
     if (_previewPlayer == null) return;
-    final engine = widget.engine;
-    if (engine == null) return;
+    final session = _effectiveSession;
+    if (session == null) return;
 
     if (_isPlayingPreview) {
       _previewPlayer!.stop();
@@ -127,16 +135,16 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
     AgiSound soundToPlay;
 
     // Check if the loaded game has sounds to preview
-    if (engine.resourceLoader != null &&
-        engine.resourceLoader!.presentSoundNumbers.isNotEmpty) {
-      final soundNum = engine.resourceLoader!.presentSoundNumbers.first;
-      soundToPlay = engine.resourceLoader!.loadSound(soundNum);
+    if (widget.engine?.resourceLoader != null &&
+        widget.engine!.resourceLoader!.presentSoundNumbers.isNotEmpty) {
+      final soundNum = widget.engine!.resourceLoader!.presentSoundNumbers.first;
+      soundToPlay = widget.engine!.resourceLoader!.loadSound(soundNum);
     } else {
       // Generate a dynamic preview sound (3-voice C Major fanfare)
       soundToPlay = _generatePreviewFanfare();
     }
 
-    final config = engine.synthesizerConfig;
+    final config = session.synthesizerConfig;
     setState(() {
       _isPlayingPreview = true;
     });
@@ -287,7 +295,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
         children: [
-          if (widget.engine != null) ...[
+          if (_effectiveSession?.soundPlayer != null) ...[
             Expanded(
               child: _buildTabButton(
                 tab: SidebarPanelTab.audio,
@@ -373,8 +381,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   // ==========================================
 
   Widget _buildAudioOptions() {
-    final engine = widget.engine;
-    if (engine == null) {
+    final session = _effectiveSession;
+    if (session == null) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(16.0),
@@ -386,8 +394,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
         ),
       );
     }
-    final currentMode = engine.soundMode;
-    final synthConfig = engine.synthesizerConfig;
+    final currentMode = session.soundMode;
+    final synthConfig = session.synthesizerConfig;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -402,7 +410,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           icon: Icons.volume_off,
           isSelected: currentMode == AgiSoundMode.off,
           onTap: () {
-            engine.setSoundMode(AgiSoundMode.off);
+            session.setSoundMode(AgiSoundMode.off);
             _safeSetSoundMode(AgiSoundMode.off);
           },
         ),
@@ -415,7 +423,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           icon: Icons.speaker,
           isSelected: currentMode == AgiSoundMode.ibmPc,
           onTap: () {
-            engine.setSoundMode(AgiSoundMode.ibmPc);
+            session.setSoundMode(AgiSoundMode.ibmPc);
             _safeSetSoundMode(AgiSoundMode.ibmPc);
           },
         ),
@@ -428,7 +436,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           icon: Icons.volume_down,
           isSelected: currentMode == AgiSoundMode.pcJr,
           onTap: () {
-            engine.setSoundMode(AgiSoundMode.pcJr);
+            session.setSoundMode(AgiSoundMode.pcJr);
             _safeSetSoundMode(AgiSoundMode.pcJr);
           },
         ),
@@ -441,7 +449,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           icon: Icons.auto_awesome,
           isSelected: currentMode == AgiSoundMode.enhanced,
           onTap: () {
-            engine.setSoundMode(AgiSoundMode.enhanced);
+            session.setSoundMode(AgiSoundMode.enhanced);
             _safeSetSoundMode(AgiSoundMode.enhanced);
           },
         ),
@@ -589,7 +597,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           onSelected: (selected) {
             if (selected) {
               final newConfig = config.copyWith(waveform: opt.$1);
-              widget.engine!.setSynthesizerConfig(newConfig);
+              _effectiveSession?.setSynthesizerConfig(newConfig);
               _safeSetSynthesizerConfig(newConfig);
             }
           },
@@ -621,7 +629,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
                         enableReverb: val ?? false,
                         reverbMix: (val ?? false) && config.reverbMix == 0.0 ? 0.28 : config.reverbMix,
                       );
-                      widget.engine!.setSynthesizerConfig(newConfig);
+                      _effectiveSession?.setSynthesizerConfig(newConfig);
                       _safeSetSynthesizerConfig(newConfig);
                     },
                   ),
@@ -665,7 +673,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               divisions: 17,
               onChanged: (val) {
                 final newConfig = config.copyWith(reverbMix: val, enableReverb: true);
-                widget.engine!.setSynthesizerConfig(newConfig);
+                _effectiveSession?.setSynthesizerConfig(newConfig);
                 _safeSetSynthesizerConfig(newConfig);
               },
             ),
@@ -694,7 +702,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           reverbMix: amount,
           enableReverb: true,
         );
-        widget.engine!.setSynthesizerConfig(newConfig);
+        _effectiveSession?.setSynthesizerConfig(newConfig);
         _safeSetSynthesizerConfig(newConfig);
       },
       borderRadius: BorderRadius.circular(3),
@@ -749,7 +757,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               divisions: 20,
               onChanged: (val) {
                 final newConfig = config.copyWith(masterVolume: val);
-                widget.engine!.setSynthesizerConfig(newConfig);
+                _effectiveSession?.setSynthesizerConfig(newConfig);
                 _safeSetSynthesizerConfig(newConfig);
               },
             ),

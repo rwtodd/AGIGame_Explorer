@@ -2,6 +2,8 @@ import 'dart:collection';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
 import 'package:flutter_agigame/sci/engine/sci_sound.dart';
@@ -140,6 +142,11 @@ class SciKernel {
   int _masterVolume = 15;
   bool _soundMuted = false;
   final Map<SciReg, SciSoundSlot> _soundSlots = {};
+  Map<SciReg, SciSoundSlot> get soundSlots => _soundSlots;
+  AgiSoundPlayer? soundPlayer;
+  PcmPlaybackMode soundMode = PcmPlaybackMode.tandy3VoiceNoise;
+  SynthesizerConfig synthesizerConfig = const SynthesizerConfig();
+  SciReg? _activePlayingObj;
 
   // --- Parser, Vocabulary & Status (Stage 11) ---
   SciVocab? vocab;
@@ -206,6 +213,8 @@ class SciKernel {
       ..start();
     gameIsRestarting = 0;
     _soundSlots.clear();
+    _activePlayingObj = null;
+    soundPlayer?.stop();
     recentCallLogs.clear();
     initPriorityBands();
     parserEvent = null;
@@ -688,6 +697,7 @@ class SciKernel {
   }
 
   SciReg _kAnimate(SciVM vm, int argc, List<SciReg> argv) {
+    updateSci0Cues(vm);
     getEventCallCount = 0;
     final castList = argc >= 1 ? argv[0] : SciReg.nullReg;
     onAnimate?.call(castList);
@@ -2099,6 +2109,11 @@ class SciKernel {
         final prev = _soundMuted ? 0 : 1;
         if (rest.isNotEmpty) {
           _soundMuted = rest[0].toUint16() == 0;
+          if (_soundMuted) {
+            soundPlayer?.mute();
+          } else {
+            soundPlayer?.unmute();
+          }
         }
         return SciReg.fromInt(prev);
       case _sndStop:
@@ -2107,6 +2122,11 @@ class SciKernel {
       case _sndPause:
         if (rest.isNotEmpty) {
           final paused = rest[0].toUint16() != 0;
+          if (paused) {
+            soundPlayer?.pause();
+          } else {
+            soundPlayer?.resume();
+          }
           for (final slot in _soundSlots.values) {
             if (paused && slot.status == SciSoundStatus.playing) {
               slot.status = SciSoundStatus.paused;
@@ -2121,6 +2141,7 @@ class SciKernel {
         final prev = _masterVolume;
         if (rest.isNotEmpty) {
           _masterVolume = rest[0].toSint16().clamp(0, 15);
+          soundPlayer?.setVolume(_masterVolume / 15.0);
         }
         return SciReg.fromInt(prev);
       case _sndUpdate:
@@ -2129,8 +2150,13 @@ class SciKernel {
         if (rest.isNotEmpty) _soundStop(vm, rest[0]);
         return vm.acc;
       case _sndPolyphony:
-        return const SciReg.fromInt(16);
+        final poly = soundMode == PcmPlaybackMode.ibmPcSingleChannel
+            ? 1
+            : (soundMode == PcmPlaybackMode.tandy3VoiceNoise ? 3 : 16);
+        return SciReg.fromInt(poly);
       case _sndStopAll:
+        soundPlayer?.stop();
+        _activePlayingObj = null;
         for (final obj in _soundSlots.keys.toList()) {
           _soundStop(vm, obj);
         }
@@ -2142,10 +2168,17 @@ class SciKernel {
 
   void _soundInit(SciVM vm, SciReg obj) {
     final number = _readSoundProp(vm, obj, 'number');
+    final loop = _readSoundProp(vm, obj, 'loop');
+    final priority = _readSoundProp(vm, obj, 'priority');
+    final parsed = _loadSound(number);
     _soundSlots[obj] = SciSoundSlot(
       obj: obj,
       resourceId: number,
       status: SciSoundStatus.initialized,
+      loop: loop != 0 ? loop : 1,
+      priority: priority,
+      parsedSound: parsed,
+      cues: parsed?.cues ?? const [SciSoundCue(tick: 0, signal: sciSoundFinished)],
     );
     _writeSoundProp(vm, obj, 'state', SciSoundStatus.initialized);
     _writeSoundProp(vm, obj, 'signal', 0);
@@ -2158,16 +2191,33 @@ class SciKernel {
       slot = _soundSlots[obj]!;
     }
     final number = _readSoundProp(vm, obj, 'number');
-    slot.resourceId = number;
+    if (slot.resourceId != number || slot.parsedSound == null) {
+      slot.resourceId = number;
+      slot.parsedSound = _loadSound(number);
+      slot.cues = slot.parsedSound?.cues ?? const [SciSoundCue(tick: 0, signal: sciSoundFinished)];
+    }
+    slot.loop = _readSoundProp(vm, obj, 'loop');
+    if (slot.loop == 0) slot.loop = 1;
+    slot.priority = _readSoundProp(vm, obj, 'priority');
     slot.status = SciSoundStatus.playing;
     slot.startTick = currentSciTicks;
     slot.nextCue = 0;
-    slot.loop = _readSoundProp(vm, obj, 'loop');
-    slot.cues = _loadSoundCues(number);
+    slot.signalQueue.clear();
+
     _writeSoundProp(vm, obj, 'state', SciSoundStatus.playing);
     _writeSoundProp(vm, obj, 'signal', 0);
     _writeSoundReg(vm, obj, 'handle', obj);
     _writeSoundReg(vm, obj, 'nodePtr', obj);
+
+    // Audio output via soundPlayer
+    if (soundPlayer != null && slot.parsedSound != null) {
+      _activePlayingObj = obj;
+      soundPlayer!.play(
+        slot.parsedSound!.sound,
+        config: synthesizerConfig,
+        muted: _soundMuted,
+      );
+    }
   }
 
   void _soundStop(SciVM vm, SciReg obj, {bool dispose = false}) {
@@ -2175,6 +2225,11 @@ class SciKernel {
     if (slot != null) {
       slot.status = SciSoundStatus.stopped;
       slot.nextCue = slot.cues.length;
+      slot.signalQueue.clear();
+    }
+    if (_activePlayingObj == obj) {
+      soundPlayer?.stop();
+      _activePlayingObj = null;
     }
     _writeSoundProp(vm, obj, 'state', SciSoundStatus.stopped);
     _writeSoundProp(vm, obj, 'signal', sciSoundFinished);
@@ -2183,15 +2238,16 @@ class SciKernel {
     }
   }
 
-  List<SciSoundCue> _loadSoundCues(int number) {
+  SciParsedSound? _loadSound(int number) {
     final vol = volumeManager;
     if (vol == null || vol.resourceMap.find(SciResourceType.sound, number) == null) {
-      return const [SciSoundCue(tick: 0, signal: sciSoundFinished)];
+      return null;
     }
     try {
-      return Sci0SoundParser.parse(vol.getResource(SciResourceType.sound, number));
+      final bytes = vol.getResource(SciResourceType.sound, number);
+      return Sci0SoundParser.parseSound(bytes, mode: soundMode);
     } catch (_) {
-      return const [SciSoundCue(tick: 0, signal: sciSoundFinished)];
+      return null;
     }
   }
 
@@ -2201,21 +2257,57 @@ class SciKernel {
     final now = currentSciTicks;
     for (final slot in _soundSlots.values) {
       if (slot.status != SciSoundStatus.playing) continue;
-      if (slot.nextCue >= slot.cues.length) continue;
+
       final elapsed = now - slot.startTick;
-      final cue = slot.cues[slot.nextCue];
-      if (elapsed < cue.tick) continue;
-      slot.nextCue++;
-      _writeSoundProp(vm, slot.obj, 'signal', cue.signal);
-      if (cue.signal == sciSoundFinished) {
-        slot.status = SciSoundStatus.stopped;
-        _writeSoundProp(vm, slot.obj, 'state', SciSoundStatus.stopped);
+      while (slot.nextCue < slot.cues.length && elapsed >= slot.cues[slot.nextCue].tick) {
+        final cue = slot.cues[slot.nextCue++];
+        if (cue.signal == sciSoundFinished) {
+          if (slot.loop > 1) {
+            slot.loop--;
+            slot.startTick = now;
+            slot.nextCue = 0;
+            if (_activePlayingObj == slot.obj && slot.parsedSound != null) {
+              soundPlayer?.play(
+                slot.parsedSound!.sound,
+                config: synthesizerConfig,
+                muted: _soundMuted,
+              );
+            }
+            break;
+          } else if (slot.loop == -1) {
+            // Loop forever
+            slot.startTick = now;
+            slot.nextCue = 0;
+            if (_activePlayingObj == slot.obj && slot.parsedSound != null) {
+              soundPlayer?.play(
+                slot.parsedSound!.sound,
+                config: synthesizerConfig,
+                muted: _soundMuted,
+              );
+            }
+            break;
+          }
+        }
+        slot.signalQueue.add(cue.signal);
+      }
+
+      if (slot.signalQueue.isNotEmpty) {
+        final sig = slot.signalQueue.removeAt(0);
+        _writeSoundProp(vm, slot.obj, 'signal', sig);
+        if (sig == sciSoundFinished) {
+          slot.status = SciSoundStatus.stopped;
+          _writeSoundProp(vm, slot.obj, 'state', SciSoundStatus.stopped);
+          if (_activePlayingObj == slot.obj) {
+            soundPlayer?.stop();
+            _activePlayingObj = null;
+          }
+        }
       }
     }
   }
 
   int _readSoundProp(SciVM vm, SciReg obj, String name) {
-    final sel = selectors.findSelector(name);
+    final sel = vm.selectors.findSelector(name) ?? selectors.findSelector(name);
     if (sel == null) return 0;
     final o = vm.segManager.getObject(obj);
     if (o == null) return 0;
@@ -2227,7 +2319,7 @@ class SciKernel {
   }
 
   void _writeSoundReg(SciVM vm, SciReg obj, String name, SciReg value) {
-    final sel = selectors.findSelector(name);
+    final sel = vm.selectors.findSelector(name) ?? selectors.findSelector(name);
     if (sel == null) return;
     vm.segManager.getObject(obj)?.setProp(vm.segManager, sel, value);
   }

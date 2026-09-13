@@ -122,6 +122,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     } else {
       final sci = _sciEngine;
       if (sci != null) {
+        if (initSettings != null) {
+          sci.setSoundMode(initSettings.audio.soundMode);
+          sci.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+        }
         sci.kernel.onRestartGameRequested =
             () => SaveLoadDialog.showRestartConfirmation(context, sci);
       }
@@ -693,7 +697,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Widget _buildSlideoutPanel() {
     return SidebarSlideoutPanel(
       isOpen: _openPanelTab != null,
-      activeTab: _openPanelTab ?? (_agiEngine != null ? SidebarPanelTab.audio : SidebarPanelTab.video),
+      activeTab: _openPanelTab ?? (_session.soundPlayer != null ? SidebarPanelTab.audio : SidebarPanelTab.video),
+      session: _session,
       engine: _agiEngine,
       onTabChanged: (tab) => setState(() => _openPanelTab = tab),
       onClose: () => setState(() => _openPanelTab = null),
@@ -858,21 +863,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           ),
 
           // Sound Options Slideout Button
-          if (_agiEngine != null) ...[
+          if (_session.soundPlayer != null) ...[
             ListenableBuilder(
-              listenable: _agiEngine!,
+              listenable: _session,
               builder: (context, _) {
                 final isAudioOpen = _openPanelTab == SidebarPanelTab.audio;
                 IconData soundIcon;
                 Color soundColor;
                 String soundLabel;
 
-                if (!_agiEngine!.isSoundOn || _agiEngine!.soundMode == AgiSoundMode.off) {
+                if (!_session.isSoundOn || _session.soundMode == AgiSoundMode.off) {
                   soundIcon = Icons.volume_off;
                   soundColor = AgiTheme.egaMuted;
                   soundLabel = 'Sound: OFF';
                 } else {
-                  switch (_agiEngine!.soundMode) {
+                  switch (_session.soundMode) {
                     case AgiSoundMode.off:
                       soundIcon = Icons.volume_off;
                       soundColor = AgiTheme.egaMuted;
@@ -921,7 +926,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
               onPressed: null,
-              tooltip: 'Sound: OFF (Planned for Stage 12)',
+              tooltip: 'Sound: OFF',
             ),
           ],
 

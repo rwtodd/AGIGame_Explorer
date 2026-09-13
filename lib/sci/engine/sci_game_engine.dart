@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/domain/sierra_game_session.dart';
+import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
@@ -31,6 +34,20 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   late final SciSelectors selectors;
   late final SciVM vm;
   final ViewAtlasManager atlasManager = ViewAtlasManager();
+  @override
+  final AgiSoundPlayer soundPlayer;
+  final bool _ownsSoundPlayer;
+  AgiSoundMode _soundMode = AgiSoundMode.pcJr;
+  final bool _isSoundOn = true;
+
+  @override
+  AgiSoundMode get soundMode => _soundMode;
+
+  @override
+  bool get isSoundOn => _soundMode != AgiSoundMode.off && _isSoundOn;
+
+  @override
+  SynthesizerConfig get synthesizerConfig => kernel.synthesizerConfig;
 
   Timer? _tickTimer;
   bool _isRunning = false;
@@ -127,8 +144,10 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     SciSegManager? segManager,
     SciKernel? kernel,
     SciSelectors? selectors,
+    AgiSoundPlayer? soundPlayer,
     this.speedHz = 20.0,
-  }) {
+  })  : soundPlayer = soundPlayer ?? AgiSoundPlayer(),
+        _ownsSoundPlayer = soundPlayer == null {
     this.segManager = segManager ?? SciSegManager();
     this.kernel = kernel ?? SciKernel();
     this.selectors = selectors ?? SciSelectors();
@@ -140,6 +159,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     );
     this.kernel.volumeManager = volumeManager;
     this.kernel.selectors = this.selectors;
+    this.kernel.soundPlayer = this.soundPlayer;
     this.segManager.volumeManager = volumeManager;
     this.kernel.onRestartGameRequested ??= () => restartGame();
     this.kernel.onDrawStatus = (text) {
@@ -149,6 +169,60 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     this.kernel.onWindowsChanged = () {
       notifyListeners();
     };
+  }
+
+  @override
+  void setSoundMode(AgiSoundMode mode) {
+    _soundMode = mode;
+    switch (mode) {
+      case AgiSoundMode.off:
+        kernel.soundMode = PcmPlaybackMode.tandy3VoiceNoise;
+        soundPlayer.mute();
+        break;
+      case AgiSoundMode.ibmPc:
+        kernel.soundMode = PcmPlaybackMode.ibmPcSingleChannel;
+        kernel.synthesizerConfig = kernel.synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.ibmPcSingleChannel,
+          enableReverb: false,
+        );
+        soundPlayer.unmute();
+        break;
+      case AgiSoundMode.pcJr:
+        kernel.soundMode = PcmPlaybackMode.tandy3VoiceNoise;
+        kernel.synthesizerConfig = kernel.synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.tandy3VoiceNoise,
+          enableReverb: false,
+        );
+        soundPlayer.unmute();
+        break;
+      case AgiSoundMode.enhanced:
+        kernel.soundMode = PcmPlaybackMode.enhanced;
+        kernel.synthesizerConfig = kernel.synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.enhanced,
+          enableReverb: kernel.synthesizerConfig.reverbMix > 0.0,
+        );
+        soundPlayer.unmute();
+        break;
+    }
+    notifyListeners();
+  }
+
+  @override
+  void setSynthesizerConfig(SynthesizerConfig config) {
+    kernel.synthesizerConfig = config;
+    if (_soundMode != AgiSoundMode.off) {
+      if (config.mode == PcmPlaybackMode.ibmPcSingleChannel) {
+        _soundMode = AgiSoundMode.ibmPc;
+        kernel.soundMode = PcmPlaybackMode.ibmPcSingleChannel;
+      } else if (config.mode == PcmPlaybackMode.tandy3VoiceNoise) {
+        _soundMode = AgiSoundMode.pcJr;
+        kernel.soundMode = PcmPlaybackMode.tandy3VoiceNoise;
+      } else {
+        _soundMode = AgiSoundMode.enhanced;
+        kernel.soundMode = PcmPlaybackMode.enhanced;
+      }
+    }
+    notifyListeners();
   }
 
   /// Loads classes, selectors, vocabulary, and script 0. SCI start is always `(Game play:)`.
@@ -228,6 +302,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _isPaused = true;
     _tickTimer?.cancel();
     _tickTimer = null;
+    soundPlayer.pause();
     notifyListeners();
   }
 
@@ -235,6 +310,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   void resume() {
     if (!_isPaused) return;
     _isPaused = false;
+    soundPlayer.resume();
     final intervalMs = (1000.0 / speedHz).round();
     _tickTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
       tick();
@@ -247,6 +323,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _isPaused = true;
     _tickTimer?.cancel();
     _tickTimer = null;
+    soundPlayer.stop();
 
     _cycleCount = 0;
     _started = false;
@@ -293,6 +370,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       // Step the 60 Hz PIT from the outside (DOSBox-style). At 20 Hz host
       // this is 3 SCI ticks; the speed test then measures ~60 doits/sec.
       kernel.advanceSciClock(hostHz: speedHz);
+      kernel.updateSci0Cues(vm);
       _pumpVm();
       _restorePq2SpeedAfterTest();
       notifyListeners();
@@ -699,6 +777,11 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _isRunning = false;
     _tickTimer?.cancel();
     _tickTimer = null;
+    if (_ownsSoundPlayer) {
+      soundPlayer.dispose();
+    } else {
+      soundPlayer.stop();
+    }
     atlasManager.dispose();
     kernel.dispose();
     super.dispose();

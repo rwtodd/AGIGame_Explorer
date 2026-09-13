@@ -181,6 +181,12 @@ class SciSelectors {
   /// Finds selector ID by name, or null if not found.
   int? findSelector(String name) => _nameToId[name];
 
+  /// Registers or overrides a selector mapping (useful in tests or synthetic scripts).
+  void registerSelector(String name, int id) {
+    _nameToId[name] = id;
+    _idToName[id] = name;
+  }
+
   /// Finds selector name by ID, or fallback string if not found.
   String getSelectorName(int id) => _idToName[id] ?? 'sel_$id';
 

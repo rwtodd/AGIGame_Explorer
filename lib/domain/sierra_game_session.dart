@@ -1,8 +1,11 @@
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
-import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/sierra_cursor.dart';
+import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -58,6 +61,24 @@ abstract class SierraGameSession implements Listenable {
 
   /// Changes the execution speed.
   void setSpeedHz(double speed) {}
+
+  /// Sound player managing active audio synthesis and playback.
+  AgiSoundPlayer? get soundPlayer => null;
+
+  /// Active audio mode (PC Speaker, Tandy/PCjr, Enhanced, or Off).
+  AgiSoundMode get soundMode => AgiSoundMode.off;
+
+  /// Whether sound playback is currently enabled and unmuted.
+  bool get isSoundOn => false;
+
+  /// Configuration for enhanced FM/DSP synthesizer parameters.
+  SynthesizerConfig get synthesizerConfig => const SynthesizerConfig();
+
+  /// Changes the audio playback mode.
+  void setSoundMode(AgiSoundMode mode) {}
+
+  /// Updates the synthesizer configuration parameters.
+  void setSynthesizerConfig(SynthesizerConfig config) {}
 
   /// Advances the game by one tick.
   void tick();
