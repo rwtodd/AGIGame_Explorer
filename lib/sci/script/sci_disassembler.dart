@@ -62,8 +62,14 @@ class SciDisassemblyContext {
     return resolveClassName(superClass.toUint16());
   }
 
-  /// Resolves an object name at the given script [offset].
-  String? resolveObjectName(int offset) {
+  /// Resolves an object name at the given script [offset] and optional [segment].
+  String? resolveObjectName(int offset, [int? segment]) {
+    if (segment != null && segment != 0 && segment != script.segmentId && segManager != null) {
+      final obj = segManager!.getObject(SciReg(segment, offset));
+      if (obj != null && obj.nameString != null) {
+        return obj.nameString;
+      }
+    }
     final obj = script.objects[offset];
     if (obj != null && obj.nameString != null) {
       return obj.nameString;
@@ -71,8 +77,22 @@ class SciDisassemblyContext {
     return null;
   }
 
+  /// Returns whether [offset] is a Said specification in this script.
+  bool isSaidOffset(int offset) => script.isSaidOffset(offset);
+
+  /// Resolves Said specification at [offset] into a human-readable pattern string.
+  String? resolveSaidString(int offset) {
+    final spec = script.getSaidSpec(offset);
+    if (spec != null) {
+      final saidStr = spec.toSaidString(kernel?.vocab);
+      return saidStr.isNotEmpty ? saidStr : 'said_0x${offset.toRadixString(16)}';
+    }
+    return null;
+  }
+
   /// Resolves a string literal starting at [offset].
   String? resolveString(int offset) {
+    if (script.isSaidOffset(offset)) return null;
     final str = script.getString(offset);
     return str.isNotEmpty ? str : null;
   }
@@ -361,6 +381,9 @@ class SciDisassembler {
           final objName = context.resolveObjectName(target);
           if (objName != null) {
             comments.add('Object "$objName" [0x${target.toRadixString(16)}]');
+          } else if (context.isSaidOffset(target)) {
+            final saidStr = context.resolveSaidString(target);
+            comments.add("Said '$saidStr' [0x${target.toRadixString(16)}]");
           } else {
             final str = context.resolveString(target);
             if (str != null && str.isNotEmpty) {

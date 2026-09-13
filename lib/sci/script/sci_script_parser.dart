@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
+import 'package:flutter_agigame/sci/parser/sci_said_matcher.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/sci/script/sci_script.dart';
 
@@ -39,9 +40,12 @@ class SciScriptParser {
     var localsOffset = 0;
     final objects = <int, SciObject>{};
     final strings = <int, String>{};
+    final stringBlocks = <(int offset, int length)>[];
     final synonyms = <int>[];
     final relocationOffsets = <int>[];
     final codeBlocks = <(int offset, int length)>[];
+    final saidBlocks = <(int offset, int length)>[];
+    final saidSpecs = <int, SciSaidSpec>{};
 
     // Read blocks sequentially until terminator (blockType == 0) or EOF
     while (pos + 4 <= data.length) {
@@ -93,6 +97,9 @@ class SciScriptParser {
           break;
 
         case SciScriptBlockType.strings:
+          if (blockSize > 4) {
+            stringBlocks.add((pos + 4, blockSize - 4));
+          }
           _parseStrings(data, pos, blockSize, strings);
           break;
 
@@ -103,6 +110,12 @@ class SciScriptParser {
           break;
 
         case SciScriptBlockType.said:
+          if (blockSize > 4) {
+            saidBlocks.add((pos + 4, blockSize - 4));
+            _parseSaidSpecs(data, pos, blockSize, saidSpecs);
+          }
+          break;
+
         default:
           break;
       }
@@ -130,7 +143,33 @@ class SciScriptParser {
       synonyms: synonyms,
       relocationOffsets: relocationOffsets,
       codeBlocks: codeBlocks,
+      stringBlocks: stringBlocks,
+      saidBlocks: saidBlocks,
+      saidSpecs: saidSpecs,
     );
+  }
+
+  void _parseSaidSpecs(
+    Uint8List data,
+    int pos,
+    int blockSize,
+    Map<int, SciSaidSpec> saidSpecs,
+  ) {
+    var cur = pos + 4;
+    final end = pos + blockSize;
+    while (cur < end) {
+      if (data[cur] == 0) {
+        cur++;
+        continue;
+      }
+      final spec = SciSaidSpec.fromBytes(data, cur);
+      if (spec.rawBytes.isNotEmpty) {
+        saidSpecs[cur] = spec;
+        cur += spec.rawBytes.length;
+      } else {
+        cur++;
+      }
+    }
   }
 
   void _parseStrings(

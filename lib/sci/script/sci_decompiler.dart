@@ -106,15 +106,29 @@ class SciDecompiler {
         final propName = _getPropertyName(obj, i);
 
         // Value formatting
-        String valStr = '${val.toUint16()}';
+        String valStr;
         String? note;
 
         if (propName == 'name') {
           valStr = '"${obj.nameString ?? ""}"';
+        } else if (propName == 'species') {
+          valStr = '${val.toUint16()}';
+          final clsName = context.resolveClassName(val.toUint16());
+          if (clsName != 'Class_${val.toUint16()}') {
+            note = clsName;
+          }
+        } else if (propName == 'superClass') {
+          valStr = '${val.toUint16()}';
+          note = superName;
+        } else if (propName == '-info-') {
+          valStr = '0x${val.toUint16().toRadixString(16)}';
         } else if (val.isPointer) {
-          final targetObj = context.resolveObjectName(val.offset);
+          final targetObj = context.resolveObjectName(val.offset, val.segment);
           if (targetObj != null) {
             valStr = targetObj;
+          } else if (context.isSaidOffset(val.offset)) {
+            final saidStr = context.resolveSaidString(val.offset);
+            valStr = "'$saidStr'";
           } else {
             final str = context.resolveString(val.offset);
             if (str != null && str.isNotEmpty) {
@@ -123,8 +137,8 @@ class SciDecompiler {
               valStr = 'ptr_0x${val.offset.toRadixString(16)}';
             }
           }
-        } else if (propName == 'superClass') {
-          note = superName;
+        } else {
+          valStr = '${val.toUint16()}';
         }
 
         final comment = note != null ? '  ; $note' : '';

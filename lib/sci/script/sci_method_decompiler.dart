@@ -60,6 +60,17 @@ class SciStringExpr extends SciExpr {
   }
 }
 
+/// A parsed Said specification expression, e.g. `'look/door'`.
+class SciSaidExpr extends SciExpr {
+  final String saidPattern;
+  final int offset;
+
+  const SciSaidExpr(this.saidPattern, [this.offset = 0]);
+
+  @override
+  String format() => "'$saidPattern'";
+}
+
 /// A variable reference (global, local, temp, or param).
 class SciVarExpr extends SciExpr {
   final SciVarType type;
@@ -1278,6 +1289,10 @@ class SciMethodDecompiler {
     final objName = context.resolveObjectName(offset);
     if (objName != null) {
       return SciObjectExpr(objName);
+    }
+    if (context.isSaidOffset(offset)) {
+      final saidPattern = context.resolveSaidString(offset) ?? 'said_0x${offset.toRadixString(16)}';
+      return SciSaidExpr(saidPattern, offset);
     }
     final str = context.resolveString(offset);
     if (str != null && str.isNotEmpty) {

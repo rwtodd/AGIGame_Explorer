@@ -1,8 +1,14 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
+import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
+import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
+import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
+import 'package:flutter_agigame/sci/script/sci_decompiler.dart';
+import 'package:flutter_agigame/sci/script/sci_disassembler.dart';
 import 'package:flutter_agigame/sci/script/sci_script_parser.dart';
 
 void main() {
@@ -107,6 +113,75 @@ void main() {
       expect(gameObj.methods.containsKey(87), isTrue); // init:
       expect(gameObj.methods.containsKey(60), isTrue); // doit:
       expect(gameObj.methods.containsKey(111), isTrue); // handleEvent:
+    });
+
+    test('Inspects PQ2 Script 997 strings, said specs, and clean decompile', () {
+      final pq2Dir = Directory('reference_games/police-quest-2');
+      if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+
+      final volumeMgr = SciVolumeManager.fromDirectory(pq2Dir.path);
+      final segMan = SciSegManager();
+      final kernel = SciKernel();
+      final selectors = SciSelectors();
+
+      final v996 = volumeMgr.getResource(SciResourceType.vocab, 996);
+      segMan.loadClassTable(v996);
+
+      final v997 = volumeMgr.getResource(SciResourceType.vocab, 997);
+      selectors.loadVocab997(v997);
+
+      final v0 = volumeMgr.getResource(SciResourceType.vocab, 0);
+      final vocab = SciVocab()..loadVocab000(v0);
+      kernel.vocab = vocab;
+
+      final script = segMan.instantiateScript(997, volumeMgr);
+
+      // Exactly 24 genuine strings from string block and object names
+      expect(script.strings.length, 24);
+
+      // Said block is parsed
+      expect(script.saidBlocks.isNotEmpty, isTrue);
+      expect(script.saidSpecs.length, greaterThanOrEqualTo(10));
+      expect(script.isSaidOffset(0x4a2), isTrue);
+
+      final spec = script.getSaidSpec(0x4a2);
+      expect(spec, isNotNull);
+      expect(spec!.toSaidString(vocab), 'save[/game]');
+
+      final ctx = SciDisassemblyContext(
+        script: script,
+        selectors: selectors,
+        segManager: segMan,
+        kernel: kernel,
+      );
+
+      final disasm = SciDisassembler(ctx);
+      final disasmLines = disasm.disassembleScript();
+      expect(disasmLines.isNotEmpty, isTrue);
+
+      final decompiler = SciDecompiler(ctx);
+      final decompText = decompiler.decompileScript();
+
+      // String count must remain exactly 24 (no garbage strings inserted)
+      expect(script.strings.length, 24);
+
+      // No strings with non-printable control characters except standard whitespace/icon
+      for (final s in script.strings.values) {
+        for (final b in s.codeUnits) {
+          expect(b == 1 || b == 9 || b == 10 || b == 13 || (b >= 32 && b <= 126), isTrue,
+              reason: 'String contains unexpected non-ascii byte: $b in "$s"');
+        }
+      }
+
+      // Decompiled text contains proper Said expressions and properties
+      expect(decompText.contains("'save[/game]'"), isTrue);
+      expect(decompText.contains("'restore[/game]'"), isTrue);
+      expect(decompText.contains('species 19'), isTrue);
+      expect(decompText.contains('superClass 220'), isTrue);
+      expect(decompText.contains('"  J 2°'), isFalse);
     });
   });
 }

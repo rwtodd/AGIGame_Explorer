@@ -2,6 +2,7 @@
 
 import 'dart:typed_data';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
+import 'package:flutter_agigame/sci/parser/sci_said_matcher.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 
 /// Represents an instantiated SCI0 script resource in memory.
@@ -36,6 +37,15 @@ class SciScript {
   /// Code block ranges (offset, length) within the script.
   final List<(int offset, int length)> codeBlocks;
 
+  /// String block ranges (offset, length) within the script.
+  final List<(int offset, int length)> stringBlocks;
+
+  /// Said specification block ranges (offset, length) within the script.
+  final List<(int offset, int length)> saidBlocks;
+
+  /// Parsed Said specifications by script offset.
+  final Map<int, SciSaidSpec> saidSpecs;
+
   SciScript({
     required this.scriptNumber,
     required this.segmentId,
@@ -47,6 +57,9 @@ class SciScript {
     List<int>? synonyms,
     List<int>? relocationOffsets,
     List<(int offset, int length)>? codeBlocks,
+    List<(int offset, int length)>? stringBlocks,
+    List<(int offset, int length)>? saidBlocks,
+    Map<int, SciSaidSpec>? saidSpecs,
   })  : exports = exports != null ? List<int>.unmodifiable(exports) : const <int>[],
         locals = locals != null ? List<SciReg>.from(locals) : <SciReg>[],
         objects = objects != null ? Map<int, SciObject>.from(objects) : <int, SciObject>{},
@@ -57,7 +70,14 @@ class SciScript {
             : const <int>[],
         codeBlocks = codeBlocks != null
             ? List<(int offset, int length)>.unmodifiable(codeBlocks)
-            : const [];
+            : const [],
+        stringBlocks = stringBlocks != null
+            ? List<(int offset, int length)>.unmodifiable(stringBlocks)
+            : const [],
+        saidBlocks = saidBlocks != null
+            ? List<(int offset, int length)>.unmodifiable(saidBlocks)
+            : const [],
+        saidSpecs = saidSpecs != null ? Map<int, SciSaidSpec>.from(saidSpecs) : <int, SciSaidSpec>{};
 
   /// Total script buffer size in bytes.
   int get size => bytes.length;
@@ -71,17 +91,61 @@ class SciScript {
   /// Retrieves an object at [offset], or null if not found.
   SciObject? getObject(int offset) => objects[offset];
 
+  /// Returns whether an offset is within a declared strings block or known string table.
+  bool isStringOffset(int offset) {
+    if (strings.containsKey(offset)) return true;
+    for (final block in stringBlocks) {
+      if (offset >= block.$1 && offset < block.$1 + block.$2) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Returns whether an offset is within a declared Said block or known Said specs table.
+  bool isSaidOffset(int offset) {
+    if (saidSpecs.containsKey(offset)) return true;
+    for (final block in saidBlocks) {
+      if (offset >= block.$1 && offset < block.$1 + block.$2) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Retrieves a parsed [SciSaidSpec] at [offset], or creates one if in a Said block.
+  SciSaidSpec? getSaidSpec(int offset) {
+    if (saidSpecs.containsKey(offset)) return saidSpecs[offset];
+    if (isSaidOffset(offset) && offset >= 0 && offset < bytes.length) {
+      final spec = SciSaidSpec.fromBytes(bytes, offset);
+      saidSpecs[offset] = spec;
+      return spec;
+    }
+    return null;
+  }
+
   /// Retrieves a null-terminated ASCII string starting at [offset].
+  ///
+  /// Only returns valid strings if [offset] resides within a known strings block
+  /// or pre-parsed object name table, preventing binary/bytecode from being
+  /// misinterpreted as strings.
   String getString(int offset) {
     if (strings.containsKey(offset)) return strings[offset]!;
     if (offset < 0 || offset >= bytes.length) return '';
+    if (!isStringOffset(offset)) return '';
+
     var end = offset;
     while (end < bytes.length && bytes[end] != 0) {
       end++;
     }
-    final str = String.fromCharCodes(bytes.sublist(offset, end));
-    strings[offset] = str;
-    return str;
+    final slice = bytes.sublist(offset, end);
+    // Validate characters: printable ASCII (32..126), tab (9), newline (10), CR (13), or menu icon (1)
+    for (final b in slice) {
+      if (b != 1 && b != 9 && b != 10 && b != 13 && (b < 32 || b > 126)) {
+        return '';
+      }
+    }
+    return String.fromCharCodes(slice);
   }
 
   /// Returns whether an object exists at the specified [offset].

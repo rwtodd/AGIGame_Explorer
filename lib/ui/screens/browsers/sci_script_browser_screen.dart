@@ -9,6 +9,7 @@ import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
+import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 import 'package:flutter_agigame/sci/script/sci_decompiler.dart';
 import 'package:flutter_agigame/sci/script/sci_disassembler.dart';
 import 'package:flutter_agigame/sci/script/sci_script.dart';
@@ -180,6 +181,11 @@ class _SciScriptBrowserScreenState
     if (_kernel == null) {
       _kernel = SciKernel();
       _kernel!.selectors = _selectors!;
+      try {
+        final v000 = vm.getResource(SciResourceType.vocab, 0);
+        final vocab = SciVocab()..loadVocab000(v000);
+        _kernel!.vocab = vocab;
+      } catch (_) {}
     }
   }
 
