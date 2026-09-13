@@ -622,6 +622,34 @@ void main() {
       }
     });
 
+    test('typed character appears in GetInput on the same handleKeyPress', () {
+      final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
+      final engine = SciGameEngine(volumeManager: vol);
+      engine.initializeGame();
+      engine.restartGame();
+      for (var i = 0; i < 120; i++) {
+        engine.tick();
+        if (engine.isInputEnabled) break;
+      }
+      expect(engine.isInputEnabled, isTrue);
+
+      engine.handleKeyPress(108, ascii: 108); // 'l' — no extra tick()
+      final edits = engine.sciWindows
+          .expand((w) => w.controls)
+          .whereType<SciEditControl>()
+          .toList();
+      expect(edits, isNotEmpty, reason: 'GetInput must open in this keypress');
+      expect(edits.last.text, contains('l'));
+
+      engine.handleKeyPress(111, ascii: 111); // 'o'
+      final after = engine.sciWindows
+          .expand((w) => w.controls)
+          .whereType<SciEditControl>()
+          .toList();
+      expect(after.last.text, contains('lo'));
+      engine.dispose();
+    });
+
     test('SciTextControl.wrapText splits long strings into multiple lines according to maxWidth', () {
       final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final engine = SciGameEngine(volumeManager: vol);

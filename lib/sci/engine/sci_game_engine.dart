@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
@@ -250,7 +251,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
     _cycleCount = 0;
     _started = false;
-    _unthrottledWaitPumps = 0;
+    _pq2RestartDriveUpDone = false;
 
     atlasManager.clear();
     segManager.reset();
@@ -287,34 +288,97 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     }
   }
 
+  bool _inTick = false;
+
   @override
   void tick() {
-    if (_isPaused || _isDisposed) return;
-    _cycleCount++;
-    _pumpVm();
-    notifyListeners();
+    if (_isPaused || _isDisposed || _inTick) return;
+    _inTick = true;
+    try {
+      _cycleCount++;
+      // Step the 60 Hz PIT from the outside (DOSBox-style). At 20 Hz host
+      // this is 3 SCI ticks; the speed test then measures ~60 doits/sec.
+      _finishPq2RestartDriveUp();
+      kernel.advanceSciClock(hostHz: speedHz);
+      _pumpVm();
+      _restorePq2SpeedAfterTest();
+      notifyListeners();
+    } finally {
+      _inTick = false;
+    }
   }
 
-  /// Extra `Wait(0)` pumps during the boot speed test only.
-  ///
-  /// A real 8088/AT does ~20–80 `doit`s in the 1s GetTime window. Tight-looping
-  /// Wait(0) produced machineSpeed 20000+ (PQ2 g110), which scripts then use as
-  /// `cycles` / delay — Print and room changes take seconds. Cap at 6 pumps per
-  /// host tick and 80 total, then 20 Hz even if speed stays 0 (PQ2 intro).
-  int _unthrottledWaitPumps = 0;
+  /// PQ2 restart: `Btst 167` → room 1 → `driveUpScript`. State 0 does
+  /// `(ego posn: 0 0)` on purpose and waits for `ourCar setMotion: MoveTo`.
+  /// `rm1::doit` still runs every cycle and `(ego inRect: 4 11 122 18)` is
+  /// the "entrance is the other way" Print. If the car never `cue:`s, we
+  /// never reach state 1 (`newRoom: 33`) and the lot script game-overs.
+  /// Cue state 1 ourselves — that *is* the script's success path when
+  /// `g160` is 0. Do not poke Motion dest slots; those are not `x`/`y`.
+  bool _pq2RestartDriveUpDone = false;
 
+  void _finishPq2RestartDriveUp() {
+    if (_pq2RestartDriveUpDone) return;
+    final g = segManager.globals;
+    if (g.length <= 12) return;
+    if (g[11].toUint16() != 1 || g[12].toUint16() != 99) return;
+    final changeSel = selectors.findSelector('changeState');
+    final scriptSel = selectors.findSelector('script');
+    if (changeSel == null || scriptSel == null || g.length <= 2) return;
+    final room = segManager.getObject(g[2]);
+    if (room == null) return;
+    final scriptReg = room.getProp(segManager, scriptSel);
+    final script = segManager.getObject(scriptReg);
+    if (script == null || script.nameString != 'driveUpScript') return;
+    _pq2RestartDriveUpDone = true;
+    try {
+      vm.sendSelector(scriptReg, changeSel, [const SciReg.fromInt(1)]);
+    } catch (_) {
+      _pq2RestartDriveUpDone = false;
+    }
+  }
+
+  /// PQ2 1.002.011 leaves `setSpeed: 0` after the room-99 test on the intro
+  /// path (ScummVM patches the script). Restore 6 from the host instead.
+  void _restorePq2SpeedAfterTest() {
+    final g = segManager.globals;
+    if (g.length <= 110) return;
+    final room = g.length > 11 ? g[11].toUint16() : 0;
+    if (room == 0 || room == 99) return;
+    if (g[110].toUint16() == 0) return;
+    final gSpeed = g.length > 18 ? g[18].toUint16() : 0;
+    final gameSpeed = g.length > 3 ? g[3].toUint16() : 0;
+    if (gSpeed == 0 && gameSpeed == 0) {
+      g[3] = const SciReg.fromInt(6);
+      if (g.length > 18) g[18] = const SciReg.fromInt(6);
+    }
+  }
+
+  /// How many Wait(0) Game.play loops fit in one host tick at AT throughput.
+  ///
+  /// A real 8088/AT does ~20–80 `doit`s in the 1s GetTime window. We do not
+  /// patch that test (ScummVM writes `$7fff` into PQ2 g110). Instead each
+  /// host tick allows `60/speedHz` unthrottled cycles — 3 at 20 Hz — so
+  /// machineSpeed stays AT-class. Wait(n>0) still ends the pump: one frame.
   void _pumpVm() {
     if (vm.executionStack.isEmpty || vm.abortScriptProcessing) return;
-    var pumpsThisTick = 0;
+    final atBudget = speedHz <= 0 ? 1 : max(1, (60.0 / speedHz).round());
+    var wait0Pumps = 0;
+    var inputPumps = 0;
     try {
       while (true) {
         vm.yieldRequested = false;
         vm.runVm(100000, 0);
         if (!vm.yieldRequested) break;
+        if (kernel.hasPendingInput) {
+          inputPumps++;
+          if (inputPumps > 64) break;
+          continue;
+        }
+        if (kernel.waitingForPit) break;
         if (kernel.lastWaitTicks > 0) break;
-        _unthrottledWaitPumps++;
-        pumpsThisTick++;
-        if (_unthrottledWaitPumps > 80 || pumpsThisTick >= 6) break;
+        wait0Pumps++;
+        if (wait0Pumps >= atBudget) break;
       }
     } catch (e, st) {
       if (kernel.verboseLogging) {
@@ -339,6 +403,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     if (rawKeyCode == null) return;
     final modifiers = (shift ? 1 : 0) | (ctrl ? 2 : 0) | (alt ? 4 : 0);
     kernel.postKeyEvent(ascii != 0 ? ascii : rawKeyCode, modifiers: modifiers);
+    // User.doit / Dialog.doit only run when the VM is pumped. Do it now so a
+    // typed character opens GetInput and paints in this call, not 1–4 s later.
+    tick();
   }
 
   @override
@@ -355,6 +422,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     kernel.mouseY = y;
     _hitTestWindows(x, y);
     kernel.postMouseEvent(SciEventType.mousePress, x, y);
+    tick();
   }
 
   void _hitTestWindows(int x, int y) {
@@ -470,8 +538,58 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     }
   }
 
+  /// SCI0 flag array is globals 250.. as 16-bit words, bit `0x8000 >> (flag%16)`.
+  List<int> _decodeSciFlags() {
+    final g = segManager.globals;
+    final set = <int>[];
+    for (var w = 0; w < 16; w++) {
+      final gi = 250 + w;
+      if (gi >= g.length) break;
+      final bits = g[gi].toUint16();
+      if (bits == 0) continue;
+      for (var b = 0; b < 16; b++) {
+        if ((bits & (0x8000 >> b)) != 0) set.add(w * 16 + b);
+      }
+    }
+    return set;
+  }
+
+  Map<String, Object?> _exportControl(SciControlItem c) {
+    if (c is SciTextControl) {
+      return {'type': 'text', 'text': c.text};
+    }
+    if (c is SciEditControl) {
+      return {'type': 'edit', 'text': c.text, 'cursor': c.cursorPosition};
+    }
+    if (c is SciButtonControl) {
+      return {'type': 'button', 'text': c.text};
+    }
+    return {'type': c.runtimeType.toString()};
+  }
+
   /// Exports a comprehensive snapshot of the SCI engine state as a Map.
   Map<String, dynamic> exportState({String? label}) {
+    final g = segManager.globals;
+    int gAt(int i) => i < g.length ? g[i].toUint16() : 0;
+    final currentRoom = gAt(11);
+    final prevRoom = gAt(12);
+    final flagsSet = _decodeSciFlags();
+    String bootPath;
+    if (prevRoom == 99 && currentRoom == 1 && flagsSet.contains(167)) {
+      bootPath = 'restart-skip-intro (Btst 167 → newRoom 1)';
+    } else if (prevRoom == 99 && currentRoom == 200) {
+      bootPath = 'cold-boot-intro (flag 167 clear → newRoom 200)';
+    } else if (currentRoom == 33) {
+      bootPath = 'in-car';
+    } else {
+      bootPath = 'room $currentRoom prev $prevRoom';
+    }
+
+    final stack = vm.stack;
+    const head = 8;
+    const tail = 24;
+    final omitted = max(0, stack.length - head - tail);
+
     return {
       'engine': 'SCI0',
       'label': label ?? 'Diagnostic State Snapshot',
@@ -479,6 +597,34 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       'cycleCount': _cycleCount,
       'speedHz': speedHz,
       'isPaused': _isPaused,
+      'bootPath': bootPath,
+      'clock': {
+        'sciTicks': kernel.currentSciTicks,
+        'lastWaitTicks': kernel.lastWaitTicks,
+        'waitingForPit': kernel.waitingForPit,
+        'gameIsRestarting': kernel.gameIsRestarting,
+        'getTimeStreak': kernel.getTimeStreak,
+      },
+      'rooms': {
+        'current': currentRoom,
+        'previous': prevRoom,
+        'pic': kernel.currentPic?.picNumber,
+        'gameSpeed_g3': gAt(3),
+        'gSpeed_g18': gAt(18),
+        'machineSpeed_g110': gAt(110),
+      },
+      'flagsSet': flagsSet,
+      'windows': kernel.windowManager.windowStack.map((w) {
+        return {
+          'id': w.id,
+          'title': w.title,
+          'rect': [w.dims.left, w.dims.top, w.dims.right, w.dims.bottom],
+          'controls': w.controls.map(_exportControl).toList(),
+        };
+      }).toList(),
+      'eventQueue': kernel.eventQueue
+          .map((e) => {'type': e.type, 'message': e.message})
+          .toList(),
       'currentPic': kernel.currentPic?.picNumber,
       'pictureSlices': pictureSlices?.length ?? 0,
       'actors': actors.map((a) => {
@@ -509,8 +655,15 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
           's16': vm.prev.toSint16(),
           'display': vm.prev.toString(),
         },
-        'stackDepth': vm.stack.length,
-        'stack': vm.stack.map((r) => r.toString()).toList(),
+        'stackDepth': stack.length,
+        'stackOmitted': omitted,
+        'stackHead': stack.take(head).map((r) => r.toString()).toList(),
+        'stackTail': stack.length <= head
+            ? const <String>[]
+            : stack
+                .sublist(omitted > 0 ? stack.length - tail : head)
+                .map((r) => r.toString())
+                .toList(),
         'executionStackDepth': vm.executionStack.length,
         'executionStack': vm.executionStack.reversed.map((f) {
           final scr = segManager.loadedScripts[f.pc.segment];
@@ -529,9 +682,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
         }).toList(),
       },
       'globals': {
-        for (var i = 0; i < segManager.globals.length; i++)
-          if (!segManager.globals[i].isNull)
-            'g$i': segManager.globals[i].toString()
+        for (var i = 0; i < g.length; i++)
+          if (!g[i].isNull)
+            'g$i': g[i].toString()
       },
       'loadedScripts': segManager.loadedScripts.values.map((s) => {
         'scriptNumber': s.scriptNumber,

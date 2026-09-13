@@ -252,6 +252,42 @@ void main() {
       expect(kernel.lastWaitTicks, 6);
     });
 
+    test('GetTime spin yields after two identical PIT reads', () {
+      vm.yieldRequested = false;
+      kernel.call(vm, 0x46, 0, []);
+      expect(vm.yieldRequested, isFalse);
+      kernel.call(vm, 0x46, 0, []);
+      expect(vm.yieldRequested, isTrue,
+          reason: 'Dialog.doit while(GetTime==t) must not burn runVm maxSteps');
+      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(0)]);
+      vm.yieldRequested = false;
+      kernel.call(vm, 0x46, 0, []);
+      expect(vm.yieldRequested, isFalse,
+          reason: 'a non-GetTime kernel resets the spin streak');
+    });
+
+    test('host clock steps GetTime; Wait(n) suspends until enough ticks', () {
+      expect(kernel.currentSciTicks, lessThan(2));
+      kernel.advanceSciClock(hostHz: 20); // +3
+      expect(kernel.currentSciTicks, greaterThanOrEqualTo(3));
+      vm.executionStack.add(
+        SciExecStack(
+          objp: SciReg.nullReg,
+          pc: SciReg.nullReg,
+          localSegment: 0,
+          sp: 0,
+          fp: 0,
+        ),
+      );
+      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
+      expect(kernel.waitingForPit, isTrue);
+      expect(kernel.suspendCallk, isTrue);
+      kernel.advanceSciClock(hostHz: 20); // +3, total 6
+      kernel.call(vm, 0x45, 1, [const SciReg.fromInt(6)]);
+      expect(kernel.waitingForPit, isFalse);
+      expect(kernel.lastWaitTicks, 6);
+    });
+
     test('MenuSelect opens a dropdown and selects on a second click', () {
       final title = segMan.allocString('File');
       final items = segMan.allocString('About`^a:Quit`^q:');

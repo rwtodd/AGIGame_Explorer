@@ -124,8 +124,18 @@ class SciKernel {
 
   /// Ticks requested by the most recent `Wait`. 0 means the game is running
   /// unthrottled (speed test / `setSpeed: 0`) and the engine may pump extra
-  /// `doit` cycles in one host tick.
+  /// `doit` cycles in one host tick, capped at AT throughput (~60 Hz).
   int lastWaitTicks = 0;
+
+  /// Set when `Wait(n>0)` has not yet seen [n] PIT ticks; the host must not
+  /// extra-pump until the next clock step.
+  bool waitingForPit = false;
+
+  /// True when a key or mouse-down is waiting. Dialog.doit / Wait must not
+  /// sleep the host — GetInput should see the character in this pump.
+  bool get hasPendingInput => eventQueue.any(
+        (e) => e.type == SciEventType.keyDown || e.type == SciEventType.mousePress,
+      );
 
   int _masterVolume = 15;
   bool _soundMuted = false;
@@ -187,7 +197,10 @@ class SciKernel {
     picPortTop = 10;
     picPortLeft = 0;
     lastWaitTicks = 0;
+    waitingForPit = false;
     _sciTicks = 0;
+    _lastWaitTime = 0;
+    _getTimeStreak = 0;
     _playTimeStopwatch
       ..reset()
       ..start();
@@ -226,6 +239,20 @@ class SciKernel {
   final ListQueue<String> recentCallLogs = ListQueue<String>();
   static const int _logCap = 200;
 
+  /// Always recorded even when the inspector is closed. GetTime/Wait/Animate
+  /// are omitted — they fire every cycle and drown the room-change signal.
+  static const Set<int> _alwaysTraceKernelIds = {
+    0x08, // DrawPic
+    0x13, // NewWindow
+    0x16, // DisposeWindow
+    0x1B, // Display
+    0x24, // Parse
+    0x2F, // RestartGame
+    0x30, // GameIsRestarting (queries / non-zero only)
+  };
+
+  int get getTimeStreak => _getTimeStreak;
+
   String getKernelName(int id) => _entries[id]?.name ?? 'k_0x${id.toRadixString(16)}';
 
   /// When true after a kernel call, the VM rewinds `callk` and yields so a
@@ -234,6 +261,7 @@ class SciKernel {
 
   SciReg call(SciVM vm, int kernelId, int argc, List<SciReg> argv) {
     suspendCallk = false;
+    if (kernelId != 0x46) _getTimeStreak = 0;
     final entry = _entries[kernelId];
     SciReg result;
     if (entry != null) {
@@ -248,9 +276,12 @@ class SciKernel {
       result = const SciReg.fromInt(0);
     }
 
-    if (captureDebugLogs) {
+    final name = entry?.name ?? 'unknown';
+    final traceAlways = _alwaysTraceKernelIds.contains(kernelId) &&
+        !(kernelId == 0x30 && argc > 0 && result.toUint16() == 0);
+    if (captureDebugLogs || traceAlways) {
       final logLine =
-          '0x${kernelId.toRadixString(16).padLeft(2, "0")} (${getKernelName(kernelId)}) '
+          '0x${kernelId.toRadixString(16).padLeft(2, "0")} ($name) '
           'args=[${argv.take(argc).map((a) => a.toString()).join(", ")}] -> ${result.toString()}';
       if (recentCallLogs.length >= _logCap) {
         recentCallLogs.removeFirst();
@@ -1967,29 +1998,58 @@ class SciKernel {
     return SciReg.fromInt(sqrt(dx * dx + dy * dy).round());
   }
 
-  /// 60Hz clock: the larger of Wait-advanced ticks and wall time.
+  /// 60 Hz PIT, stepped by the host (DOSBox-style), not by patching scripts.
   ///
-  /// Wait(0) extra-pump must advance this so the boot speed test can finish
-  /// without 20k doits. Dialog.doit busy-waits until GetTime changes, so wall
-  /// time has to keep moving too (or Print freezes and Enter never lands).
+  /// ScummVM disables SCI0 speed tests in script (PQ2 rm99:doit writes
+  /// `$7fff` to g110 and restores gSpeed to 6). We instead run about as many
+  /// `doit`s per second as an AT (~60) and let the original test measure them.
+  /// [currentSciTicks] is `max(host-stepped, wall)` so unit tests that only
+  /// `Future.delayed` still see time move, and `tick()`-only tests do too.
   int _sciTicks = 0;
+  int _lastWaitTime = 0;
+  int _getTimeStreak = 0;
   final Stopwatch _playTimeStopwatch = Stopwatch()..start();
+
+  /// Advance the PIT by `60 / hostHz` ticks (3 at 20 Hz). One host tick is
+  /// one AT-class time slice: the speed test counts `doit`s in a 60-tick
+  /// window and lands around 40–80, not 20 000.
+  void advanceSciClock({required double hostHz}) {
+    final hz = hostHz <= 0 ? 20.0 : hostHz;
+    _sciTicks += max(1, (60.0 / hz).round());
+  }
+
+  int get currentSciTicks {
+    final wall = (_playTimeStopwatch.elapsedMilliseconds * 60) ~/ 1000;
+    return _sciTicks > wall ? _sciTicks : wall;
+  }
 
   SciReg _kWait(SciVM vm, int argc, List<SciReg> argv) {
     final ticks = argc >= 1 ? argv[0].toUint16() : 0;
     lastWaitTicks = ticks;
-    _sciTicks += ticks == 0 ? 1 : ticks;
-    return SciReg.fromInt((ticks == 0 ? 1 : ticks) & 0xFFFF);
+    waitingForPit = false;
+    final now = currentSciTicks;
+    final elapsed = now - _lastWaitTime;
+    if (ticks > 0 &&
+        elapsed < ticks &&
+        vm.executionStack.isNotEmpty &&
+        !hasPendingInput) {
+      // Same idea as ScummVM EngineState::wait: do not return until [ticks]
+      // of PIT time have elapsed. We yield instead of sleeping the isolate.
+      // Keys skip the sleep so User.doit / Dialog.doit can run this pump.
+      waitingForPit = true;
+      suspendCallk = true;
+      vm.yieldRequested = true;
+      return vm.r_acc;
+    }
+    _lastWaitTime = now;
+    return SciReg.fromInt((elapsed < 0 ? 0 : elapsed) & 0xFFFF);
   }
-
-  int get currentSciTicks =>
-      _sciTicks + (_playTimeStopwatch.elapsedMilliseconds * 60) ~/ 1000;
 
   SciReg _kGetTime(SciVM vm, int argc, List<SciReg> argv) {
     final mode = argc >= 1 ? argv[0].toUint16() : 0;
     switch (mode) {
       case 0: // KGETTIME_TICKS (approx 60 Hz)
-        return SciReg.fromInt(currentSciTicks & 0x7FFF);
+        return _ticksGetTime(vm);
       case 1: // KGETTIME_TIME_12HOUR: (hour << 12) | (min << 6) | sec
         final now = DateTime.now();
         final hour = (now.hour % 12 == 0) ? 12 : (now.hour % 12);
@@ -2002,8 +2062,25 @@ class SciKernel {
         final year = (now.year >= 1980 ? now.year - 1980 : 8) & 0x7F;
         return SciReg.fromInt(((year << 9) | (now.month << 5) | now.day) & 0xFFFF);
       default:
-        return SciReg.fromInt(currentSciTicks & 0x7FFF);
+        return _ticksGetTime(vm);
     }
+  }
+
+  /// Dialog.doit busy-waits `(while (== t (GetTime)))` and, with no `theItem`,
+  /// does that 60 times ("eat the mice"). Yielding each wait made every
+  /// keystroke wait on the 20 Hz host timer (~3 s). If a key is queued, step
+  /// the PIT so the while exits in this `runVm`; otherwise yield.
+  SciReg _ticksGetTime(SciVM vm) {
+    _getTimeStreak++;
+    if (_getTimeStreak >= 2) {
+      if (hasPendingInput) {
+        _sciTicks++;
+        _getTimeStreak = 0;
+      } else {
+        vm.yieldRequested = true;
+      }
+    }
+    return SciReg.fromInt(currentSciTicks & 0x7FFF);
   }
 
   // SCI0 DoSound subops (kernel_tables.h SIG_SOUNDSCI0).

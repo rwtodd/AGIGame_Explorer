@@ -42,9 +42,13 @@ void main() {
       engine.handleDirection(3); // East
       expect(engine.kernel.eventQueue, isNotEmpty);
 
-      // Key event handling
+      // Key event handling — handleKeyPress pumps the VM immediately, so the
+      // key is consumed by GetEvent instead of sitting in the queue.
       engine.handleKeyPress(0x0D, ascii: 0x0D); // Enter
-      expect(engine.kernel.eventQueue, isNotEmpty);
+      expect(
+        engine.kernel.eventQueue.where((e) => e.message == 0x0D),
+        isEmpty,
+      );
 
       // Pause and resume
       engine.pause();
@@ -74,6 +78,11 @@ void main() {
       expect(state['vm'], isNotNull);
       expect(state['globals'], isA<Map>());
       expect(state['loadedScripts'], isA<List>());
+      expect(state['clock'], isA<Map>());
+      expect(state['rooms'], isA<Map>());
+      expect(state['flagsSet'], isA<List>());
+      expect(state['windows'], isA<List>());
+      expect(state['bootPath'], isA<String>());
 
       final jsonStr = engine.exportStateJson();
       expect(jsonStr, contains('"engine": "SCI0"'));

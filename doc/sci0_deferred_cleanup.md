@@ -30,7 +30,7 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 ## VM / game loop
 
-- **`Wait(0)` extra-pump is capped at 80 `doit`s (6 per host tick).** A tight 40ms spin produced machineSpeed 20000+; PQ2 scripts use that as `cycles` and Print/room changes stall for seconds. 80 is an AT-class rating (LSL3 `pcAT` is 39, `pc386` 69).
+- **Host throttles like DOSBox, not ScummVM script patches.** Each `tick()` steps the 60 Hz PIT by `60/speedHz` (3 at 20 Hz) and allows that many Wait(0) `doit`s. PQ2’s room-99 test still runs and should land g110 around 40–80. ScummVM instead patches rm99:doit to `g110=$7fff` / `gSpeed=6`. Do not add that patch unless a title’s test still overflows. GetTime spin loops yield after two identical reads (Dialog.doit).
 
 ## Parser / Said leftovers
 
@@ -53,7 +53,7 @@ Roadmap: [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md) §
 
 - **Stage 13 (Playable first PQ2 room)**:
   - Menu bar + 10px status strip; `kGraph`; SetCursor; mouse events; window hit-test.
-  - `FE 08` priority-band tables (parsed on DrawPic). Wait(0) extra-pump is a 1s wall-clock budget.
+  - `FE 08` priority-band tables (parsed on DrawPic). PIT is stepped from the host; no script speed-test patch.
 - **Stage 14 (VOCAB.900 GNF)**:
   - Real Said tree; `syntaxFail` on GNF failure.
 - **Stage 15 (FileIO / save / inventory)**:

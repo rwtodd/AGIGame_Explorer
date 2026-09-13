@@ -179,7 +179,7 @@ Each remaining stage independently reviewable; AGI tests green throughout. SCI-o
 | 7 | Launcher detection + workbench | **Done.** | Engine fork; Pic/View/Font/Cursor/Script tiles. |
 | 8 | Compositor: painter, sprites, window overlay | **Done.** | Displacement / `z`; overlay windows; cursor overlay. |
 | 9 | SCI VM skeleton + PMachine pipeline | **Done.** | 128 opcodes, SegManager, VOCAB.996/997, kernel table, PQ2 boot. |
-| 10 | `Animate`, ego motion, `SierraGameSession` | **Done.** | Cast sprites, DrawPic/SetNowSeen/CanBeHere/OnControl, Wait, Bresen, session facade, PQ2 intro. Leftovers: FE 08 bands, portable Wait(0) pump. |
+| 10 | `Animate`, ego motion, `SierraGameSession` | **Done.** | Cast sprites, DrawPic/SetNowSeen/CanBeHere/OnControl, Wait, Bresen, session facade, PQ2 intro. Leftovers: FE 08 bands. Host steps the PIT; no script speed-test patch. |
 | 11 | Text parser, Said, command prompt | **Done.** | VOCAB.000, kParse/kSaid/kSetSynonyms/kDrawStatus, GetInput loop. Leftovers: menu bar, VOCAB.900 GNF (→ 13 / 14). |
 | 12 | Dialog windows, controls, wrapping | **Done.** | NewWindow/DrawControl/EditControl/Display/TextSize, inner port, GlobalToLocal. Leftovers: `|c`/`|f`, GetLongest, Graph, hi-res Font 0/1. |
 | 13 | Playable first PQ2 room | **Next.** | Menu bar + status strip, SetCursor, Graph, mouse events, window hit-test, walk a real room, type `look`. |
@@ -213,7 +213,7 @@ Nits that are not a stage: [sci0_deferred_cleanup.md](sci0_deferred_cleanup.md).
   3. **`kGraph`.** Enough of SaveBits/RestoreBits/Fill/Update for Print and in-room redraws (overlay stack, not a 16-slice reslice).
   4. **Hit-testing.** Click DButton / DEdit; `GlobalToLocal` already exists.
   5. **Pic `FE 08` priority bands** if the first room embeds a custom table.
-  6. **Portable Wait(0) extra-pump** (not hardcoded room 99) so other SCI0 titles can boot.
+  6. **Outer AT throttle** (PIT stepped from `tick()`, Wait(0) budget `60/speedHz`) so speed tests measure cycles without patching scripts.
   7. **Walk.** DirLoop + DoBresen + CanBeHere on a real control map; ego cycles while moving.
 - **Verification:** `test/sci/sci_walkable_room_test.dart` plus a live PQ2 room: Sonny walks, `look` prints the room text, Esc/click opens the menu.
 

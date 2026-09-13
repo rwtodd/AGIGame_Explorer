@@ -96,8 +96,8 @@ void main() {
     expect(engine.kernel.lastWaitTicks, 0);
     expect(animates, greaterThan(1));
 
-    // After leaving room 99, Wait(0) must not extra-pump (PQ2 intro stays at
-    // speed 0). Event new/dispose stay balanced instead of leaking clones.
+    // Wait(0) still extra-pumps at AT throughput (3/tick at 20 Hz). Event
+    // new/dispose must stay balanced instead of leaking clones.
     final clonesBefore = engine.segManager.clones.length;
     engine.segManager.globals[11] = const SciReg.fromInt(200);
     engine.tick();
