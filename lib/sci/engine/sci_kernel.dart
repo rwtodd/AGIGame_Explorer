@@ -188,6 +188,9 @@ class SciKernel {
     picPortLeft = 0;
     lastWaitTicks = 0;
     _sciTicks = 0;
+    _playTimeStopwatch
+      ..reset()
+      ..start();
     gameIsRestarting = 0;
     _soundSlots.clear();
     recentCallLogs.clear();
@@ -1964,11 +1967,13 @@ class SciKernel {
     return SciReg.fromInt(sqrt(dx * dx + dy * dy).round());
   }
 
-  /// PMachine 60Hz tick counter. Advanced by [Wait], read by [GetTime] mode 0.
-  /// Using wall-clock here made the boot speed test count tens of thousands of
-  /// `doit`s per real second (extra-pump) and stall scripts that delay by
-  /// `machineSpeed` cycles.
+  /// 60Hz clock: the larger of Wait-advanced ticks and wall time.
+  ///
+  /// Wait(0) extra-pump must advance this so the boot speed test can finish
+  /// without 20k doits. Dialog.doit busy-waits until GetTime changes, so wall
+  /// time has to keep moving too (or Print freezes and Enter never lands).
   int _sciTicks = 0;
+  final Stopwatch _playTimeStopwatch = Stopwatch()..start();
 
   SciReg _kWait(SciVM vm, int argc, List<SciReg> argv) {
     final ticks = argc >= 1 ? argv[0].toUint16() : 0;
@@ -1977,13 +1982,14 @@ class SciKernel {
     return SciReg.fromInt((ticks == 0 ? 1 : ticks) & 0xFFFF);
   }
 
-  int get currentSciTicks => _sciTicks;
+  int get currentSciTicks =>
+      _sciTicks + (_playTimeStopwatch.elapsedMilliseconds * 60) ~/ 1000;
 
   SciReg _kGetTime(SciVM vm, int argc, List<SciReg> argv) {
     final mode = argc >= 1 ? argv[0].toUint16() : 0;
     switch (mode) {
       case 0: // KGETTIME_TICKS (approx 60 Hz)
-        return SciReg.fromInt(_sciTicks & 0x7FFF);
+        return SciReg.fromInt(currentSciTicks & 0x7FFF);
       case 1: // KGETTIME_TIME_12HOUR: (hour << 12) | (min << 6) | sec
         final now = DateTime.now();
         final hour = (now.hour % 12 == 0) ? 12 : (now.hour % 12);
@@ -1996,7 +2002,7 @@ class SciKernel {
         final year = (now.year >= 1980 ? now.year - 1980 : 8) & 0x7F;
         return SciReg.fromInt(((year << 9) | (now.month << 5) | now.day) & 0xFFFF);
       default:
-        return SciReg.fromInt(_sciTicks & 0x7FFF);
+        return SciReg.fromInt(currentSciTicks & 0x7FFF);
     }
   }
 
