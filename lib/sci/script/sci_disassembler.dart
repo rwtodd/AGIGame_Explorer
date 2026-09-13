@@ -443,7 +443,7 @@ class SciDisassembler {
 
       // Stop condition: ret encountered and no forward branches point past it
       if (instr.opcode == 0x24) {
-        if (pc >= maxBranchTarget) {
+        if (pc > maxBranchTarget) {
           break;
         }
       }

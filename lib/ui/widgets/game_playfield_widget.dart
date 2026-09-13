@@ -74,6 +74,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   late Listenable _repaint;
   SierraPicture? _trackedPic;
   AgiPictureRenderMode? _trackedMode;
+  int? _trackedEpoch;
   Offset? _mousePosition;
 
   SierraGameSession get _session => widget.session ?? widget.engine!;
@@ -133,12 +134,15 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   void _onEngineNotify() {
     final pic = _session.currentPic;
     final mode = widget.renderMode;
-    if (pic == _trackedPic && mode == _trackedMode) return;
+    final epoch = pic?.rasterEpoch;
+    if (pic == _trackedPic && mode == _trackedMode && epoch == _trackedEpoch) return;
     _trackedPic = pic;
     _trackedMode = mode;
+    _trackedEpoch = epoch;
     if (pic != null) {
       _ensureRenderModeTextureLoaded(pic, mode);
     }
+    if (mounted) setState(() {});
   }
 
   void _ensureRenderModeTextureLoaded(SierraPicture? pic, AgiPictureRenderMode mode) {

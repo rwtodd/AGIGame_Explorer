@@ -438,12 +438,12 @@ class SciPic implements SierraPicture {
   }
 
   /// Rebuilds compositor slices after in-place buffer edits (`AddToPic`).
-  void rebuildSlices() {
+  FutureOr<void> rebuildSlices() {
     for (final slice in _ditheredSlices.values) {
-      slice.dispose();
+      _stashGpuImage(slice.detachCachedImage());
     }
     for (final slice in _unditheredSlices.values) {
-      slice.dispose();
+      _stashGpuImage(slice.detachCachedImage());
     }
     _ditheredSlices = PictureSlicer.slice(
       visualPixels: visualPixels,
@@ -453,6 +453,7 @@ class SciPic implements SierraPicture {
     );
     _unditheredSlices = {};
     bumpRasterEpoch();
+    return preloadGpuTextures();
   }
 
   void ensureSlices({bool undithered = false}) {

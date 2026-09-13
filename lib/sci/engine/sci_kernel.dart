@@ -734,6 +734,7 @@ class SciKernel {
     }
 
     final sprites = <PlayfieldActorSprite>[];
+    var picModified = false;
     for (final actorReg in actors) {
       final actor = vm.segManager.getObject(actorReg);
       if (actor == null) continue;
@@ -750,15 +751,28 @@ class SciKernel {
         pri = actor.getProp(vm.segManager, selectors.priority).toUint16();
       }
 
-      if ((signal & 0x0088) != 0) { // hidden (0x0008) or removeView (0x0080)
-        continue;
-      }
-
       final viewId = actor.getProp(vm.segManager, selectors.view).toUint16();
       final loopNo = actor.getProp(vm.segManager, selectors.loop).toUint16();
       final celNo = actor.getProp(vm.segManager, selectors.cel).toUint16();
       final x = actor.getProp(vm.segManager, selectors.x).toSint16();
       final z = selectors.z >= 0 ? actor.getProp(vm.segManager, selectors.z).toSint16() : 0;
+
+      // In SCI0 scripts (e.g. View::addToPic in script 998), objects added to pic
+      // have signal |= 0x8021 (kSignalDisposeMe | kSignalAlwaysUpdate | kSignalStopUpdate).
+      // They are drawn once to the background picture buffer and re-sliced, then disposed.
+      if ((signal & 0x8020) == 0x8020) {
+        final rect = _celRect(viewId, loopNo, celNo, x, y, z);
+        if (rect != null) {
+          _blitViewToPic(viewId, loopNo, celNo, rect.$1, rect.$2, pri, -1);
+          picModified = true;
+        }
+        continue;
+      }
+
+      if ((signal & 0x0088) != 0) { // hidden (0x0008) or removeView (0x0080)
+        continue;
+      }
+
       final isUpdating = (signal & 0x0001) == 0; // stopUpdate flag
 
       final v = getView(viewId);
@@ -796,6 +810,11 @@ class SciKernel {
       sprites.add(sprite);
     }
 
+    if (picModified) {
+      currentPic?.rebuildSlices();
+      picNotValid = 1;
+    }
+
     sprites.sort((a, b) => PlayfieldActorSprite.compareDrawOrder(a, b));
     currentSprites = sprites;
 
@@ -805,6 +824,21 @@ class SciKernel {
     }
 
     onSpritesUpdated?.call(sprites);
+
+    // SCI0 cleanup pass: dispose actors marked with kSignalDisposeMe (0x8000).
+    // In ScummVM GfxAnimate::restoreAndDelete, actors in the cast are checked
+    // in reverse order, invoking (actor delete:) if bit 0x8000 is set.
+    if (selectors.delete >= 0) {
+      for (final actorReg in actors.reversed) {
+        final actor = vm.segManager.getObject(actorReg);
+        if (actor != null) {
+          final signal = actor.getProp(vm.segManager, selectors.signal).toUint16();
+          if ((signal & 0x8000) != 0) {
+            vm.sendSelector(actor.pos, selectors.delete, []);
+          }
+        }
+      }
+    }
 
     if (vm.yieldOnAnimate) {
       vm.yieldRequested = true;
@@ -903,15 +937,20 @@ class SciKernel {
 
   SciReg _kAddToPic(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 7) {
-      _blitViewToPic(
-        argv[0].toUint16(),
-        argv[1].toSint16(),
-        argv[2].toSint16(),
-        argv[3].toSint16(),
-        argv[4].toSint16(),
-        argv[5].toSint16(),
-        argv[6].toSint16(),
-      );
+      final viewId = argv[0].toUint16();
+      final loopNo = argv[1].toSint16();
+      final celNo = argv[2].toSint16();
+      final x = argv[3].toSint16();
+      final y = argv[4].toSint16();
+      var pri = argv[5].toSint16();
+      final control = argv[6].toSint16();
+      if (pri == -1 || pri == 65535) {
+        pri = coordinateToPriority(y);
+      }
+      final rect = _celRect(viewId, loopNo, celNo, x, y, 0);
+      if (rect != null) {
+        _blitViewToPic(viewId, loopNo, celNo, rect.$1, rect.$2, pri, control);
+      }
     } else if (argc >= 1 && !argv[0].isNull) {
       SciList? list = vm.segManager.lookupList(argv[0]);
       if (list == null) {
@@ -927,10 +966,17 @@ class SciKernel {
           final viewId = o.getProp(vm.segManager, selectors.view).toUint16();
           final loopNo = o.getProp(vm.segManager, selectors.loop).toUint16();
           final celNo = o.getProp(vm.segManager, selectors.cel).toUint16();
-          final left = o.getProp(vm.segManager, selectors.nsLeft).toSint16();
-          final top = o.getProp(vm.segManager, selectors.nsTop).toSint16();
-          final pri = o.getProp(vm.segManager, selectors.priority).toSint16();
-          _blitViewToPic(viewId, loopNo, celNo, left, top, pri, 0);
+          final x = o.getProp(vm.segManager, selectors.x).toSint16();
+          final y = o.getProp(vm.segManager, selectors.y).toSint16();
+          final z = selectors.z >= 0 ? o.getProp(vm.segManager, selectors.z).toSint16() : 0;
+          var pri = o.getProp(vm.segManager, selectors.priority).toSint16();
+          if (pri == -1 || pri == 65535) {
+            pri = coordinateToPriority(y);
+          }
+          final rect = _celRect(viewId, loopNo, celNo, x, y, z);
+          if (rect != null) {
+            _blitViewToPic(viewId, loopNo, celNo, rect.$1, rect.$2, pri, -1);
+          }
         }
       }
     }
@@ -945,16 +991,16 @@ class SciKernel {
     int celNo,
     int left,
     int top,
-    int priority,
-    int control,
-  ) {
+    int priority, [
+    int control = -1,
+  ]) {
     final pic = currentPic;
     final v = getView(viewId);
     if (pic == null || v == null || v.loops.isEmpty) return;
     final loop = v.loops[loopNo.abs() % v.loops.length];
     if (loop.cels.isEmpty) return;
     final cel = loop.cels[celNo.abs() % loop.cels.length];
-    final pixels = cel.getUnflippedPixels(parentView: v, celIndex: celNo.abs() % loop.cels.length);
+    final pixels = cel.getPixels(parentView: v, celIndex: celNo.abs() % loop.cels.length);
     final trans = cel.transparentColor;
     final destLeft = left + picPortLeft;
     final destTop = top + picPortTop;
@@ -969,6 +1015,11 @@ class SciKernel {
         final color = pixels[srcRow + x] & 0x0F;
         if (color == trans) continue;
         final di = dstRow + dx;
+        // In Sierra SCI, views/cels are clipped against the existing priority buffer:
+        // a pixel is only drawn if its priority >= priorityPixels[pixel].
+        if (priority >= 0 && priority <= 15 && priority < pic.priorityPixels[di]) {
+          continue;
+        }
         pic.visualPixels[di] = color;
         if (priority >= 0 && priority <= 15) {
           pic.priorityPixels[di] = priority;
