@@ -48,6 +48,10 @@ void main() {
       expect(decompiledText.contains('instance PQ of Game'), isTrue);
       expect(decompiledText.contains('(properties'), isTrue);
       expect(decompiledText.contains('(method'), isTrue);
+      expect(decompiledText.contains('(super init:)'), isTrue);
+      expect(decompiledText.contains('(Inv add:'), isTrue);
+      expect(decompiledText.contains('(Random 1 3)'), isTrue);
+      expect(decompiledText.contains('&tmp'), isTrue);
     });
   });
 }

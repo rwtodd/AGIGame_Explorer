@@ -1,11 +1,12 @@
 // High-level Sierra Script Language (.SC style) decompiler for SCI0.
 
 import 'package:flutter_agigame/sci/script/sci_disassembler.dart';
+import 'package:flutter_agigame/sci/script/sci_method_decompiler.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/sci/script/sci_script.dart';
 
 /// Structured listing of an instantiated [SciScript] in Sierra Script (.SC)
-/// outline form. Method bodies are disassembly, not reconstructed `send`/`if`.
+/// format with decompiled method and procedure bodies.
 class SciDecompiler {
   final SciDisassemblyContext context;
 
@@ -18,7 +19,7 @@ class SciDecompiler {
     final sb = StringBuffer();
 
     // 1. Script Banner
-    sb.writeln(';;; Sierra SCI0 script listing (disassembly in method bodies)');
+    sb.writeln(';;; Sierra SCI0 script decompiled listing');
     sb.writeln(';;; Script: ${script.scriptNumber} (Size: ${script.size} bytes)');
     sb.writeln();
     sb.writeln('(script ${script.scriptNumber})');
@@ -50,7 +51,6 @@ class SciDecompiler {
     }
 
     // 4. Standalone Procedures
-    final disasm = SciDisassembler(context);
     final procOffsets = script.procedureOffsets;
     for (var i = 0; i < procOffsets.length; i++) {
       final procOffset = procOffsets[i];
@@ -61,9 +61,18 @@ class SciDecompiler {
           ? 'export_$expIdx'
           : 'proc_0x${procOffset.toRadixString(16)}';
 
-      sb.writeln('(procedure ($procName)');
-      final lines = disasm.disassembleCodeSequence(procOffset, name: procName);
-      _formatInstructionBody(lines, sb, indent: '  ');
+      final methodDecompiler = SciMethodDecompiler(context);
+      final header = methodDecompiler.buildProcedureHeader(
+        procName: procName,
+        procOffset: procOffset,
+        indent: '',
+      );
+      sb.writeln(header);
+      final body = methodDecompiler.decompile(
+        startPc: procOffset,
+        indent: '  ',
+      );
+      sb.write(body);
       sb.writeln(')');
       sb.writeln();
     }
@@ -73,7 +82,7 @@ class SciDecompiler {
       ..sort((a, b) => a.pos.offset.compareTo(b.pos.offset));
 
     for (final obj in sortedObjects) {
-      _decompileObject(obj, sb, disasm);
+      _decompileObject(obj, sb);
       sb.writeln();
     }
 
@@ -81,7 +90,7 @@ class SciDecompiler {
   }
 
   /// Decompiles an individual Object or Class definition.
-  void _decompileObject(SciObject obj, StringBuffer sb, SciDisassembler disasm) {
+  void _decompileObject(SciObject obj, StringBuffer sb) {
     final keyword = obj.isClass ? 'class' : 'instance';
     final name = obj.nameString ?? 'obj_0x${obj.pos.offset.toRadixString(16)}';
 
@@ -129,38 +138,29 @@ class SciDecompiler {
       ..sort((a, b) => a.value.compareTo(b.value));
 
     for (final m in sortedMethods) {
-      final selName = context.resolveSelectorName(m.key);
       final methodOffset = m.value;
-      sb.writeln();
-      sb.writeln('  (method ($selName)  ; at 0x${methodOffset.toRadixString(16)}');
-      final lines = disasm.disassembleCodeSequence(
-        methodOffset,
-        name: '$name::$selName',
+      final selName = context.resolveSelectorName(m.key);
+      final methodDecompiler = SciMethodDecompiler(
+        context,
         currentObject: obj,
+        methodName: '$name::$selName',
       );
-      _formatInstructionBody(lines, sb, indent: '    ');
+      final header = methodDecompiler.buildMethodHeader(
+        selectorId: m.key,
+        methodOffset: methodOffset,
+        indent: '  ',
+      );
+      sb.writeln();
+      sb.writeln(header);
+      final body = methodDecompiler.decompile(
+        startPc: methodOffset,
+        indent: '    ',
+      );
+      sb.write(body);
       sb.writeln('  )');
     }
 
     sb.writeln(')');
-  }
-
-  /// Formats instruction lines inside a method or procedure body.
-  void _formatInstructionBody(
-    List<SciDisassemblyLine> lines,
-    StringBuffer sb, {
-    required String indent,
-  }) {
-    for (final l in lines) {
-      if (l.isLabel) {
-        sb.writeln('$indent${l.label}');
-        continue;
-      }
-
-      final opStr = l.operands.isNotEmpty ? ' ${l.operands.join(", ")}' : '';
-      final commentStr = l.comment != null ? '  ; ${l.comment}' : '';
-      sb.writeln('$indent  [${l.hexAddress}] ${l.mnemonic}$opStr$commentStr');
-    }
   }
 
   /// Resolves the property name for property variable at [index].

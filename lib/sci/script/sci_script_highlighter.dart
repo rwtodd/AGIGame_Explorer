@@ -46,6 +46,17 @@ class SciScriptHighlighter {
     'procedure',
     'of',
     'synonyms',
+    'if',
+    'else',
+    'while',
+    'return',
+    'goto',
+    'self',
+    'super',
+    '&tmp',
+    '&rest',
+    'TRUE',
+    'FALSE',
   };
 
   static final _hexAddrRegex = RegExp(r'^\[([0-9A-Fa-f]{4})\]');
@@ -187,15 +198,25 @@ class SciScriptHighlighter {
         continue;
       }
 
-      // 8. Word (keyword, opcode, identifier)
+      // 8. Word (keyword, selector, opcode, identifier)
       if (_isIdentChar(line[i])) {
         final start = i;
         while (i < line.length && _isIdentChar(line[i])) {
           i++;
         }
+        // Check for trailing single colon (e.g. init:, play:, setMotion:)
+        if (i < line.length && line[i] == ':' && (i + 1 >= line.length || line[i + 1] != ':')) {
+          i++;
+          final word = line.substring(start, i);
+          tokens.add(SciToken(SciTokenType.selector, word));
+          continue;
+        }
+
         final word = line.substring(start, i);
 
-        if (_keywords.contains(word)) {
+        if (word.endsWith('?') && word.length > 1 && !_isComparisonOpcode(word)) {
+          tokens.add(SciToken(SciTokenType.selector, word));
+        } else if (_keywords.contains(word)) {
           tokens.add(SciToken(SciTokenType.keyword, word));
         } else if (_isKernel(word)) {
           tokens.add(SciToken(SciTokenType.kernel, word));
@@ -215,6 +236,11 @@ class SciScriptHighlighter {
     return tokens;
   }
 
+  static bool _isComparisonOpcode(String word) =>
+      word == 'eq?' || word == 'ne?' || word == 'gt?' || word == 'ge?' ||
+      word == 'lt?' || word == 'le?' || word == 'ugt?' || word == 'uge?' ||
+      word == 'ult?' || word == 'ule?';
+
   static bool _isDigit(String ch) => ch.codeUnitAt(0) >= 48 && ch.codeUnitAt(0) <= 57;
 
   static bool _isIdentChar(String ch) {
@@ -224,7 +250,9 @@ class SciScriptHighlighter {
         (c >= 48 && c <= 57) || // 0-9
         c == 95 || // _
         c == 45 || // -
-        c == 63; // ? (e.g. eq?, le?)
+        c == 63 || // ? (e.g. eq?, claimed?)
+        c == 38 || // & (e.g. &tmp, &rest)
+        c == 64; // @ (e.g. @string)
   }
 
   static bool _isKernel(String word) {

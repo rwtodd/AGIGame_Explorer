@@ -441,9 +441,9 @@ class SciDisassembler {
 
       pc += instr.length;
 
-      // Stop condition: ret encountered and no forward branches point past it
+      // Stop condition: ret encountered and no forward branches point to or past it
       if (instr.opcode == 0x24) {
-        if (pc >= maxBranchTarget) {
+        if (pc > maxBranchTarget) {
           break;
         }
       }
