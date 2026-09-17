@@ -3333,6 +3333,21 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   bool _isDisposed = false;
 
   @override
+  bool get isDisposed => _isDisposed;
+
+  @override
+  void addListener(VoidCallback listener) {
+    if (_isDisposed) return;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    if (_isDisposed) return;
+    super.removeListener(listener);
+  }
+
+  @override
   void notifyListeners() {
     if (_isDisposed) return;
     super.notifyListeners();

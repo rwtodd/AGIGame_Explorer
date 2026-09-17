@@ -246,6 +246,7 @@ class SciVM {
     }
     final frame = _createExportCallFrame(scriptNr, pubfunct, args.length, argp, SciReg.nullReg);
     if (frame != null) {
+      frame.sp = argp;
       executionStack.add(frame);
       runVm();
     }
@@ -348,7 +349,8 @@ class SciVM {
           break;
 
         case 0x04: // div
-          r_acc = pop() ~/ r_acc;
+          final top = pop();
+          r_acc = top ~/ r_acc;
           break;
 
         case 0x05: // mod
@@ -488,7 +490,6 @@ class SciVM {
           if (callBase >= 0) {
             final finalArgc = stack[callBase].toUint16() + rest;
             stack[callBase] = SciReg.fromInt(finalArgc);
-            frame.sp = callBase;
             executionStack.add(
               SciExecStack(
                 objp: frame.objp,
@@ -542,7 +543,6 @@ class SciVM {
           if (callBase >= 0) {
             final finalArgc = stack[callBase].toUint16() + rest;
             stack[callBase] = SciReg.fromInt(finalArgc);
-            frame.sp = callBase;
             final subFrame = _createExportCallFrame(0, pubfunct, finalArgc, callBase, frame.objp);
             if (subFrame != null) {
               subFrame.sp = callBase;
@@ -564,7 +564,6 @@ class SciVM {
           if (callBase >= 0) {
             final finalArgc = stack[callBase].toUint16() + rest;
             stack[callBase] = SciReg.fromInt(finalArgc);
-            frame.sp = callBase;
             final subFrame = _createExportCallFrame(scriptNr, pubfunct, finalArgc, callBase, frame.objp);
             if (subFrame != null) {
               subFrame.sp = callBase;

@@ -47,6 +47,9 @@ abstract class SierraGameSession implements Listenable {
   /// Whether the game is currently paused.
   bool get isPaused;
 
+  /// Whether this session has been disposed and should no longer be interacted with.
+  bool get isDisposed => false;
+
   /// Whether player text input is enabled.
   bool get isInputEnabled => true;
 

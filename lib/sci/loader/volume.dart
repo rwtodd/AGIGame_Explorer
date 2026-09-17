@@ -91,6 +91,12 @@ class SciVolumeManager {
     int cacheCapacity = 128,
   }) : _cache = _SciLruCache<SciResourceId, Uint8List>(cacheCapacity);
 
+  /// Creates an empty [SciVolumeManager] with no resources (useful for UI tests and isolated harnesses).
+  SciVolumeManager.empty()
+      : gameDirectory = '',
+        resourceMap = SciResourceMap(const {}),
+        _cache = _SciLruCache<SciResourceId, Uint8List>(1);
+
   /// Initializes a [SciVolumeManager] for the specified [gameDirectory].
   ///
   /// Loads `RESOURCE.MAP` and registers any loose patch files (e.g. `script.701`, `patch.000`).

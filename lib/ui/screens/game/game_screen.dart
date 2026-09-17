@@ -18,6 +18,7 @@ import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/save_load_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/sidebar_slideout_panel.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
+import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/ui/widgets/sci_debug_inspector_dialog.dart';
 
 /// Main Playable Game Screen for Sierra AGI & SCI games.
@@ -31,18 +32,22 @@ import 'package:flutter_agigame/ui/widgets/sci_debug_inspector_dialog.dart';
 /// - Live Speed and Diagnostics Toolbar
 class GameScreen extends ConsumerStatefulWidget {
   final AgiResourceLoader? resourceLoader;
+  final SciVolumeManager? sciVolumeManager;
   final AgiGameEngine? engine;
   final SierraGameSession? session;
   final int startingRoom;
   final AgiUserSettings? initialSettings;
+  final bool? disposeSession;
 
   const GameScreen({
     super.key,
     this.resourceLoader,
+    this.sciVolumeManager,
     this.engine,
     this.session,
     this.startingRoom = 0,
     this.initialSettings,
+    this.disposeSession,
   });
 
   @override
@@ -92,6 +97,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     } else if (widget.engine != null) {
       _agiEngine = widget.engine!;
       _session = _agiEngine!;
+    } else if (widget.sciVolumeManager != null) {
+      _sciEngine = SciGameEngine(volumeManager: widget.sciVolumeManager!);
+      _session = _sciEngine!;
+      _sciEngine!.initializeGame();
     } else {
       final soundPlayer = AgiSoundPlayer();
       _agiEngine = AgiGameEngine(
@@ -135,7 +144,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   void dispose() {
-    if (widget.engine == null && widget.session == null) {
+    final shouldDispose = widget.disposeSession ?? (widget.engine == null && widget.session == null);
+    if (shouldDispose) {
       _session.dispose();
       _agiEngine?.soundPlayer.dispose();
     }
@@ -628,6 +638,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             correctAspectRatio: _correctAspectRatio,
                             strictIntegerScaling: _strictIntegerScaling,
                             currentInputText: _currentInputText,
+                            onCanvasTap: (_) => _gameFocusNode.requestFocus(),
                           ),
                         ),
                       ),

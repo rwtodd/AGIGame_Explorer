@@ -132,6 +132,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   }
 
   void _onEngineNotify() {
+    if (_session.isDisposed) return;
     final pic = _session.currentPic;
     final mode = widget.renderMode;
     final epoch = pic?.rasterEpoch;
@@ -207,8 +208,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
       (_session as SciGameEngine).atlasManager.onAtlasUpdated = null;
     }
     _blinkTimer?.cancel();
-    for (final img in _spriteTextureCache.values) {
-      img.dispose();
+    if (_session is! SciGameEngine) {
+      for (final img in _spriteTextureCache.values) {
+        img.dispose();
+      }
     }
     _spriteTextureCache.clear();
     super.dispose();
@@ -217,6 +220,9 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   @override
   Widget build(BuildContext context) {
+    if (_session.isDisposed) {
+      return Container(color: Colors.black);
+    }
     final targetAspect = widget.correctAspectRatio ? (4.0 / 3.0) : (320.0 / 200.0);
 
     return LayoutBuilder(

@@ -287,7 +287,7 @@ class SciKernel {
 
     final name = entry?.name ?? 'unknown';
     final traceAlways = _alwaysTraceKernelIds.contains(kernelId) &&
-        !(kernelId == 0x30 && argc > 0 && result.toUint16() == 0);
+        !(kernelId == 0x30 && result.toUint16() == 0);
     if (captureDebugLogs || traceAlways) {
       final logLine =
           '0x${kernelId.toRadixString(16).padLeft(2, "0")} ($name) '
@@ -370,7 +370,16 @@ class SciKernel {
   }
 
   ui.Image? getCelImage(int viewId, int loopNo, int celNo) {
-    return _celImages['${viewId}_${loopNo}_$celNo'];
+    final key = '${viewId}_${loopNo}_$celNo';
+    final img = _celImages[key];
+    if (img != null) {
+      if (img.debugDisposed) {
+        _celImages.remove(key);
+        return null;
+      }
+      return img;
+    }
+    return null;
   }
 
   void cacheCelImage(int viewId, int loopNo, int celNo, ui.Image img) {
@@ -1733,19 +1742,17 @@ class SciKernel {
         return vm.r_acc;
       case 7: // SaveBox
         if (argc < 5) return const SciReg.fromInt(0);
-        final item = SciFillControl(
-          rect: ui.Rect.fromLTRB(
-            argv[2].toSint16().toDouble(),
-            argv[1].toSint16().toDouble(),
-            argv[4].toSint16().toDouble(),
-            argv[3].toSint16().toDouble(),
-          ),
-          color: 15,
+        final rect = ui.Rect.fromLTRB(
+          argv[2].toSint16().toDouble(),
+          argv[1].toSint16().toDouble(),
+          argv[4].toSint16().toDouble(),
+          argv[3].toSint16().toDouble(),
         );
-        return SciReg.fromInt(windowManager.addDisplay(item, saveUnder: true));
+        final handle = windowManager.saveBox(rect);
+        return SciReg.fromInt(handle);
       case 8: // RestoreBox
         if (argc >= 2) {
-          windowManager.restoreDisplay(argv[1].toUint16());
+          windowManager.restoreBox(argv[1].toUint16());
           onWindowsChanged?.call();
         }
         return vm.r_acc;
@@ -2091,7 +2098,6 @@ class SciKernel {
     final ticks = argc >= 1 ? argv[0].toUint16() : 0;
     lastWaitTicks = ticks;
     waitingForPit = false;
-    getEventCallCount = 0;
     _getTimeStreak = 0;
     final now = currentSciTicks;
     final elapsed = now - _lastWaitTime;

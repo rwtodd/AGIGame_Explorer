@@ -559,6 +559,9 @@ class SciWindowOverlay {
   /// When false, skip the double border and drop shadow (`NOFRAME`).
   final bool showFrame;
 
+  /// When true, window background fill is transparent (e.g. styleUser / styleTransparent).
+  final bool isTransparent;
+
   /// Inner-port origin relative to [rect] (title/frame inset).
   final Offset contentOffset;
 
@@ -574,6 +577,7 @@ class SciWindowOverlay {
     this.controls = const [],
     this.showChrome = true,
     this.showFrame = true,
+    this.isTransparent = false,
     this.contentOffset = Offset.zero,
   });
 
@@ -589,6 +593,7 @@ class SciWindowOverlay {
     List<SciControlItem>? controls,
     bool? showChrome,
     bool? showFrame,
+    bool? isTransparent,
     Offset? contentOffset,
   }) {
     return SciWindowOverlay(
@@ -603,6 +608,7 @@ class SciWindowOverlay {
       controls: controls ?? this.controls,
       showChrome: showChrome ?? this.showChrome,
       showFrame: showFrame ?? this.showFrame,
+      isTransparent: isTransparent ?? this.isTransparent,
       contentOffset: contentOffset ?? this.contentOffset,
     );
   }
@@ -634,10 +640,12 @@ class SciWindowOverlay {
       canvas.drawRect(shadowRect, shadowPaint);
     }
 
-    final bgPaint = Paint()
-      ..color = backColor
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(rect, bgPaint);
+    if (!isTransparent) {
+      final bgPaint = Paint()
+        ..color = backColor
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(rect, bgPaint);
+    }
 
     if (showFrame) {
       final outerBorderPaint = Paint()

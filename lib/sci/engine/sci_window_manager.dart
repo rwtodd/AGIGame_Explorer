@@ -42,6 +42,7 @@ class SciWindowRecord extends SciPort {
   final bool hasDropShadow;
   final bool noFrame;
   final bool hasTitleBar;
+  final bool isTransparent;
   final Offset contentOffset;
 
   final List<SciControlItem> controls = [];
@@ -59,6 +60,7 @@ class SciWindowRecord extends SciPort {
     this.hasDropShadow = true,
     this.noFrame = false,
     this.hasTitleBar = false,
+    this.isTransparent = false,
     this.contentOffset = Offset.zero,
     super.penClr = 0,
     super.backClr = 15,
@@ -93,10 +95,25 @@ class SciWindowRecord extends SciPort {
       hasDropShadow: hasDropShadow,
       showChrome: true,
       showFrame: !noFrame,
+      isTransparent: isTransparent,
       contentOffset: contentOffset,
       controls: List.unmodifiable(controls),
     );
   }
+}
+
+/// A region of the screen saved via `kGraph(SaveBox)`.
+class SciSavedBox {
+  final int handle;
+  final Rect rect;
+  final int portId;
+  final List<SciControlItem> items = [];
+
+  SciSavedBox({
+    required this.handle,
+    required this.rect,
+    required this.portId,
+  });
 }
 
 /// Window Manager for the Sierra SCI PMachine.
@@ -107,8 +124,12 @@ class SciWindowManager {
   static const int wmgrPortId = 0;
   static const int picWindId = 1;
   static const int firstScriptWindowId = 2;
+  static const int styleTransparent = 0x0001;
   static const int styleNoFrame = 0x0002;
   static const int styleTitle = 0x0004;
+  static const int styleTopMost = 0x0008;
+  static const int styleUser = 0x0080;
+  static const int styleUserTransparent = 0x0081;
 
   late final SciPort _wmgrPort;
   late final SciPort _picWind;
@@ -117,10 +138,13 @@ class SciWindowManager {
   final List<SciWindowRecord> _windowStack = [];
   final List<SciControlItem> _picDisplays = [];
   final Map<int, ({SciControlItem item, int portId})> _savedDisplays = {};
+  final Map<int, SciSavedBox> _savedBoxes = {};
+  final List<SciSavedBox> _activeBoxStack = [];
 
   SciPort _curPort;
   int _nextWindowId = firstScriptWindowId;
   int _nextDisplaySaveId = 1;
+  int _nextBoxSaveId = 1;
 
   SciWindowManager()
       : _wmgrPort = SciPort(
@@ -153,12 +177,15 @@ class SciWindowManager {
     _windowStack.clear();
     _picDisplays.clear();
     _savedDisplays.clear();
+    _savedBoxes.clear();
+    _activeBoxStack.clear();
     _ports.clear();
     _ports[wmgrPortId] = _wmgrPort;
     _ports[picWindId] = _picWind;
     _curPort = _picWind;
     _nextWindowId = firstScriptWindowId;
     _nextDisplaySaveId = 1;
+    _nextBoxSaveId = 1;
   }
 
   /// Creates a new window overlay via `kNewWindow`.
@@ -200,14 +227,17 @@ class SciWindowManager {
 
     // Script args are the inner port. Chrome grows outward (ScummVM addWindow).
     final inner = Rect.fromLTRB(left, top, right, bottom);
-    final noFrame = (style & styleNoFrame) != 0;
-    final hasTitleBar = (style & styleTitle) != 0 && title != null && title.isNotEmpty;
+    final isUserWindow = (style & styleUser) != 0 || style == styleUserTransparent;
+    final isTransparent = (style & styleTransparent) != 0 || isUserWindow;
+    final noFrame = (style & styleNoFrame) != 0 || isUserWindow;
+    final hasDropShadow = !noFrame && !isUserWindow;
+    final hasTitleBar = !isUserWindow && (style & styleTitle) != 0 && title != null && title.isNotEmpty;
 
     var outerLeft = inner.left;
     var outerTop = inner.top;
     var outerRight = inner.right;
     var outerBottom = inner.bottom;
-    if (!noFrame) {
+    if (!noFrame && !isUserWindow) {
       outerLeft -= 1;
       outerTop -= 1;
       outerRight += 1;
@@ -233,9 +263,10 @@ class SciWindowManager {
       penClr: colorPen,
       backClr: colorBack,
       title: title,
-      hasDropShadow: !noFrame,
+      hasDropShadow: hasDropShadow,
       noFrame: noFrame,
       hasTitleBar: hasTitleBar,
+      isTransparent: isTransparent,
       contentOffset: Offset(inner.left - outer.left, inner.top - outer.top),
     );
 
@@ -287,16 +318,53 @@ class SciWindowManager {
     target?.setControl(controlRefOffset, controlItem);
   }
 
-  /// Adds a transient display control via `kDisplay`.
+  /// Saves a box region via `kGraph(SaveBox)`.
+  int saveBox(Rect rect) {
+    final handle = _nextBoxSaveId++;
+    final box = SciSavedBox(
+      handle: handle,
+      rect: rect,
+      portId: _curPort.id,
+    );
+    _savedBoxes[handle] = box;
+    _activeBoxStack.add(box);
+    return handle;
+  }
+
+  /// Restores a box region via `kGraph(RestoreBox)`.
+  void restoreBox(int handle) {
+    final box = _savedBoxes.remove(handle);
+    if (box != null) {
+      _activeBoxStack.remove(box);
+      for (final item in box.items) {
+        final target = _ports[box.portId];
+        if (target is SciWindowRecord) {
+          target.controls.remove(item);
+        } else {
+          _picDisplays.remove(item);
+        }
+      }
+      return;
+    }
+    restoreDisplay(handle);
+  }
+
+  /// Adds a transient display control via `kDisplay` or `kGraph`.
   int addDisplay(SciControlItem item, {bool saveUnder = false}) {
     final targetWindow = _curPort is SciWindowRecord
         ? (_curPort as SciWindowRecord)
-        : (_windowStack.isNotEmpty ? _windowStack.last : null);
+        : null;
 
     if (targetWindow != null) {
       targetWindow.controls.add(item);
     } else {
       _picDisplays.add(item);
+    }
+
+    if (_activeBoxStack.isNotEmpty) {
+      for (final box in _activeBoxStack) {
+        box.items.add(item);
+      }
     }
 
     if (saveUnder) {
@@ -309,6 +377,10 @@ class SciWindowManager {
 
   /// Restores / removes a display item via `kDisplay` (tag 108).
   void restoreDisplay(int handle) {
+    if (_savedBoxes.containsKey(handle)) {
+      restoreBox(handle);
+      return;
+    }
     final entry = _savedDisplays.remove(handle);
     if (entry != null) {
       final target = _ports[entry.portId];
@@ -323,19 +395,21 @@ class SciWindowManager {
   /// Builds the current list of [SciWindowOverlay]s for the rendering pipeline.
   List<SciWindowOverlay> toOverlays({SierraFont? Function(int fontId)? fontResolver}) {
     if (_windowStack.isEmpty && _picDisplays.isEmpty) return const [];
-    final overlays = _windowStack.map((wnd) {
-      final font = fontResolver?.call(wnd.fontId);
-      return wnd.toOverlay(font: font);
-    }).toList();
+    final overlays = <SciWindowOverlay>[];
     if (_picDisplays.isNotEmpty) {
       overlays.add(SciWindowOverlay(
         id: picWindId,
         rect: const Rect.fromLTWH(0, 0, 320, 200),
+        priority: 0,
         hasDropShadow: false,
         showChrome: false,
         controls: List.unmodifiable(_picDisplays),
         font: fontResolver?.call(_picWind.fontId),
       ));
+    }
+    for (final wnd in _windowStack) {
+      final font = fontResolver?.call(wnd.fontId);
+      overlays.add(wnd.toOverlay(font: font));
     }
     return overlays;
   }

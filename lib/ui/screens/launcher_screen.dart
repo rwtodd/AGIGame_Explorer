@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
-import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
@@ -438,16 +437,14 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
                           if (info.isSci) {
                             final sciVm = state.sciVolumeManager;
                             if (sciVm == null) return;
-                            final engine = SciGameEngine(volumeManager: sciVm);
-                            engine.initializeGame();
                             Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => GameScreen(
-                                  session: engine,
+                                  sciVolumeManager: sciVm,
                                   initialSettings: ref.read(settingsProvider),
                                 ),
                               ),
-                            ).then((_) => engine.dispose());
+                            );
                           } else {
                             Navigator.of(context).push(
                               MaterialPageRoute(

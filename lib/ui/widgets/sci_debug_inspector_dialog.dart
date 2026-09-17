@@ -54,6 +54,21 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
     if (mounted) setState(() {});
   }
 
+  void _showToast(String message, {Duration duration = const Duration(seconds: 2)}) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(fontFamily: 'Courier', fontSize: 12),
+        ),
+        duration: duration,
+        backgroundColor: AgiTheme.egaCardSurface,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final engine = widget.engine;
@@ -563,12 +578,7 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
                 onPressed: () {
                   final text = engine.recentKernelLogs.join('\n');
                   Clipboard.setData(ClipboardData(text: text));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Kernel logs copied to clipboard'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
+                  _showToast('Kernel logs copied to clipboard', duration: const Duration(seconds: 1));
                 },
               ),
             ],
@@ -679,12 +689,7 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
             onPressed: () {
               final jsonStr = engine.exportStateJson(pretty: true);
               Clipboard.setData(ClipboardData(text: jsonStr));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('📋 SCI Engine State JSON copied to clipboard!'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
+              _showToast('📋 SCI Engine State JSON copied to clipboard!');
             },
           ),
 

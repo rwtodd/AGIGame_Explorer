@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
@@ -542,6 +543,62 @@ void main() {
       expect(find.byType(GameScreen), findsNothing);
       expect(find.text('Start Game'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tapping back button exits game screen cleanly with SciGameEngine without post-disposal assertions', (tester) async {
+      final sciEngine = SciGameEngine();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GameScreen(
+                          session: sciEngine,
+                          disposeSession: true,
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Start SCI Game'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Open GameScreen
+      await tester.tap(find.text('Start SCI Game'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GameScreen), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+
+      // Tap back button in sidebar to exit game
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      // Ensure we are back on the previous screen and no exception occurred
+      expect(find.byType(GameScreen), findsNothing);
+      expect(find.text('Start SCI Game'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(sciEngine.isDisposed, isTrue);
+    });
+
+    testWidgets('SciGameEngine listener safe-guards prevent exceptions if disposed before pop transition', (tester) async {
+      final sciEngine = SciGameEngine();
+      sciEngine.dispose();
+      expect(sciEngine.isDisposed, isTrue);
+
+      // addListener / removeListener / notifyListeners should not throw
+      expect(() => sciEngine.addListener(() {}), returnsNormally);
+      expect(() => sciEngine.removeListener(() {}), returnsNormally);
+      expect(() => sciEngine.notifyListeners(), returnsNormally);
     });
 
     testWidgets('opens AI Assist panel from sidebar, toggles AI on/off, and updates engine', (tester) async {

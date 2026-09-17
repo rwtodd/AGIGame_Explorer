@@ -244,6 +244,20 @@ void main() {
       ]);
       final script = SciScript(scriptNumber: 104, segmentId: 1, bytes: code);
       segMan.loadedScripts[1] = script;
+
+      int? stackLengthAfterCall;
+      int? stackValAfterCall;
+      vm.addObserver(
+        SciVmBaseObserver(
+          onInstruction: (vm, frame, instr) {
+            if (frame.pc.offset == 8 && vm.executionStack.length == 1) {
+              stackLengthAfterCall ??= vm.stack.length;
+              stackValAfterCall ??= vm.stack.first.toSint16();
+            }
+          },
+        ),
+      );
+
       vm.executionStack.add(
         SciExecStack(
           objp: SciReg.nullReg,
@@ -254,8 +268,8 @@ void main() {
         ),
       );
       vm.runVm();
-      expect(vm.stack.length, 1);
-      expect(vm.stack.first.toSint16(), 99);
+      expect(stackLengthAfterCall, 1);
+      expect(stackValAfterCall, 99);
     });
   });
 }

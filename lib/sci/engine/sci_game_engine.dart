@@ -140,13 +140,14 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   bool get isRunning => _isRunning;
 
   SciGameEngine({
-    required this.volumeManager,
+    SciVolumeManager? volumeManager,
     SciSegManager? segManager,
     SciKernel? kernel,
     SciSelectors? selectors,
     AgiSoundPlayer? soundPlayer,
     this.speedHz = 20.0,
-  })  : soundPlayer = soundPlayer ?? AgiSoundPlayer(),
+  })  : volumeManager = volumeManager ?? SciVolumeManager.empty(),
+        soundPlayer = soundPlayer ?? AgiSoundPlayer(),
         _ownsSoundPlayer = soundPlayer == null {
     this.segManager = segManager ?? SciSegManager();
     this.kernel = kernel ?? SciKernel();
@@ -769,6 +770,27 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       return const JsonEncoder.withIndent('  ').convert(state);
     }
     return jsonEncode(state);
+  }
+
+  @override
+  bool get isDisposed => _isDisposed;
+
+  @override
+  void addListener(VoidCallback listener) {
+    if (_isDisposed) return;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    if (_isDisposed) return;
+    super.removeListener(listener);
+  }
+
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
   }
 
   @override

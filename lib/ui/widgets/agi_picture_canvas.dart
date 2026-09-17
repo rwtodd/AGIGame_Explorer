@@ -153,7 +153,7 @@ class PlayfieldActorSprite {
         return;
       }
     }
-    if (image != null) {
+    if (image != null && !image!.debugDisposed) {
       canvas.drawImage(image!, renderPosition, paint);
     }
   }
