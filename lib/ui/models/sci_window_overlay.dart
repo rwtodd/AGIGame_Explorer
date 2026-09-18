@@ -409,14 +409,19 @@ class SciIconControl extends SciControlItem {
     }
 
     final v = view;
-    if (v != null) {
-      final cel = v.getCel(loopNumber, celNumber);
-      if (cel != null) {
-        final picture = _iconPicture(v, cel, loopNumber, celNumber);
-        canvas.save();
-        canvas.translate(drawPos.dx, drawPos.dy);
-        canvas.drawPicture(picture);
-        canvas.restore();
+    if (v != null && v.loopCount > 0) {
+      final safeLoop = loopNumber.clamp(0, v.loopCount - 1);
+      final loop = v.getLoop(safeLoop);
+      if (loop != null && loop.celCount > 0) {
+        final safeCel = celNumber.clamp(0, loop.celCount - 1);
+        final cel = loop.getCel(safeCel);
+        if (cel != null) {
+          final picture = _iconPicture(v, cel, safeLoop, safeCel);
+          canvas.save();
+          canvas.translate(drawPos.dx, drawPos.dy);
+          canvas.drawPicture(picture);
+          canvas.restore();
+        }
       }
     }
   }

@@ -644,13 +644,12 @@ class SciKernel {
   }
 
   SciReg _kIsObject(SciVM vm, int argc, List<SciReg> argv) {
-    if (argc < 1) return const SciReg.fromInt(0);
-    final obj = vm.segManager.getObject(argv[0]);
-    return SciReg.fromInt(obj != null ? 1 : 0);
+    if (argc < 1 || !argv[0].isPointer) return const SciReg.fromInt(0);
+    return SciReg.fromInt(vm.segManager.isHeapObject(argv[0]) ? 1 : 0);
   }
 
   SciReg _kRespondsTo(SciVM vm, int argc, List<SciReg> argv) {
-    if (argc < 2) return const SciReg.fromInt(0);
+    if (argc < 2 || !argv[0].isPointer) return const SciReg.fromInt(0);
     final obj = vm.segManager.getObject(argv[0]);
     final selId = argv[1].toUint16();
     if (obj != null) {
@@ -952,7 +951,42 @@ class SciKernel {
     return const SciReg.fromInt(0);
   }
 
-  SciReg _kDrawCel(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+  SciReg _kDrawCel(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 5) return vm.r_acc;
+    final viewId = argv[0].toUint16();
+    final loopNo = argv[1].toSint16();
+    final celNo = argv[2].toSint16();
+    final x = argv[3].toSint16();
+    final y = argv[4].toSint16();
+
+    final view = getView(viewId);
+    if (view == null || view.loopCount == 0) return vm.r_acc;
+
+    final safeLoop = loopNo.clamp(0, view.loopCount - 1);
+    final loop = view.getLoop(safeLoop);
+    if (loop == null || loop.celCount == 0) return vm.r_acc;
+    final safeCel = celNo.clamp(0, loop.celCount - 1);
+    final cel = loop.getCel(safeCel);
+    if (cel == null) return vm.r_acc;
+
+    final rect = ui.Rect.fromLTWH(
+      x.toDouble(),
+      y.toDouble(),
+      cel.width.toDouble(),
+      cel.height.toDouble(),
+    );
+
+    windowManager.addDisplay(
+      SciIconControl(
+        rect: rect,
+        view: view,
+        loopNumber: safeLoop,
+        celNumber: safeCel,
+      ),
+    );
+    onWindowsChanged?.call();
+    return vm.r_acc;
+  }
 
   SciReg _kAddToPic(SciVM vm, int argc, List<SciReg> argv) {
     if (argc >= 7) {
@@ -1729,6 +1763,8 @@ class SciKernel {
     if (argc < 1) return const SciReg.fromInt(0);
     final sub = argv[0].toUint16();
     switch (sub) {
+      case 2: // GraphGetColorCount / GDetect (returns adapter color count, 16 for EGA)
+        return const SciReg.fromInt(16);
       case 4: // DrawLine  y0 x0 y1 x1 color [pri] [control]
         if (argc < 6) return vm.r_acc;
         windowManager.addDisplay(
@@ -1764,7 +1800,9 @@ class SciKernel {
             ? 15
             : (sub == 10
                 ? 0
-                : (argc > 5 ? argv[5].toSint16() : 0));
+                : (argc > 6
+                    ? (argv[6].toSint16() & 0x0F)
+                    : (argc > 5 ? (argv[5].toSint16() & 0x0F) : 0)));
         windowManager.addDisplay(
           SciFillControl(
             rect: ui.Rect.fromLTRB(

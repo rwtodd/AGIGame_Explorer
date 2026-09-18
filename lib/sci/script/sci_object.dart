@@ -77,6 +77,15 @@ class SciObject {
   /// Locates the variable property index corresponding to [selectorId].
   ///
   /// For classes and instances with populated [baseVars], searches [baseVars].
+  SciObject? _resolveClass(SciSegManager segMan, SciReg reg) {
+    if (reg.isNull) return null;
+    if (reg.isPointer) return segMan.getObject(reg);
+    return segMan.getClass(reg.toUint16());
+  }
+
+  /// Locates the variable property index corresponding to [selectorId].
+  ///
+  /// For classes and instances with populated [baseVars], searches [baseVars].
   /// Otherwise, resolves the parent class via [superClass] or [species].
   /// Returns -1 if not found.
   int locateVarSelector(SciSegManager segMan, int selectorId) {
@@ -86,7 +95,7 @@ class SciObject {
     if (isClass) {
       return -1;
     }
-    final classObj = segMan.getObject(superClass) ?? segMan.getObject(species);
+    final classObj = _resolveClass(segMan, superClass) ?? _resolveClass(segMan, species);
     if (classObj != null) {
       return classObj.locateVarSelector(segMan, selectorId);
     }
@@ -102,8 +111,8 @@ class SciObject {
     }
     // Walk superclass hierarchy
     final parent = isClass
-        ? segMan.getObject(superClass)
-        : (segMan.getObject(superClass) ?? segMan.getObject(species));
+        ? _resolveClass(segMan, superClass)
+        : (_resolveClass(segMan, superClass) ?? _resolveClass(segMan, species));
     if (parent != null) {
       return parent.lookupMethod(segMan, selectorId);
     }

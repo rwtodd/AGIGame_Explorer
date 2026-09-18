@@ -239,22 +239,27 @@ class SciSegManager {
   }
 
 
-  /// Retrieves an object by its VM address [addr] or by class species ID if [addr.isNumber].
-  SciObject? getObject(SciReg addr) {
+  /// Retrieves a class object by its species number.
+  SciObject? getClass(int species, {SciVolumeManager? volumeManager}) {
+    final addr = getClassAddress(species, volumeManager: volumeManager);
     if (addr.isNull) return null;
+    return getObject(addr);
+  }
+
+  /// Checks if [pos] refers to a valid instantiated heap object (script object or clone).
+  bool isHeapObject(SciReg pos) {
+    if (!pos.isPointer) return false;
+    return getObject(pos) != null;
+  }
+
+  /// Retrieves an object by its VM address [addr].
+  SciObject? getObject(SciReg addr) {
+    if (addr.isNull || !addr.isPointer) return null;
     if (addr.segment == cloneSegmentId) {
       return clones[addr.offset];
     }
     if (addr.segment == hunkSegmentId) {
       return clones[addr.offset];
-    }
-    if (addr.segment == 0) {
-      // Species lookup: resolve class object
-      final classAddr = classAddresses[addr.offset];
-      if (classAddr != null) {
-        return getObject(classAddr);
-      }
-      return null;
     }
     final script = loadedScripts[addr.segment];
     if (script != null) {
