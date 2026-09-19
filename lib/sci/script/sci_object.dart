@@ -89,6 +89,9 @@ class SciObject {
   /// Otherwise, resolves the parent class via [superClass] or [species].
   /// Returns -1 if not found.
   int locateVarSelector(SciSegManager segMan, int selectorId) {
+    if (segMan.isEarlySci0) {
+      selectorId &= ~1;
+    }
     if (baseVars.isNotEmpty) {
       return baseVars.indexOf(selectorId);
     }
@@ -106,6 +109,9 @@ class SciObject {
   ///
   /// Returns a tuple of `(owningObject, codeOffset)` or null if not found.
   (SciObject, int)? lookupMethod(SciSegManager segMan, int selectorId) {
+    if (segMan.isEarlySci0) {
+      selectorId &= ~1;
+    }
     if (!isClone && methods.containsKey(selectorId)) {
       return (this, methods[selectorId]!);
     }

@@ -161,7 +161,10 @@ class SciVM {
       if (curArg + 1 >= stack.length) {
         break;
       }
-      final selectorId = stack[curArg].toUint16();
+      var selectorId = stack[curArg].toUint16();
+      if (selectors.isEarlySci0) {
+        selectorId &= ~1;
+      }
       final argc = stack[curArg + 1].toUint16();
       if (curArg + 2 + argc > stack.length) {
         break;
@@ -507,8 +510,10 @@ class SciVM {
 
         case 0x21: // callk (kernel call)
           final kernelNr = opparams[0];
-          final callkArgc = (opparams[1] >> 1) + r_rest;
-          r_rest = 0;
+          final isEarly = segManager.isEarlySci0;
+          final rest = isEarly ? 0 : r_rest;
+          final callkArgc = (opparams[1] >> 1) + rest;
+          if (!isEarly) r_rest = 0;
           final argv = List<SciReg>.filled(callkArgc, SciReg.nullReg);
           for (var i = callkArgc - 1; i >= 0; i--) {
             argv[i] = pop();

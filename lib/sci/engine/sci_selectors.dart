@@ -78,15 +78,19 @@ class SciSelectors {
   int max = -1;
   int horizon = -1;
 
+  bool isEarlySci0 = false;
+
   SciSelectors();
 
   /// Loads selector names from raw `VOCAB.997` bytes.
-  void loadVocab997(Uint8List vocab997Bytes) {
+  void loadVocab997(Uint8List vocab997Bytes, {bool isEarlySci0 = false}) {
+    this.isEarlySci0 = isEarlySci0;
     _nameToId.clear();
     _idToName.clear();
 
     final byteData = ByteData.sublistView(vocab997Bytes);
     final count = byteData.getUint16(0, Endian.little) + 1;
+    final step = isEarlySci0 ? 2 : 1;
 
     for (var i = 0; i < count; i++) {
       final offset = byteData.getUint16(2 + i * 2, Endian.little);
@@ -95,8 +99,12 @@ class SciSelectors {
       if (offset + 2 + len > vocab997Bytes.length) continue;
 
       final nameStr = ascii.decode(vocab997Bytes.sublist(offset + 2, offset + 2 + len));
-      _nameToId[nameStr] = i;
-      _idToName[i] = nameStr;
+      final id = i * step;
+      _nameToId[nameStr] = id;
+      _idToName[id] = nameStr;
+      if (isEarlySci0) {
+        _idToName[id + 1] = nameStr;
+      }
     }
 
     _cacheStandardSelectors();
@@ -104,30 +112,31 @@ class SciSelectors {
 
   /// Populates well-known standard selector IDs based on loaded names.
   void _cacheStandardSelectors() {
-    species = findSelector('species') ?? 0;
-    superClass = findSelector('superClass') ?? 1;
-    info = findSelector('-info-') ?? 2;
-    name = findSelector('name') ?? 3;
-    y = findSelector('y') ?? 4;
-    x = findSelector('x') ?? 5;
-    view = findSelector('view') ?? 6;
-    loop = findSelector('loop') ?? 7;
-    cel = findSelector('cel') ?? 8;
-    underBits = findSelector('underBits') ?? 9;
-    nsTop = findSelector('nsTop') ?? 10;
-    nsLeft = findSelector('nsLeft') ?? 11;
-    nsBottom = findSelector('nsBottom') ?? 12;
-    nsRight = findSelector('nsRight') ?? 13;
-    lsTop = findSelector('lsTop') ?? 14;
-    lsLeft = findSelector('lsLeft') ?? 15;
-    lsBottom = findSelector('lsBottom') ?? 16;
-    lsRight = findSelector('lsRight') ?? 17;
-    signal = findSelector('signal') ?? 18;
-    illegalBits = findSelector('illegalBits') ?? 19;
-    brTop = findSelector('brTop') ?? 20;
-    brLeft = findSelector('brLeft') ?? 21;
-    brBottom = findSelector('brBottom') ?? 22;
-    brRight = findSelector('brRight') ?? 23;
+    final step = isEarlySci0 ? 2 : 1;
+    species = findSelector('species') ?? (0 * step);
+    superClass = findSelector('superClass') ?? (1 * step);
+    info = findSelector('-info-') ?? (2 * step);
+    name = findSelector('name') ?? (3 * step);
+    y = findSelector('y') ?? (4 * step);
+    x = findSelector('x') ?? (5 * step);
+    view = findSelector('view') ?? (6 * step);
+    loop = findSelector('loop') ?? (7 * step);
+    cel = findSelector('cel') ?? (8 * step);
+    underBits = findSelector('underBits') ?? (9 * step);
+    nsTop = findSelector('nsTop') ?? (10 * step);
+    nsLeft = findSelector('nsLeft') ?? (11 * step);
+    nsBottom = findSelector('nsBottom') ?? (12 * step);
+    nsRight = findSelector('nsRight') ?? (13 * step);
+    lsTop = findSelector('lsTop') ?? (14 * step);
+    lsLeft = findSelector('lsLeft') ?? (15 * step);
+    lsBottom = findSelector('lsBottom') ?? (16 * step);
+    lsRight = findSelector('lsRight') ?? (17 * step);
+    signal = findSelector('signal') ?? (18 * step);
+    illegalBits = findSelector('illegalBits') ?? (19 * step);
+    brTop = findSelector('brTop') ?? (20 * step);
+    brLeft = findSelector('brLeft') ?? (21 * step);
+    brBottom = findSelector('brBottom') ?? (22 * step);
+    brRight = findSelector('brRight') ?? (23 * step);
 
     play = findSelector('play') ?? -1;
     doit = findSelector('doit') ?? -1;
@@ -185,10 +194,19 @@ class SciSelectors {
   void registerSelector(String name, int id) {
     _nameToId[name] = id;
     _idToName[id] = name;
+    if (isEarlySci0) {
+      _idToName[id ^ 1] = name;
+    }
   }
 
   /// Finds selector name by ID, or fallback string if not found.
-  String getSelectorName(int id) => _idToName[id] ?? 'sel_$id';
+  String getSelectorName(int id) {
+    var name = _idToName[id];
+    if (name == null && isEarlySci0) {
+      name = _idToName[id & ~1];
+    }
+    return name ?? 'sel_$id';
+  }
 
   /// Total number of loaded selectors.
   int get length => _nameToId.length;
