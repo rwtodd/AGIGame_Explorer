@@ -246,8 +246,8 @@ void main() {
       );
 
       expect(dict.isDeduplicated, isTrue);
-      // Group 2 collapsed to 'look'
-      expect(dict.idToDeduplicatedWords(2), equals(['look']));
+      // Group 2 preserves preferred words 'look' and 'examine', collapsing 'see'
+      expect(dict.idToDeduplicatedWords(2), equals(['look', 'examine']));
       // Group 45 preserved both 'wizard' and 'ogre'
       expect(dict.idToDeduplicatedWords(45), equals(['wizard', 'ogre']));
       // Single-word group unchanged
@@ -299,8 +299,8 @@ void main() {
       );
 
       expect(result, isNotNull);
-      // Even though user matched "look ogre", canonical target is "look wizard"!
-      expect(result!.translatedCommand, equals('look wizard'));
+      // User matched candidate "look ogre", so translatedCommand is "look ogre"!
+      expect(result!.translatedCommand, equals('look ogre'));
       expect(result.similarityScore, greaterThan(0.90));
     });
 

@@ -95,7 +95,7 @@ class GeminiCommandTranslator {
     AgiDictionary dictionary, {
     required String apiKey,
     String model = defaultModel,
-    double clusterThreshold = 0.70,
+    double clusterThreshold = SemanticMatcher.defaultClusterThreshold,
     Set<int>? relevantWordIds,
   }) async {
     if (dictionary.isDeduplicated) return;
@@ -174,7 +174,7 @@ class GeminiCommandTranslator {
           CandidateSentence(
             id: '${cmd.scriptNumber}:$cmdIndex:$pIndex:$phrase',
             textToEmbed: phrase,
-            targetCommand: cmd.canonicalPhrase,
+            targetCommand: phrase,
             metadata: cmd,
           ),
         );

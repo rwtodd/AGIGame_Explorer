@@ -170,23 +170,93 @@ void main() {
     });
 
     group('deduplicateWordsSemantically', () {
-      test('collapses true English synonyms to single representative', () {
-        // Look / see / examine are aligned (>0.85 similarity)
+      test('collapses true English synonyms to single representative using default threshold', () {
+        // Look / see / peer / gaze are aligned (>0.88 similarity)
         final vectors = {
           'look': EmbeddingService.normalize([1.0, 0.0]),
           'see': EmbeddingService.normalize([0.95, 0.31]),
-          'examine': EmbeddingService.normalize([0.92, 0.39]),
           'peer': EmbeddingService.normalize([0.90, 0.43]),
+          'gaze': EmbeddingService.normalize([0.91, 0.41]),
         };
 
-        final words = ['look', 'see', 'examine', 'peer'];
+        final words = ['look', 'see', 'peer', 'gaze'];
         final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
           words,
           vectors,
-          threshold: 0.70,
         );
 
         expect(deduplicated, equals(['look']));
+      });
+
+      test('preserves both preferred words when multiple preferred words exist in the same group', () {
+        // 'take', 'get', 'catch' are all preferred verbs
+        final vectors = {
+          'take': EmbeddingService.normalize([1.0, 0.0]),
+          'get': EmbeddingService.normalize([0.96, 0.28]), // > 0.88 to take
+          'catch': EmbeddingService.normalize([0.90, 0.43]), // > 0.88 to take
+          'grab': EmbeddingService.normalize([0.95, 0.31]), // collapses into take/get
+          'pick up': EmbeddingService.normalize([0.94, 0.34]), // collapses into take/get
+        };
+
+        final words = ['catch', 'get', 'grab', 'pick up', 'take'];
+        final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
+          words,
+          vectors,
+        );
+
+        expect(deduplicated, contains('take'));
+        expect(deduplicated, contains('get'));
+        expect(deduplicated, contains('catch'));
+        expect(deduplicated, isNot(contains('grab')));
+        expect(deduplicated, isNot(contains('pick up')));
+      });
+
+      test('prioritizes natural canonical words over alphabetical order or profanity', () {
+        // 'bitch' comes first alphabetically, but 'look' is preferred
+        final vectors = {
+          'bitch': EmbeddingService.normalize([0.80, 0.60]),
+          'check out': EmbeddingService.normalize([0.95, 0.31]),
+          'look': EmbeddingService.normalize([1.0, 0.0]),
+          'examine': EmbeddingService.normalize([0.92, 0.39]),
+        };
+
+        // Input passed with alphabetical order
+        final words = ['bitch', 'check out', 'examine', 'look'];
+        final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
+          words,
+          vectors,
+        );
+
+        // 'look' must be the first prototype, not 'bitch' or 'check out'
+        expect(deduplicated.first, equals('look'));
+      });
+
+      test('preserves distinct entities in overloaded word groups', () {
+        // Distinct entities: girl, woman, witch, fairy
+        final vectors = {
+          'girl': EmbeddingService.normalize([1.0, 0.0, 0.0, 0.0]),
+          'damsel': EmbeddingService.normalize([0.95, 0.31, 0.0, 0.0]), // sim 0.95 to girl -> collapses
+          'woman': EmbeddingService.normalize([0.80, 0.60, 0.0, 0.0]), // sim 0.80 < 0.88 -> preserved!
+          'witch': EmbeddingService.normalize([0.0, 0.0, 1.0, 0.0]), // orthogonal -> preserved!
+          'hag': EmbeddingService.normalize([0.0, 0.0, 0.95, 0.31]), // sim 0.95 to witch -> collapses
+          'fairy': EmbeddingService.normalize([0.0, 0.0, 0.0, 1.0]), // orthogonal -> preserved!
+          'bitch': EmbeddingService.normalize([0.90, 0.43, 0.0, 0.0]), // sim 0.90 to girl -> collapses into girl
+        };
+
+        final words = ['bitch', 'damsel', 'fairy', 'girl', 'hag', 'witch', 'woman'];
+        final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
+          words,
+          vectors,
+        );
+
+        // Preserves girl, woman, witch, fairy; collapses damsel, hag, bitch
+        expect(deduplicated, contains('girl'));
+        expect(deduplicated, contains('woman'));
+        expect(deduplicated, contains('witch'));
+        expect(deduplicated, contains('fairy'));
+        expect(deduplicated, isNot(contains('bitch')));
+        expect(deduplicated, isNot(contains('damsel')));
+        expect(deduplicated, isNot(contains('hag')));
       });
 
       test('retains distinct overloaded words that are semantically unrelated', () {
@@ -202,7 +272,6 @@ void main() {
         final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
           words,
           vectors,
-          threshold: 0.70,
         );
 
         expect(deduplicated, equals(['wizard', 'man', 'ogre', 'roger']));
@@ -221,10 +290,9 @@ void main() {
         final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
           words,
           vectors,
-          threshold: 0.70,
         );
 
-        expect(deduplicated, equals(['bush', 'tree']));
+        expect(deduplicated, equals(['tree', 'bush']));
       });
     });
   });

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_agigame/engine/ai/embedding_service.dart';
+import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 
 /// Represents a candidate game action to be evaluated for semantic similarity.
 class CandidateSentence {
@@ -76,6 +77,7 @@ class SemanticMatchResult {
 /// Matches user natural language input against candidate game actions using local vector cosine similarity.
 class SemanticMatcher {
   static const double defaultThreshold = 0.75;
+  static const double defaultClusterThreshold = 0.88;
 
   final EmbeddingService embeddingService;
 
@@ -99,22 +101,45 @@ class SemanticMatcher {
   /// Reduces a list of [words] down to minimal semantic representatives
   /// using greedy centroid clustering on their embedding vectors in [wordVectors].
   ///
-  /// Any word that has cosine similarity >= [threshold] (default: 0.70)
+  /// Words are sorted by natural preference (via [comparator] or [AgiSaidExtractor.compareWordPriority])
+  /// so that clean, common prototypes (e.g. "look", "take", "girl", "woman") become the cluster
+  /// centroids rather than arbitrary alphabetical words (e.g. "bitch", "acquire").
+  ///
+  /// Any word that has cosine similarity >= [threshold] (default: [defaultClusterThreshold] = 0.88)
   /// with an already-accepted representative is considered covered and discarded.
   static List<String> deduplicateWordsSemantically(
     List<String> words,
     Map<String, Float32List> wordVectors, {
-    double threshold = 0.70,
+    double threshold = defaultClusterThreshold,
+    int Function(String a, String b)? comparator,
   }) {
     if (words.length <= 1) return words;
 
+    final sortedWords = List<String>.from(words);
+    if (comparator != null) {
+      sortedWords.sort(comparator);
+    } else {
+      sortedWords.sort(AgiSaidExtractor.compareWordPriority);
+    }
+
     final representatives = <String>[];
-    for (final word in words) {
+    for (final word in sortedWords) {
       final clean = word.trim().toLowerCase();
       if (clean.isEmpty) continue;
 
+      final isPreferred = AgiSaidExtractor.preferredWordRanks.containsKey(clean);
+
       final vec = wordVectors[clean] ?? wordVectors[word];
       if (vec == null) {
+        if (!representatives.contains(word)) {
+          representatives.add(word);
+        }
+        continue;
+      }
+
+      // Core preferred words (e.g. 'take' and 'get', 'girl' and 'woman', 'eat' and 'drink')
+      // represent essential player vocabulary and should never be dropped by each other.
+      if (isPreferred) {
         if (!representatives.contains(word)) {
           representatives.add(word);
         }
@@ -138,7 +163,7 @@ class SemanticMatcher {
       }
     }
 
-    return representatives.isEmpty ? words : representatives;
+    return representatives.isEmpty ? sortedWords : representatives;
   }
 
   /// Finds the candidate sentence that best matches [userQuery].

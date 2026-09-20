@@ -25,13 +25,19 @@ class ExtractedSaidCommand {
     this.wordSynonyms = const [],
   });
 
+  /// Default upper bound on generated candidate phrases per command.
+  static const int defaultMaxCandidates = 20;
+
   /// Generates clean candidate phrases for semantic matching
   /// using the Cartesian product of deduplicated word synonyms.
-  List<String> generateCandidatePhrases({int maxCandidates = 15}) {
+  List<String> generateCandidatePhrases({int maxCandidates = defaultMaxCandidates}) {
     if (wordSynonyms.isEmpty) return [canonicalPhrase];
 
-    // Filter out non-word tokens like <any>, <rol>, etc.
-    final slots = wordSynonyms.map((synList) {
+    final canonicalTokens = canonicalPhrase.split(' ');
+    final slots = <List<String>>[];
+
+    for (var i = 0; i < wordSynonyms.length; i++) {
+      final synList = wordSynonyms[i];
       final valid = synList
           .where((w) =>
               w != '<any>' &&
@@ -39,8 +45,18 @@ class ExtractedSaidCommand {
               !w.startsWith('word_') &&
               w.trim().isNotEmpty)
           .toList();
-      return valid.isEmpty ? const [''] : valid;
-    }).toList();
+
+      if (i < canonicalTokens.length) {
+        final canon = canonicalTokens[i].trim();
+        if (canon.isNotEmpty && canon != 'anyword' && canon != 'rol') {
+          if (!valid.contains(canon)) {
+            valid.insert(0, canon);
+          }
+        }
+      }
+
+      slots.add(valid.isEmpty ? const [''] : valid);
+    }
 
     List<String> combinations = [''];
     for (final slot in slots) {
@@ -330,9 +346,9 @@ class AgiSaidExtractor {
   }
 
   /// List of preferred canonical words in order of display preference.
-  static const List<String> _preferredAgiWords = [
+  static const List<String> preferredAgiWords = [
     // Core Actions / Verbs
-    'look', 'take', 'get', 'talk', 'ask', 'give', 'open', 'close',
+    'look', 'take', 'get', 'catch', 'talk', 'ask', 'give', 'open', 'close',
     'use', 'read', 'drop', 'eat', 'drink', 'climb', 'jump', 'kill',
     'push', 'pull', 'unlock', 'lock', 'swim', 'throw', 'wear', 'enter',
     'exit', 'cast', 'fly', 'sit', 'stand', 'pay', 'buy', 'feed', 'pet',
@@ -351,42 +367,55 @@ class AgiSaidExtractor {
     'window', 'wall', 'floor', 'ceiling', 'bed', 'table', 'chair',
     'desk', 'mirror', 'clock', 'candle', 'torch', 'lamp', 'fire',
     'girl', 'woman', 'man', 'boy', 'guard', 'king', 'queen', 'prince',
-    'princess', 'cat', 'dog', 'bird', 'eagle', 'dragon', 'snake',
+    'princess', 'witch', 'fairy', 'cat', 'dog', 'bird', 'eagle', 'dragon', 'snake',
     'horse', 'donkey', 'chicken', 'fish', 'mermaid', 'monster', 'bear',
   ];
 
-  static final Map<String, int> _preferredWordRanks = {
-    for (int i = 0; i < _preferredAgiWords.length; i++) _preferredAgiWords[i]: i,
+  static final Map<String, int> preferredWordRanks = {
+    for (int i = 0; i < preferredAgiWords.length; i++) preferredAgiWords[i]: i,
   };
+
+  /// Set of vulgarities or slurs heavily demoted so they never become prototypes.
+  static const Set<String> _demotedWords = {
+    'bitch', 'cunt', 'slut', 'whore', 'hose bag', 'sperm burping gutter slut',
+    'fuck', 'fucking', 'shit', 'piss', 'ass', 'asshole', 'bastard', 'cock',
+    'dick', 'tits', 'boobs', 'fag', 'faggot',
+  };
+
+  /// Returns a sorting rank for [word] to order words for display or clustering.
+  /// Lower numbers indicate higher preference / priority.
+  static int wordPriority(String word) {
+    final clean = word.trim().toLowerCase();
+    if (_demotedWords.contains(clean)) {
+      return 1000000 + clean.length;
+    }
+    final prefRank = preferredWordRanks[clean];
+    if (prefRank != null) {
+      return prefRank;
+    }
+    // Prefer single-word clean tokens over multi-word phrases or hyphenated words
+    if (clean.contains(' ') || clean.contains('-')) {
+      return 20000 + clean.length;
+    }
+    // Clean single word: prioritize shorter words
+    return 1000 + clean.length;
+  }
+
+  /// Comparator that orders words by [wordPriority], with alphabetical tie-breaking.
+  static int compareWordPriority(String a, String b) {
+    final pa = wordPriority(a);
+    final pb = wordPriority(b);
+    if (pa != pb) return pa.compareTo(pb);
+    return a.compareTo(b);
+  }
 
   /// Picks the most natural canonical word from a list of synonyms.
   static String chooseCanonicalWord(List<String> synonyms) {
     if (synonyms.isEmpty) return '';
     if (synonyms.length == 1) return synonyms.first;
 
-    // Check preferred word list via rank map (O(synonyms.length))
-    String? bestPref;
-    int bestRank = 999999;
-    for (final syn in synonyms) {
-      final rank = _preferredWordRanks[syn];
-      if (rank != null && rank < bestRank) {
-        bestRank = rank;
-        bestPref = syn;
-      }
-    }
-    if (bestPref != null) {
-      return bestPref;
-    }
-
-    // Prefer standard single-word tokens without punctuation/spaces
-    final singleWords = synonyms.where((w) => !w.contains(' ') && !w.contains('-')).toList();
-    if (singleWords.isNotEmpty) {
-      // Pick shortest single word (often most direct: "box", "key", etc.)
-      singleWords.sort((a, b) => a.length.compareTo(b.length));
-      return singleWords.first;
-    }
-
-    return synonyms.first;
+    final sorted = List<String>.from(synonyms)..sort(compareWordPriority);
+    return sorted.first;
   }
 
   /// Formats word group IDs into a canonical space-separated phrase.
