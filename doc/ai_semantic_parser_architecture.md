@@ -14,11 +14,14 @@ The AI Semantic Parser provides **hybrid natural-language understanding**:
 3. It maps the player's natural language input to high-dimensional embedding vectors using the Google Gemini Embeddings API (`text-embedding-004` or `gemini-embedding-001`).
 4. It performs cosine similarity matching against the active candidates. If a candidate exceeds the similarity threshold (default `0.75`), it translates the player's input into the exact matching candidate phrase (e.g., `"look woman"` or `"get fly"`).
 5. If no candidate meets the threshold, it seamlessly falls back to Sierra's classic parser (`tokenizeCommand`).
+6. **Direct Parser Bypass (`:command`)**: If player input begins with a colon (e.g. `:look screen` or `: get clam`), the AI translation layer is completely bypassed, and the command is stripped of the `:` prefix and fed directly to the raw Sierra parser. This allows players to immediately bypass AI matching for difficult syntax or snags without turning off the AI feature.
 
 ```mermaid
 flowchart TD
-    UserInput["Player Input\n('examine the glowing monitor')"] --> CheckAI{"AI Enabled & Key Set?"}
-    CheckAI -- No --> SierraParser["Sierra Classic Parser\n(tokenizeCommand)"]
+    UserInput["Player Input\n(':open clam' or 'examine monitor')"] --> CheckBypass{"Starts with ':'?"}
+    CheckBypass -- Yes --> RawBypass["Strip ':' Prefix\n('open clam')"] --> SierraParser["Sierra Classic Parser\n(tokenizeCommand)"]
+    CheckBypass -- No --> CheckAI{"AI Enabled & Key Set?"}
+    CheckAI -- No --> SierraParser
     CheckAI -- Yes --> EnsureWarm["Await Room Prewarm\n(ensureVocabReady + prewarmCandidates)"]
     EnsureWarm --> EmbedInput["Embed Input Vector\n(Gemini Embedding Service)"]
     EmbedInput --> Matcher["Cosine Similarity Matcher\n(Cached Room Candidates)"]

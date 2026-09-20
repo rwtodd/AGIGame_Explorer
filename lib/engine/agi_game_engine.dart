@@ -1403,19 +1403,28 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Submits player text command, optionally translating via Gemini AI if enabled.
+  /// If [input] begins with a colon (':'), AI translation is bypassed and the remainder
+  /// of the command is submitted directly to the classic Sierra parser.
   @override
   FutureOr<void> submitCommand(String input) {
     final cleanInput = input.trim();
     if (cleanInput.isEmpty) return null;
 
-    if (isAiEnabled && aiApiKey.isNotEmpty) {
-      return _submitCommandWithAi(cleanInput);
+    final isExplicitRaw = cleanInput.startsWith(':');
+    final actualInput = isExplicitRaw ? cleanInput.substring(1).trim() : cleanInput;
+    if (actualInput.isEmpty) return null;
+
+    if (!isExplicitRaw && isAiEnabled && aiApiKey.isNotEmpty) {
+      return _submitCommandWithAi(actualInput);
     } else {
+      if (isExplicitRaw) {
+        debugPrint('[AgiGameEngine] Bypassing AI translation for raw command: "$actualInput"');
+      }
       _lastAiTranslation = null;
       if (_isRunning) {
-        _bufferedCommands.add(cleanInput);
+        _bufferedCommands.add(actualInput);
       } else {
-        _applyCommand(cleanInput);
+        _applyCommand(actualInput);
       }
       notifyListeners();
     }

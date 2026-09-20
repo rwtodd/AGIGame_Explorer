@@ -286,5 +286,32 @@ void main() {
       expect(engine.parsedWordIds, equals([10, 200]));
       expect(engine.checkSaid([10, 200]), isTrue);
     });
+
+    test('command starting with colon passes directly to Sierra parser, bypassing AI', () async {
+      engine.isAiEnabled = true;
+      engine.aiApiKey = 'mock-api-key';
+
+      // Submit input with leading colon (e.g. ":look screen" or ": get clam")
+      await engine.submitCommand(':look screen');
+
+      // AI translation should be null because it was completely bypassed
+      expect(engine.lastAiTranslation, isNull);
+      // Engine tokenized the raw stripped command directly
+      expect(engine.parsedWordIds, equals([10, 100]));
+      expect(engine.lastSubmittedCommand, equals('look screen'));
+      expect(engine.memory.getFlag(2), isTrue); // have.input = 1
+      expect(engine.checkSaid([10, 100]), isTrue); // said.accepted = 1
+    });
+
+    test('command starting with colon and space strips whitespace before raw parsing', () async {
+      engine.isAiEnabled = true;
+      engine.aiApiKey = 'mock-api-key';
+
+      await engine.submitCommand(':   look screen  ');
+
+      expect(engine.lastAiTranslation, isNull);
+      expect(engine.parsedWordIds, equals([10, 100]));
+      expect(engine.lastSubmittedCommand, equals('look screen'));
+    });
   });
 }

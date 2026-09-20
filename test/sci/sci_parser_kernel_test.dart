@@ -169,6 +169,11 @@ void main() {
       expect(exported['parser']['lastInput'], 'look key');
       expect(exported['parser']['activeCycleSaidSpecs'], isNotEmpty);
 
+      // Submit command with colon prefix ':look key'
+      engine.submitCommand(':look key');
+      final exported2 = engine.exportState();
+      expect(exported2['parser']['lastInput'], 'look key');
+
       engine.dispose();
     });
   });

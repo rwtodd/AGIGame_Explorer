@@ -607,6 +607,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     final trimmed = command.trim();
     if (trimmed.isEmpty) return;
 
+    final actualInput = trimmed.startsWith(':') ? trimmed.substring(1).trim() : trimmed;
+    if (actualInput.isEmpty) return;
+
     kernel.activeCycleSaidSpecs.clear();
 
     final typeSel = selectors.type >= 0 ? selectors.type : (selectors.findSelector('type') ?? 83);
@@ -624,7 +627,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     eventObj.setProp(segManager, typeSel, const SciReg.fromInt(128)); // saidEvent
     eventObj.setProp(segManager, claimedSel, const SciReg.fromInt(0));
 
-    final strReg = segManager.allocString(trimmed);
+    final strReg = segManager.allocString(actualInput);
     try {
       final parseRes = kernel.call(vm, 0x24, 2, [strReg, eventReg]);
       if (parseRes.toUint16() == 0) {
