@@ -25,19 +25,50 @@ class SciScriptBlockType {
 class SciScriptParser {
   const SciScriptParser();
 
+  /// Detects whether raw script bytes use the early SCI0 script format
+  /// (a 16-bit locals count at byte 0, followed by script blocks at byte 2).
+  static bool hasOldScriptHeader(Uint8List data) {
+    if (data.length < 4) return false;
+    final byteData = ByteData.sublistView(data);
+    var offset = 2;
+    const maxObjType = 16;
+    while (offset + 2 <= data.length) {
+      final objType = byteData.getUint16(offset, Endian.little);
+      if (objType == SciScriptBlockType.terminator) {
+        offset += 2;
+        return offset == data.length;
+      }
+      if (offset + 4 > data.length) return false;
+      if (objType > maxObjType) return false;
+      final skip = byteData.getUint16(offset + 2, Endian.little);
+      if (skip < 4) return false;
+      offset += skip;
+    }
+    return false;
+  }
+
   /// Parses raw SCI0 script bytes into a [SciScript].
   SciScript parse(
     int scriptNumber,
     Uint8List data,
     int segmentId, [
     SciSegManager? segMan,
+    bool? isEarlySci0,
   ]) {
     final byteData = ByteData.sublistView(data);
-    var pos = 0;
+    final isOldHeader = isEarlySci0 ?? hasOldScriptHeader(data);
+    var pos = isOldHeader ? 2 : 0;
 
     final exports = <int>[];
     final locals = <SciReg>[];
     var localsOffset = 0;
+    if (isOldHeader && data.length >= 2) {
+      final localsCount = byteData.getUint16(0, Endian.little);
+      for (var i = 0; i < localsCount; i++) {
+        locals.add(SciReg.nullReg);
+      }
+      localsOffset = -1;
+    }
     final objects = <int, SciObject>{};
     final strings = <int, String>{};
     final stringBlocks = <(int offset, int length)>[];
@@ -48,10 +79,11 @@ class SciScriptParser {
     final saidSpecs = <int, SciSaidSpec>{};
 
     // Read blocks sequentially until terminator (blockType == 0) or EOF
-    while (pos + 4 <= data.length) {
+    while (pos + 2 <= data.length) {
       final blockType = byteData.getUint16(pos, Endian.little);
       if (blockType == SciScriptBlockType.terminator) break;
 
+      if (pos + 4 > data.length) break;
       final blockSize = byteData.getUint16(pos + 2, Endian.little);
       if (blockSize < 4 || pos + blockSize > data.length) {
         break;
@@ -345,10 +377,12 @@ class SciScriptParser {
   ) {
     for (final reloc in relocations) {
       // 1. Check if reloc falls within locals
-      final localIdx = (reloc - localsOffset) >> 1;
-      if (localIdx >= 0 && localIdx < locals.length) {
-        locals[localIdx] = SciReg.pointer(segmentId, locals[localIdx].offset);
-        continue;
+      if (localsOffset > 0) {
+        final localIdx = (reloc - localsOffset) >> 1;
+        if (localIdx >= 0 && localIdx < locals.length) {
+          locals[localIdx] = SciReg.pointer(segmentId, locals[localIdx].offset);
+          continue;
+        }
       }
 
       // 2. Check if reloc falls within any object's properties

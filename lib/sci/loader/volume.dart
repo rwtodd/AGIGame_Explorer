@@ -7,6 +7,7 @@ import 'package:flutter_agigame/sci/loader/decompressor_lzw.dart';
 import 'package:flutter_agigame/sci/loader/resource_map.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/sci_exceptions.dart';
+import 'package:flutter_agigame/sci/script/sci_script_parser.dart';
 
 /// LRU Memory Cache for decompressed resource buffers.
 class _SciLruCache<K, V> {
@@ -84,6 +85,19 @@ class SciVolumeManager {
   final SciResourceMap resourceMap;
   final Map<int, RandomAccessFile> _openVolumes = {};
   final _SciLruCache<SciResourceId, Uint8List> _cache;
+  bool? _isEarlySci0;
+
+  /// True if this volume uses the early SCI0 script format (e.g. King's Quest IV SCI).
+  bool get isEarlySci0 {
+    if (_isEarlySci0 != null) return _isEarlySci0!;
+    try {
+      final script0Bytes = getResource(SciResourceType.script, 0);
+      _isEarlySci0 = SciScriptParser.hasOldScriptHeader(script0Bytes);
+    } catch (_) {
+      _isEarlySci0 = false;
+    }
+    return _isEarlySci0!;
+  }
 
   SciVolumeManager._({
     required this.gameDirectory,

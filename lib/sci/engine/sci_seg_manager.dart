@@ -102,7 +102,10 @@ class SciSegManager {
   /// Volume manager for on-demand script loading.
   SciVolumeManager? volumeManager;
 
-  SciSegManager({this.volumeManager});
+  /// Whether this segment manager is hosting an early SCI0 game.
+  bool isEarlySci0 = false;
+
+  SciSegManager({this.volumeManager, this.isEarlySci0 = false});
 
   /// Resets all loaded scripts, objects, lists, nodes, hunks, and globals.
   void reset() {
@@ -120,6 +123,7 @@ class SciSegManager {
     _nextHunkOffset = 1;
     globals.clear();
     currentStack = null;
+    isEarlySci0 = false;
   }
 
   /// Loads the class-to-script mapping table from `VOCAB.996`.
@@ -159,7 +163,17 @@ class SciSegManager {
     final scriptBytes = volumeMgr.getResource(SciResourceType.script, scriptNr);
     final scriptParser = parser ?? SciScriptParser();
 
-    final script = scriptParser.parse(scriptNr, scriptBytes, segId, this);
+    if (volumeMgr.isEarlySci0) {
+      isEarlySci0 = true;
+    }
+
+    final script = scriptParser.parse(
+      scriptNr,
+      scriptBytes,
+      segId,
+      this,
+      volumeMgr.isEarlySci0,
+    );
 
     loadedScripts[segId] = script;
 
