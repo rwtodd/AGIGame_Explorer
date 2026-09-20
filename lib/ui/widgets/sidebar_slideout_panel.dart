@@ -1061,18 +1061,24 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       }
     }();
 
+    final similarityThreshold = () {
+      try {
+        return ref.watch(settingsProvider).ai.similarityThreshold;
+      } catch (_) {
+        return widget.engine!.aiSimilarityThreshold;
+      }
+    }();
+
     if (_apiKeyController.text.isEmpty && apiKey.isNotEmpty) {
       _apiKeyController.text = apiKey;
     }
 
     final selectedModel = const [
-      'gemini-3.5-flash-lite',
-      'gemini-3.6-flash',
-      'gemini-3.7-flash',
-      'gemini-flash-latest',
+      'gemini-embedding-001',
+      'gemini-embedding-2',
     ].contains(model)
         ? model
-        : 'gemini-3.5-flash-lite';
+        : 'gemini-embedding-001';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1216,7 +1222,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           ],
         ),
         const SizedBox(height: 14),
-        _buildSectionTitle('GEMINI MODEL'),
+        _buildSectionTitle('EMBEDDING MODEL'),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
@@ -1237,20 +1243,12 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               ),
               items: const [
                 DropdownMenuItem(
-                  value: 'gemini-3.5-flash-lite',
-                  child: Text('Gemini 3.5 Flash-Lite (Fastest, Recommended)'),
+                  value: 'gemini-embedding-001',
+                  child: Text('gemini-embedding-001 (Recommended)'),
                 ),
                 DropdownMenuItem(
-                  value: 'gemini-3.6-flash',
-                  child: Text('Gemini 3.6 Flash (Standard)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-3.7-flash',
-                  child: Text('Gemini 3.7 Flash (High Quality)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-flash-latest',
-                  child: Text('Gemini Flash Latest'),
+                  value: 'gemini-embedding-2',
+                  child: Text('gemini-embedding-2 (Latest)'),
                 ),
               ],
               onChanged: (val) {
@@ -1266,11 +1264,37 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           ),
         ),
         const SizedBox(height: 14),
-        _buildSectionTitle('ABOUT AI TRANSLATION'),
+        _buildSectionTitle('SIMILARITY THRESHOLD (${(similarityThreshold * 100).round()}%)'),
+        const SizedBox(height: 4),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: AgiTheme.egaCyan,
+            inactiveTrackColor: const Color(0xFF1E293B),
+            thumbColor: AgiTheme.egaCyan,
+            overlayColor: AgiTheme.egaCyan.withValues(alpha: 0.2),
+          ),
+          child: Slider(
+            value: similarityThreshold.clamp(0.50, 0.95),
+            min: 0.50,
+            max: 0.95,
+            divisions: 9,
+            label: '${(similarityThreshold * 100).round()}%',
+            onChanged: (val) {
+              try {
+                ref.read(settingsProvider.notifier).updateAiSettings(similarityThreshold: val);
+              } catch (_) {}
+              widget.engine!.aiSimilarityThreshold = val;
+              setState(() {});
+            },
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildSectionTitle('ABOUT AI MATCHING'),
         const SizedBox(height: 6),
         const Text(
-          '• Matches your natural sentences to valid room actions if present (e.g. "look at computer" → "look screen").\n'
-          '• Translates non-room commands into authentic 2-word AGI-speak (e.g. "look tapestry") so standard game responses fire.\n'
+          '• Uses Google text embeddings and local cosine similarity to match natural sentences directly to valid room actions.\n'
+          '• Fast & deterministic: Candidate embeddings are cached per room, requiring only ~50ms per command.\n'
+          '• Below threshold, falls back to native Sierra vocabulary parsing.\n'
           '• Uses your personal free Google AI Studio key with zero token fees.',
           style: TextStyle(
             fontSize: 11,

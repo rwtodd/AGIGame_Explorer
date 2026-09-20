@@ -277,13 +277,11 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
     }
 
     final selectedModel = const [
-      'gemini-3.5-flash-lite',
-      'gemini-3.6-flash',
-      'gemini-3.7-flash',
-      'gemini-flash-latest',
+      'gemini-embedding-001',
+      'gemini-embedding-2',
     ].contains(ai.model)
         ? ai.model
-        : 'gemini-3.5-flash-lite';
+        : 'gemini-embedding-001';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -314,7 +312,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Translates natural/conversational English into valid Sierra AGI commands in real time.',
+                      'Translates natural/conversational English into valid Sierra AGI commands in real time using embeddings.',
                       style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted),
                     ),
                   ],
@@ -359,6 +357,10 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
               borderRadius: BorderRadius.circular(4),
               borderSide: const BorderSide(color: AgiTheme.egaBorder),
             ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: const BorderSide(color: AgiTheme.egaBorder),
+            ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(4),
               borderSide: const BorderSide(color: AgiTheme.egaCyan),
@@ -366,14 +368,10 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
             suffixIcon: IconButton(
               icon: Icon(
                 _obscureApiKey ? Icons.visibility : Icons.visibility_off,
-                size: 16,
                 color: AgiTheme.egaMuted,
+                size: 18,
               ),
-              onPressed: () {
-                setState(() {
-                  _obscureApiKey = !_obscureApiKey;
-                });
-              },
+              onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
             ),
           ),
           onChanged: (val) {
@@ -382,6 +380,76 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
               widget.engine!.aiApiKey = val.trim();
             }
           },
+        ),
+        const SizedBox(height: 16),
+        _buildSectionHeader('EMBEDDING MODEL'),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: AgiTheme.egaBorder),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: selectedModel,
+              dropdownColor: const Color(0xFF131D31),
+              isExpanded: true,
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 12,
+                color: AgiTheme.egaWhite,
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'gemini-embedding-001',
+                  child: Text('gemini-embedding-001 (Recommended, Text)'),
+                ),
+                DropdownMenuItem(
+                  value: 'gemini-embedding-2',
+                  child: Text('gemini-embedding-2 (Latest, Multimodal)'),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  notifier.updateAiSettings(model: val);
+                  if (widget.engine != null) {
+                    widget.engine!.aiModel = val;
+                  }
+                }
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildSectionHeader('SIMILARITY THRESHOLD (${(ai.similarityThreshold * 100).round()}%)'),
+        const SizedBox(height: 4),
+        const Text(
+          'Minimum cosine similarity required to trigger an action match. Lower values match more aggressively; higher values require closer semantic intent.',
+          style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted, height: 1.4),
+        ),
+        const SizedBox(height: 8),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: AgiTheme.egaCyan,
+            inactiveTrackColor: const Color(0xFF1E293B),
+            thumbColor: AgiTheme.egaCyan,
+            overlayColor: AgiTheme.egaCyan.withValues(alpha: 0.2),
+          ),
+          child: Slider(
+            value: ai.similarityThreshold.clamp(0.50, 0.95),
+            min: 0.50,
+            max: 0.95,
+            divisions: 9,
+            label: '${(ai.similarityThreshold * 100).round()}%',
+            onChanged: (val) {
+              notifier.updateAiSettings(similarityThreshold: val);
+              if (widget.engine != null) {
+                widget.engine!.aiSimilarityThreshold = val;
+              }
+            },
+          ),
         ),
         const SizedBox(height: 10),
         Row(
@@ -458,62 +526,6 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                 ),
               ),
           ],
-        ),
-        const SizedBox(height: 18),
-        _buildSectionHeader('GEMINI MODEL SELECTION'),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F172A),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: AgiTheme.egaBorder),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: const [
-                'gemini-3.5-flash-lite',
-                'gemini-3.6-flash',
-                'gemini-3.7-flash',
-                'gemini-flash-latest',
-              ].contains(ai.model)
-                  ? ai.model
-                  : 'gemini-3.5-flash-lite',
-              dropdownColor: const Color(0xFF131D31),
-              isExpanded: true,
-              style: const TextStyle(
-                fontFamily: 'Courier',
-                fontSize: 12,
-                color: AgiTheme.egaWhite,
-              ),
-              items: const [
-                DropdownMenuItem(
-                  value: 'gemini-3.5-flash-lite',
-                  child: Text('Gemini 3.5 Flash-Lite (Fastest, Recommended)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-3.6-flash',
-                  child: Text('Gemini 3.6 Flash (Standard)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-3.7-flash',
-                  child: Text('Gemini 3.7 Flash (High Quality)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-flash-latest',
-                  child: Text('Gemini Flash Latest'),
-                ),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  notifier.updateAiSettings(model: val);
-                  if (widget.engine != null) {
-                    widget.engine!.aiModel = val;
-                  }
-                }
-              },
-            ),
-          ),
         ),
       ],
     );

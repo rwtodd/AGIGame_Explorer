@@ -1,9 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_agigame/domain/dictionary.dart';
+import 'package:flutter_agigame/engine/ai/embedding_service.dart';
+import 'package:flutter_agigame/engine/ai/semantic_matcher.dart';
+import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 
-/// Result of testing connectivity to the Gemini API.
+/// Result of testing connectivity to the Gemini / Google GenAI Embedding API.
 class ConnectionTestResult {
   final bool success;
   final String message;
@@ -16,298 +19,196 @@ class ConnectionTestResult {
   });
 }
 
-/// Result of an AI command translation attempt.
+/// Result of an AI command translation or semantic match attempt.
 class AiTranslationResult {
   /// The player's original input string.
   final String originalInput;
 
-  /// The translated AGI command (e.g. "look screen", "take card").
+  /// The translated or matched AGI command (e.g. "look screen", "take card").
   final String translatedCommand;
 
   /// Whether the translation was matched to a specific room command from logic scripts.
   final bool isRoomCommandMatch;
 
-  /// Whether this result came from the in-memory cache.
+  /// Whether this result was resolved using in-memory cached vectors.
   final bool fromCache;
+
+  /// Cosine similarity score between the input and the matched command (0.0 to 1.0).
+  final double? similarityScore;
 
   const AiTranslationResult({
     required this.originalInput,
     required this.translatedCommand,
     this.isRoomCommandMatch = false,
     this.fromCache = false,
+    this.similarityScore,
   });
+
+  @override
+  String toString() =>
+      'AiTranslationResult("$originalInput" -> "$translatedCommand", score: ${similarityScore?.toStringAsFixed(3) ?? "N/A"})';
 }
 
-/// Service that translates natural language player inputs into Sierra AGI commands using the Gemini API.
+/// Service that translates natural language player inputs into Sierra AGI commands
+/// using Google's embedding models (`text-embedding-004` / `gemini-embedding-001`)
+/// and local vector cosine similarity matching.
 class GeminiCommandTranslator {
-  static const String defaultModel = 'gemini-3.5-flash-lite';
-  static const String apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
+  static const String defaultModel = 'gemini-embedding-001';
 
   final HttpClient _httpClient;
   final Duration timeout;
-  final Map<String, String> _cache = {};
-  static const int _maxCacheSize = 200;
+  late final EmbeddingService embeddingService;
+  late final SemanticMatcher semanticMatcher;
 
   GeminiCommandTranslator({
     HttpClient? httpClient,
     this.timeout = const Duration(milliseconds: 10000),
-  }) : _httpClient = httpClient ?? HttpClient();
+    EmbeddingService? embeddingService,
+    SemanticMatcher? semanticMatcher,
+  }) : _httpClient = httpClient ?? HttpClient() {
+    this.embeddingService = embeddingService ??
+        EmbeddingService(
+          httpClient: _httpClient,
+          timeout: timeout,
+        );
+    this.semanticMatcher = semanticMatcher ??
+        SemanticMatcher(embeddingService: this.embeddingService);
+  }
 
-  /// Tests connectivity and API key validity with a lightweight prompt.
+  /// Tests connectivity and API key validity with a lightweight embedding request.
   Future<ConnectionTestResult> testConnection({
     required String apiKey,
     String model = defaultModel,
   }) async {
-    final cleanKey = apiKey.trim();
-    if (cleanKey.isEmpty) {
-      return const ConnectionTestResult(
-        success: false,
-        message: 'API key is empty',
-      );
-    }
-
-    try {
-      final uri = Uri.parse('$apiBaseUrl/$model:generateContent?key=$cleanKey');
-      final request = await _httpClient.postUrl(uri).timeout(timeout);
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-
-      final body = jsonEncode({
-        'contents': [
-          {
-            'parts': [
-              {'text': 'Ping. Reply with PONG.'}
-            ]
-          }
-        ],
-        'generationConfig': {
-          'temperature': 0.0,
-          'maxOutputTokens': 256,
-        }
-      });
-
-      request.write(body);
-      final response = await request.close().timeout(timeout);
-      final responseStr = await response.transform(utf8.decoder).join();
-
-      debugPrint('[Gemini API] testConnection ($model) status: ${response.statusCode}');
-      debugPrint('[Gemini API] testConnection ($model) body: $responseStr');
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> json = jsonDecode(responseStr);
-        final candidates = json['candidates'] as List?;
-        if (candidates != null && candidates.isNotEmpty) {
-          return ConnectionTestResult(
-            success: true,
-            message: 'Connected successfully to $model',
-            statusCode: 200,
-          );
-        }
-        return const ConnectionTestResult(
-          success: false,
-          message: 'Received empty response candidates from Gemini API',
-          statusCode: 200,
-        );
-      } else {
-        String errorDetail = 'HTTP ${response.statusCode}';
-        try {
-          final Map<String, dynamic> json = jsonDecode(responseStr);
-          if (json['error'] != null && json['error']['message'] != null) {
-            errorDetail = '${json['error']['message']} (HTTP ${response.statusCode})';
-          }
-        } catch (_) {}
-        return ConnectionTestResult(
-          success: false,
-          message: errorDetail,
-          statusCode: response.statusCode,
-        );
-      }
-    } catch (e, stack) {
-      debugPrint('[Gemini API] testConnection error: $e\n$stack');
-      return ConnectionTestResult(
-        success: false,
-        message: 'Error: $e',
-      );
-    }
+    return embeddingService.testConnection(
+      apiKey: apiKey,
+      model: model,
+    );
   }
 
-  /// Translates [rawInput] against [roomCommands] using Gemini.
-  Future<AiTranslationResult?> translate({
-    required String rawInput,
-    required List<String> roomCommands,
+  /// One-time semantic deduplication of multi-word synonym groups in [dictionary].
+  ///
+  /// Extracts all words from word groups having > 1 word, batch-embeds them,
+  /// clusters them via [SemanticMatcher.deduplicateWordsSemantically],
+  /// and saves the deduplicated lists into [dictionary.setDeduplicatedWords].
+  Future<void> deduplicateDictionary(
+    AgiDictionary dictionary, {
     required String apiKey,
     String model = defaultModel,
+    double clusterThreshold = 0.70,
+    Set<int>? relevantWordIds,
+  }) async {
+    if (dictionary.isDeduplicated) return;
+
+    final multiWordGroups = <int, List<String>>{};
+    final wordsToEmbed = <String>{};
+
+    final candidateIds = relevantWordIds ?? dictionary.allIds;
+    for (final id in candidateIds) {
+      final words = dictionary.idToWords(id);
+      final validWords = words.where((w) {
+        final clean = w.trim();
+        return clean.length > 1 &&
+            !clean.startsWith('word_') &&
+            clean != '<any>' &&
+            clean != '<rol>';
+      }).toList();
+
+      if (validWords.length > 1) {
+        multiWordGroups[id] = validWords;
+        wordsToEmbed.addAll(validWords);
+      }
+    }
+
+    if (wordsToEmbed.isNotEmpty && apiKey.trim().isNotEmpty) {
+      final vectors = await embeddingService.batchEmbedDocuments(
+        wordsToEmbed.toList(),
+        apiKey: apiKey,
+        model: model,
+        taskType: EmbeddingService.defaultTaskType,
+      );
+
+      for (final entry in multiWordGroups.entries) {
+        final id = entry.key;
+        final words = entry.value;
+        final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
+          words,
+          vectors,
+          threshold: clusterThreshold,
+        );
+        dictionary.setDeduplicatedWords(id, deduplicated);
+      }
+    }
+
+    dictionary.isDeduplicated = true;
+  }
+
+  /// Translates [rawInput] against [commands] using the embedding semantic matcher.
+  ///
+  /// Generates candidate sentences from each command's deduplicated synonyms,
+  /// embeds them with [EmbeddingService], and computes cosine similarity locally.
+  /// Returns [AiTranslationResult] if a candidate exceeds [threshold] (default: 0.75),
+  /// or `null` if no candidate was semantically close enough (triggering native fallback).
+  Future<AiTranslationResult?> translate({
+    required String rawInput,
+    required List<ExtractedSaidCommand> commands,
+    required String apiKey,
+    String model = defaultModel,
+    double threshold = SemanticMatcher.defaultThreshold,
     int? roomNumber,
   }) async {
     final clean = rawInput.trim();
-    if (clean.isEmpty || apiKey.trim().isEmpty) return null;
+    if (clean.isEmpty || apiKey.trim().isEmpty || commands.isEmpty) return null;
 
-    bool isRoomMatch(String cmd) {
-      return roomCommands.any((rc) {
-        final base = rc.split(' (').first.trim();
-        return base == cmd || rc == cmd;
-      });
+    final candidates = <CandidateSentence>[];
+    for (var cmdIndex = 0; cmdIndex < commands.length; cmdIndex++) {
+      final cmd = commands[cmdIndex];
+      final phrases = cmd.generateCandidatePhrases();
+      for (var pIndex = 0; pIndex < phrases.length; pIndex++) {
+        final phrase = phrases[pIndex];
+        candidates.add(
+          CandidateSentence(
+            id: '${cmd.scriptNumber}:$cmdIndex:$pIndex:$phrase',
+            textToEmbed: phrase,
+            targetCommand: cmd.canonicalPhrase,
+            metadata: cmd,
+          ),
+        );
+      }
     }
 
-    final cacheKey = '${roomNumber ?? 0}:${clean.toLowerCase()}';
-    if (_cache.containsKey(cacheKey)) {
-      final cached = _cache[cacheKey]!;
+    final matchResult = await semanticMatcher.findBestMatch(
+      userQuery: clean,
+      candidates: candidates,
+      apiKey: apiKey,
+      threshold: threshold,
+      model: model,
+    );
+
+    if (matchResult.hasMatch) {
+      final winner = matchResult.matchedCandidate!;
+      debugPrint(
+        '[Embedding AI] Matched "$clean" -> "${winner.targetCommand}" '
+        '(score: ${matchResult.score.toStringAsFixed(3)})',
+      );
       return AiTranslationResult(
         originalInput: clean,
-        translatedCommand: cached,
-        isRoomCommandMatch: isRoomMatch(cached),
-        fromCache: true,
+        translatedCommand: winner.targetCommand,
+        isRoomCommandMatch: true,
+        fromCache: matchResult.fromCache,
+        similarityScore: matchResult.score,
       );
     }
 
-    final prompt = _buildPrompt(
-      rawInput: clean,
-      roomCommands: roomCommands,
-      roomNumber: roomNumber,
+    debugPrint(
+      '[Embedding AI] No candidate met threshold $threshold for "$clean" '
+      '(max score: ${matchResult.score.toStringAsFixed(3)})',
     );
-
-    try {
-      final uri = Uri.parse('$apiBaseUrl/$model:generateContent?key=$apiKey');
-      final request = await _httpClient.postUrl(uri).timeout(timeout);
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-
-      final body = jsonEncode({
-        'contents': [
-          {
-            'parts': [
-              {'text': prompt}
-            ]
-          }
-        ],
-        'generationConfig': {
-          'temperature': 0.1,
-          'maxOutputTokens': 500,
-          'topP': 0.95,
-        }
-      });
-
-      request.write(body);
-      final response = await request.close().timeout(timeout);
-      final responseStr = await response.transform(utf8.decoder).join();
-
-      if (response.statusCode != 200) {
-        debugPrint('[Gemini API] translate HTTP error ${response.statusCode}: $responseStr');
-        return null;
-      }
-
-      final Map<String, dynamic> json = jsonDecode(responseStr);
-      final candidates = json['candidates'] as List?;
-      if (candidates == null || candidates.isEmpty) return null;
-
-      final content = candidates[0]['content'] as Map<String, dynamic>?;
-      final parts = content?['parts'] as List?;
-      if (parts == null || parts.isEmpty) return null;
-
-      // Extract model response text
-      String text = '';
-      for (final part in parts) {
-        if (part is Map && part.containsKey('text')) {
-          final t = part['text'] as String? ?? '';
-          if (t.isNotEmpty) {
-            text = t;
-            break;
-          }
-        }
-      }
-
-      final cleanedResult = _cleanModelOutput(text);
-      if (cleanedResult.isEmpty) return null;
-
-      debugPrint('[Gemini API] Translated "$clean" -> "$cleanedResult"');
-      _storeCache(cacheKey, cleanedResult);
-
-      return AiTranslationResult(
-        originalInput: clean,
-        translatedCommand: cleanedResult,
-        isRoomCommandMatch: isRoomMatch(cleanedResult),
-        fromCache: false,
-      );
-    } catch (e, stack) {
-      debugPrint('[Gemini API] translate exception: $e\n$stack');
-      return null;
-    }
+    return null;
   }
 
-  String _buildPrompt({
-    required String rawInput,
-    required List<String> roomCommands,
-    int? roomNumber,
-  }) {
-    final buffer = StringBuffer();
-    buffer.writeln(
-      'You are an expert command parser for classic Sierra On-Line AGI text adventure games '
-      '(e.g. King\'s Quest, Space Quest, Police Quest, Black Cauldron).',
-    );
-    buffer.writeln(
-      'Convert the player\'s natural English input into concise Sierra AGI command syntax '
-      '(usually 2-3 words, lowercase verb + noun, e.g. "look screen", "take card", "push button").',
-    );
-    buffer.writeln();
-
-    if (roomCommands.isNotEmpty) {
-      buffer.writeln('VALID ACTIONS RECOGNIZED IN THIS ROOM (Room ${roomNumber ?? 0}):');
-      for (final cmd in roomCommands.take(60)) {
-        buffer.writeln('- $cmd');
-      }
-      buffer.writeln();
-      buffer.writeln(
-        'RULE 1: If the player\'s input matches any of the above valid actions or their listed synonyms in parentheses, '
-        'return the primary action phrase before the parentheses (e.g. "look wizard", "take key").',
-      );
-    }
-
-    buffer.writeln(
-      'RULE 2: If no valid room action matches, translate the player\'s input into canonical AGI-speak '
-      '(e.g. "take a look at that tapestry" -> "look tapestry", "is there water to swim in" -> "swim", '
-      '"kick the machine" -> "kick machine", "grab purple flower" -> "take flower"). '
-      'Do not invent complex logic; output the simplest 2-word verb+noun command.',
-    );
-    buffer.writeln();
-    buffer.writeln('FORMAT: Output ONLY the final command text (lowercase, no markdown, no quotes, no explanation).');
-    buffer.writeln();
-    buffer.writeln('PLAYER INPUT: "$rawInput"');
-    buffer.write('AGI COMMAND:');
-
-    return buffer.toString();
-  }
-
-  static final _synonymsOrBracketsRegex = RegExp(r'\(.*?\)|\[.*?\]');
-  static final _quotesOrControlRegex = RegExp(r'[`"*\n\r]');
-  static final _punctuationRegex = RegExp(r'[.,;:!?\(\)\[\]\{\}\/\\_\-\+=<>@#$%^&~|]');
-  static final _whitespaceRegex = RegExp(r'\s+');
-
-  String _cleanModelOutput(String raw) {
-    var text = raw.trim().toLowerCase();
-    // Remove parenthesized synonyms if echoed by model
-    text = text.replaceAll(_synonymsOrBracketsRegex, ' ');
-    // Remove markdown quotes, backticks, asterisks, prefix labels
-    text = text.replaceAll(_quotesOrControlRegex, ' ');
-    if (text.startsWith('agi command:')) {
-      text = text.substring('agi command:'.length).trim();
-    }
-    if (text.startsWith('command:')) {
-      text = text.substring('command:'.length).trim();
-    }
-    // Remove punctuation
-    text = text.replaceAll(_punctuationRegex, ' ');
-    // Collapse spaces
-    text = text.replaceAll(_whitespaceRegex, ' ').trim();
-    return text;
-  }
-
-  void _storeCache(String key, String value) {
-    if (_cache.length >= _maxCacheSize) {
-      _cache.remove(_cache.keys.first);
-    }
-    _cache[key] = value;
-  }
-
-  /// Clears the translation cache.
+  /// Clears the embedding vector cache.
   void clearCache() {
-    _cache.clear();
+    embeddingService.clearCache();
   }
 }

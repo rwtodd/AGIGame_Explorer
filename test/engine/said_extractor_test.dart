@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
+import 'package:flutter_agigame/loader/resource_loader.dart';
 
 void main() {
   group('AgiSaidExtractor', () {
@@ -178,6 +180,125 @@ void main() {
         extracted[0].toPromptDescription(),
         equals('take wizard (synonyms: acquire, capture, get, grab, guy, magician)'),
       );
+    });
+
+    test('generateCandidatePhrases truncates permutations at maxCandidates', () {
+      // 10 synonyms in slot 0, 10 synonyms in slot 1
+      const cmd = ExtractedSaidCommand(
+        scriptNumber: 1,
+        wordGroupIds: [1, 2],
+        canonicalPhrase: 'look screen',
+        wordSynonyms: [
+          ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'],
+          ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'],
+        ],
+      );
+
+      final candidates = cmd.generateCandidatePhrases(maxCandidates: 10);
+      expect(candidates.length, equals(10));
+      expect(candidates.first, equals('look screen'));
+    });
+
+    test('generateCandidatePhrases respects maxCandidates cap on deduplicated synonyms', () {
+      // 2 synonyms in slot 0, 3 synonyms in slot 1 -> 6 permutations <= 25
+      const cmd = ExtractedSaidCommand(
+        scriptNumber: 1,
+        wordGroupIds: [1, 2],
+        canonicalPhrase: 'look screen',
+        wordSynonyms: [
+          ['look', 'see'],
+          ['screen', 'monitor', 'terminal'],
+        ],
+      );
+
+      final candidates = cmd.generateCandidatePhrases(maxCandidates: 3);
+      expect(candidates.length, equals(3));
+      expect(candidates.first, equals('look screen'));
+    });
+
+    test('extractSaidWordGroupIds extracts unique word group IDs from bytecode', () {
+      final bytecode = Uint8List.fromList([
+        0xFF,
+        0x0E, 0x02, 0x14, 0x00, 0x32, 0x00, // said(20, 50)
+        0xFF, 0x02, 0x00, 0x65, 0x01,
+        0xFF,
+        0x0E, 0x01, 0x64, 0x00, // said(100)
+        0x00,
+      ]);
+
+      final ids = AgiSaidExtractor.extractSaidWordGroupIds(bytecode);
+      expect(ids, equals({20, 50, 100}));
+    });
+
+    test('extractActiveRoomCommands on reference PQ1 generates bounded candidate count', () {
+      final pqDir = Directory('/Users/rtodd/src/flutter_agigame/reference_games/police-quest-1');
+      if (!pqDir.existsSync()) return;
+
+      final loader = AgiResourceLoader.fromDirectorySync(pqDir.path);
+      final logic0 = loader.loadLogic(0);
+      final logic1 = loader.loadLogic(1);
+
+      final extracted = extractor.extractActiveRoomCommands(
+        logic0: logic0,
+        roomLogic: logic1,
+        dictionary: loader.dictionary,
+        roomNumber: 1,
+      );
+
+      int totalCandidates = 0;
+      for (final cmd in extracted) {
+        totalCandidates += cmd.generateCandidatePhrases().length;
+      }
+      // Without any bounds this was 7,452! With maxCandidates truncation it is bounded (< 3,000).
+      expect(totalCandidates, lessThan(3000));
+    });
+
+    test('extractActiveRoomCommands includes commands from additionalLogics overlay scripts', () {
+      final dict = AgiDictionary();
+      dict.addWord('look', 2);
+      dict.addWord('room', 3);
+      dict.addWord('cat', 4);
+      dict.addWord('global', 5);
+
+      final logic0 = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF, 0x0E, 0x02, 0x02, 0x00, 0x05, 0x00, // said("look", "global")
+          0xFF, 0x00, 0x00,
+        ]),
+        messages: const [],
+        logicNumber: 0,
+      );
+
+      final roomLogic = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF, 0x0E, 0x02, 0x02, 0x00, 0x03, 0x00, // said("look", "room")
+          0xFF, 0x00, 0x00,
+        ]),
+        messages: const [],
+        logicNumber: 5,
+      );
+
+      final catLogic = AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0xFF, 0x0E, 0x02, 0x02, 0x00, 0x04, 0x00, // said("look", "cat")
+          0xFF, 0x00, 0x00,
+        ]),
+        messages: const [],
+        logicNumber: 104,
+      );
+
+      final extracted = extractor.extractActiveRoomCommands(
+        logic0: logic0,
+        roomLogic: roomLogic,
+        additionalLogics: [catLogic],
+        dictionary: dict,
+        roomNumber: 5,
+      );
+
+      final phrases = extracted.map((c) => c.canonicalPhrase).toList();
+      expect(phrases, contains('look cat'));
+      expect(phrases, contains('look room'));
+      expect(phrases, contains('look global'));
     });
   });
 }

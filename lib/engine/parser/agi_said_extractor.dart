@@ -25,6 +25,52 @@ class ExtractedSaidCommand {
     this.wordSynonyms = const [],
   });
 
+  /// Generates clean candidate phrases for semantic matching
+  /// using the Cartesian product of deduplicated word synonyms.
+  List<String> generateCandidatePhrases({int maxCandidates = 15}) {
+    if (wordSynonyms.isEmpty) return [canonicalPhrase];
+
+    // Filter out non-word tokens like <any>, <rol>, etc.
+    final slots = wordSynonyms.map((synList) {
+      final valid = synList
+          .where((w) =>
+              w != '<any>' &&
+              w != '<rol>' &&
+              !w.startsWith('word_') &&
+              w.trim().isNotEmpty)
+          .toList();
+      return valid.isEmpty ? const [''] : valid;
+    }).toList();
+
+    List<String> combinations = [''];
+    for (final slot in slots) {
+      final next = <String>[];
+      for (final prefix in combinations) {
+        for (final word in slot) {
+          final s = word.isEmpty
+              ? prefix
+              : (prefix.isEmpty ? word : '$prefix $word');
+          next.add(s.trim());
+          if (next.length >= maxCandidates * 2) break;
+        }
+        if (next.length >= maxCandidates * 2) break;
+      }
+      combinations = next;
+    }
+    var results = combinations.where((c) => c.isNotEmpty).toSet().toList();
+    if (results.isEmpty) {
+      return [canonicalPhrase];
+    }
+    // Ensure canonical phrase is included first
+    if (!results.contains(canonicalPhrase)) {
+      results.insert(0, canonicalPhrase);
+    }
+    if (results.length > maxCandidates) {
+      results = results.sublist(0, maxCandidates);
+    }
+    return results;
+  }
+
   /// Formats this command for LLM prompts, including distinctive alternative synonyms.
   /// Example: "look wizard (synonyms: manannan, magician, sorcerer)"
   String toPromptDescription() {
@@ -125,7 +171,7 @@ class AgiSaidExtractor {
           final synonyms = said.wordGroupIds.map((id) {
             if (id == AgiSaidMatcher.anyWord) return ['<any>'];
             if (id == AgiSaidMatcher.restOfLine) return ['<rol>'];
-            return dictionary.idToWords(id);
+            return dictionary.idToDeduplicatedWords(id);
           }).toList();
 
           results.add(
@@ -151,16 +197,18 @@ class AgiSaidExtractor {
     return results;
   }
 
-  /// Extracts said commands from both Logic 0 (global) and the active room logic.
+  /// Extracts said commands from room logic, additional active overlay logics, and Logic 0.
   List<ExtractedSaidCommand> extractActiveRoomCommands({
     required AgiLogicScript? logic0,
     required AgiLogicScript? roomLogic,
+    Iterable<AgiLogicScript> additionalLogics = const [],
     required AgiDictionary dictionary,
     int roomNumber = 0,
   }) {
     final combined = <ExtractedSaidCommand>[];
     final seen = <String>{};
 
+    // 1. Primary room-specific commands
     if (roomLogic != null) {
       final roomCommands = extractFromScript(
         script: roomLogic,
@@ -174,6 +222,22 @@ class AgiSaidExtractor {
       }
     }
 
+    // 2. Additional active logics (e.g. dynamic overlay logics, NPCs)
+    for (final extra in additionalLogics) {
+      if (extra.logicNumber == roomNumber || extra.logicNumber == 0) continue;
+      final extraCommands = extractFromScript(
+        script: extra,
+        dictionary: dictionary,
+        scriptNumber: extra.logicNumber ?? 0,
+      );
+      for (final cmd in extraCommands) {
+        if (seen.add(cmd.canonicalPhrase)) {
+          combined.add(cmd);
+        }
+      }
+    }
+
+    // 3. Global Logic 0 commands (fallback priority)
     if (logic0 != null) {
       final globalCommands = extractFromScript(
         script: logic0,
@@ -188,6 +252,30 @@ class AgiSaidExtractor {
     }
 
     return combined;
+  }
+
+  /// Extracts all unique word group IDs tested by `said(...)` (0x0E) opcodes in [byteCode].
+  static Set<int> extractSaidWordGroupIds(List<int> byteCode) {
+    final wordIds = <int>{};
+    var i = 0;
+    while (i < byteCode.length) {
+      if (byteCode[i] == 0x0E && i + 1 < byteCode.length) {
+        final count = byteCode[i + 1];
+        if (count > 0 && count <= 10 && i + 1 + (count * 2) <= byteCode.length) {
+          for (var w = 0; w < count; w++) {
+            final offset = i + 2 + (w * 2);
+            final wordId = byteCode[offset] | (byteCode[offset + 1] << 8);
+            if (wordId > 1 && wordId < 9999) {
+              wordIds.add(wordId);
+            }
+          }
+          i += 2 + (count * 2);
+          continue;
+        }
+      }
+      i++;
+    }
+    return wordIds;
   }
 
   /// Fallback scanner that scans raw bytecode for opcode 0x0E (said test).
@@ -220,11 +308,17 @@ class AgiSaidExtractor {
           if (valid && wordIds.isNotEmpty) {
             final phrase = formatWordGroupIds(wordIds, dictionary);
             if (phrase.isNotEmpty && seenPhrases.add(phrase)) {
+              final synonyms = wordIds.map((id) {
+                if (id == AgiSaidMatcher.anyWord) return ['<any>'];
+                if (id == AgiSaidMatcher.restOfLine) return ['<rol>'];
+                return dictionary.idToDeduplicatedWords(id);
+              }).toList();
               results.add(
                 ExtractedSaidCommand(
                   scriptNumber: scriptNumber,
                   wordGroupIds: wordIds,
                   canonicalPhrase: phrase,
+                  wordSynonyms: synonyms,
                 ),
               );
             }

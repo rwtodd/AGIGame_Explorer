@@ -16,6 +16,9 @@ class _MockResourceLoader implements AgiResourceLoader {
   late AgiDictionary dictionary;
 
   @override
+  bool hasLogic(int number) => logics.containsKey(number);
+
+  @override
   AgiLogicScript loadLogic(int number) {
     final s = logics[number];
     if (s == null) {
@@ -30,10 +33,28 @@ class _MockResourceLoader implements AgiResourceLoader {
 
 class _MockHttpClient implements HttpClient {
   int statusCode = 200;
-  String responseBody = '';
+  String? batchEmbedResponse;
+  String? embedContentResponse;
 
   @override
-  Future<HttpClientRequest> postUrl(Uri url) async => _MockHttpClientRequest(this);
+  Future<HttpClientRequest> postUrl(Uri url) async {
+    final body = url.toString().contains('batchEmbedContents')
+        ? (batchEmbedResponse ??
+            jsonEncode({
+              'embeddings': [
+                {
+                  'values': [1.0, 0.0]
+                }
+              ]
+            }))
+        : (embedContentResponse ??
+            jsonEncode({
+              'embedding': {
+                'values': [0.98, 0.02]
+              }
+            }));
+    return _MockHttpClientRequest(this, body);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -41,17 +62,55 @@ class _MockHttpClient implements HttpClient {
 
 class _MockHttpClientRequest implements HttpClientRequest {
   final _MockHttpClient client;
+  final String bodyToSend;
+  String? writtenBody;
   @override
   final HttpHeaders headers = _MockHttpHeaders();
 
-  _MockHttpClientRequest(this.client);
+  _MockHttpClientRequest(this.client, this.bodyToSend);
 
   @override
-  void write(Object? obj) {}
+  void write(Object? obj) {
+    writtenBody = obj?.toString();
+  }
 
   @override
-  Future<HttpClientResponse> close() async =>
-      _MockHttpClientResponse(client.statusCode, client.responseBody);
+  Future<HttpClientResponse> close() async {
+    String responseBody = bodyToSend;
+    if (writtenBody != null && writtenBody!.contains('"requests":')) {
+      try {
+        final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
+        final reqList = parsed['requests'] as List?;
+        if (reqList != null && client.batchEmbedResponse == null) {
+          final embs = <Map<String, dynamic>>[];
+          for (final req in reqList) {
+            final text = req['content']?['parts']?[0]?['text']?.toString().toLowerCase() ?? '';
+            if (text.contains('cat')) {
+              embs.add({'values': [0.0, 1.0]});
+            } else {
+              embs.add({'values': [1.0, 0.0]});
+            }
+          }
+          responseBody = jsonEncode({'embeddings': embs});
+        }
+      } catch (_) {}
+    } else if (writtenBody != null && client.embedContentResponse == null) {
+      try {
+        final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
+        final text = parsed['content']?['parts']?[0]?['text']?.toString().toLowerCase() ?? '';
+        if (text.contains('cat')) {
+          responseBody = jsonEncode({
+            'embedding': {'values': [0.0, 1.0]}
+          });
+        } else {
+          responseBody = jsonEncode({
+            'embedding': {'values': [1.0, 0.0]}
+          });
+        }
+      } catch (_) {}
+    }
+    return _MockHttpClientResponse(client.statusCode, responseBody);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -132,17 +191,6 @@ void main() {
 
       mockClient = _MockHttpClient();
       mockClient.statusCode = 200;
-      mockClient.responseBody = jsonEncode({
-        'candidates': [
-          {
-            'content': {
-              'parts': [
-                {'text': 'look screen'}
-              ]
-            }
-          }
-        ]
-      });
 
       engine = AgiGameEngine(
         dictionary: dictionary,
@@ -165,6 +213,7 @@ void main() {
       expect(engine.lastAiTranslation, isNotNull);
       expect(engine.lastAiTranslation!.originalInput, equals('can you please examine the terminal monitor'));
       expect(engine.lastAiTranslation!.translatedCommand, equals('look screen'));
+      expect(engine.lastAiTranslation!.similarityScore, greaterThan(0.9));
 
       // Verify engine word group IDs are set for [look, screen] -> [10, 100]
       expect(engine.parsedWordIds, equals([10, 100]));
@@ -175,14 +224,67 @@ void main() {
       expect(engine.memory.getFlag(4), isTrue); // said.accepted = 1
     });
 
+    test('unrelated input below threshold triggers fallback to raw tokenization', () async {
+      engine.isAiEnabled = true;
+      engine.aiApiKey = 'mock-api-key';
+      engine.aiSimilarityThreshold = 0.75;
+
+      // Query vector orthogonal to room commands
+      mockClient.embedContentResponse = jsonEncode({
+        'embedding': {
+          'values': [0.0, 1.0]
+        }
+      });
+
+      // Submit input that won't match room commands above threshold
+      await engine.submitCommand('sing song');
+
+      // AI translation should be null because threshold was not met
+      expect(engine.lastAiTranslation, isNull);
+      // Engine tokenizes raw input 'sing song'
+      expect(engine.memory.getFlag(2), isTrue); // have.input = 1
+    });
+
     test('when AI is disabled, raw input is tokenized directly without translation', () async {
       engine.isAiEnabled = false;
 
-      engine.submitCommand('look screen');
+      await engine.submitCommand('look screen');
 
       expect(engine.lastAiTranslation, isNull);
       expect(engine.parsedWordIds, equals([10, 100]));
       expect(engine.checkSaid([10, 100]), isTrue);
+    });
+
+    test('dynamically loaded secondary logic (e.g. NPC overlay) commands are included and matched', () async {
+      dictionary.addWord('cat', 200);
+
+      // Overlay logic 104 (cat):
+      // if (said(look, cat)) { print("A scruffy black cat looks back at you."); }
+      mockLoader.logics[104] = AgiLogicScript(
+        logicNumber: 104,
+        bytecodes: Uint8List.fromList([
+          0xFF,
+          0x0E, 0x02, 0x0A, 0x00, 0xC8, 0x00, // said(10, 200) -> look cat
+          0xFF, 0x02, 0x00, 0x65, 0x01,
+          0x00,
+        ]),
+        messages: ['A scruffy black cat looks back at you.'],
+      );
+
+      // Simulate loading logic 104 into active engine
+      engine.loadLogic(104);
+      expect(engine.loadedLogicNumbers, contains(104));
+
+      engine.isAiEnabled = true;
+      engine.aiApiKey = 'mock-api-key';
+
+      // Submit command targeted at overlay script
+      await engine.submitCommand('look cat');
+
+      expect(engine.lastAiTranslation, isNotNull);
+      expect(engine.lastAiTranslation!.translatedCommand, equals('look cat'));
+      expect(engine.parsedWordIds, equals([10, 200]));
+      expect(engine.checkSaid([10, 200]), isTrue);
     });
   });
 }

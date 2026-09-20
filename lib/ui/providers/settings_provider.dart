@@ -45,6 +45,7 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
 
   File? _getConfigFile() {
     if (_customConfigFile != null) return _customConfigFile;
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return null;
 
     try {
       String? configDirPath;
@@ -185,12 +186,14 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
     bool? enabled,
     String? apiKey,
     String? model,
+    double? similarityThreshold,
   }) {
     state = state.copyWith(
       ai: state.ai.copyWith(
         enabled: enabled,
         apiKey: apiKey,
         model: model,
+        similarityThreshold: similarityThreshold,
       ),
     );
     _saveSettings();

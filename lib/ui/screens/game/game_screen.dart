@@ -118,6 +118,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         agi.isAiEnabled = initSettings.ai.enabled;
         agi.aiApiKey = initSettings.ai.apiKey;
         agi.aiModel = initSettings.ai.model;
+        agi.aiSimilarityThreshold = initSettings.ai.similarityThreshold;
       }
 
       if (widget.engine == null && widget.session == null) {
@@ -599,6 +600,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         _agiEngine!.isAiEnabled = settings.ai.enabled;
         _agiEngine!.aiApiKey = settings.ai.apiKey;
         _agiEngine!.aiModel = settings.ai.model;
+        _agiEngine!.aiSimilarityThreshold = settings.ai.similarityThreshold;
       } catch (_) {}
     }
 
@@ -978,29 +980,58 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               builder: (context, _) {
                 final isAiOpen = _openPanelTab == SidebarPanelTab.ai;
                 final isAiEnabled = _agiEngine!.isAiEnabled;
+                final isAiIndexing = _agiEngine!.isAiIndexing;
                 return Container(
                   decoration: BoxDecoration(
                     color: isAiOpen ? const Color(0xFF1E3A5F) : Colors.transparent,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.auto_awesome,
-                      size: 18,
-                      color: isAiOpen
-                          ? AgiTheme.egaWhite
-                          : (isAiEnabled ? AgiTheme.egaCyan : AgiTheme.egaMuted),
-                    ),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      setState(() {
-                        _openPanelTab = isAiOpen ? null : SidebarPanelTab.ai;
-                      });
-                    },
-                    tooltip: isAiEnabled
-                        ? 'AI Commands: ON (Click for AI Options)'
-                        : 'AI Commands: OFF (Click for AI Options)',
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          Icons.auto_awesome,
+                          size: 18,
+                          color: isAiOpen
+                              ? AgiTheme.egaWhite
+                              : (isAiEnabled ? AgiTheme.egaCyan : AgiTheme.egaMuted),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          setState(() {
+                            _openPanelTab = isAiOpen ? null : SidebarPanelTab.ai;
+                          });
+                        },
+                        tooltip: isAiIndexing
+                            ? 'AI: Optimizing vocabulary cache...'
+                            : (isAiEnabled
+                                ? 'AI Commands: ON (Click for AI Options)'
+                                : 'AI Commands: OFF (Click for AI Options)'),
+                      ),
+                      if (isAiIndexing) ...[
+                        const SizedBox(width: 2),
+                        const SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AgiTheme.egaCyan,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Indexing AI...',
+                          style: TextStyle(
+                            fontFamily: 'SierraAGI',
+                            fontSize: 10,
+                            color: AgiTheme.egaCyan,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    ],
                   ),
                 );
               },

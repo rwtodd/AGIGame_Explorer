@@ -24,6 +24,7 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/agi_message_formatter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import 'package:flutter_agigame/engine/ai/ai_disk_cache.dart';
 import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
@@ -278,6 +279,25 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// Optional override directory for saving and loading `.sav` game slots.
   Directory? saveDirectory;
 
+  /// Optional explicit directory of the game files. If null, falls back to `resourceLoader.meta.gamePath`.
+  Directory? _gameDirectory;
+
+  /// Root directory containing the game files.
+  Directory? get gameDirectory {
+    if (_gameDirectory != null) return _gameDirectory;
+    try {
+      final metaPath = resourceLoader?.meta.gamePath;
+      if (metaPath != null && metaPath.isNotEmpty) {
+        return Directory(metaPath);
+      }
+    } catch (_) {
+      // In tests or custom mocks where meta is not implemented
+    }
+    return null;
+  }
+
+  set gameDirectory(Directory? dir) => _gameDirectory = dir;
+
   /// Callback triggered when `save.game()` opcode executes.
   VoidCallback? onSaveGameRequested;
 
@@ -287,14 +307,321 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// Callback triggered when `restart.game()` opcode executes.
   VoidCallback? onRestartGameRequested;
 
+  bool _isAiEnabled = false;
+
   /// Whether AI command translation via Gemini is enabled.
-  bool isAiEnabled = false;
+  bool get isAiEnabled => _isAiEnabled;
+
+  set isAiEnabled(bool val) {
+    if (_isAiEnabled == val) return;
+    _isAiEnabled = val;
+    if (val) {
+      prewarmAi();
+    }
+    notifyListeners();
+  }
+
+  bool _isAiIndexing = false;
+
+  /// Whether AI vocabulary deduplication is currently in-progress in the background.
+  bool get isAiIndexing => _isAiIndexing;
+
+  Future<void>? _prewarmFuture;
+
+  /// Asynchronously pre-warms AI vocabulary and active room candidates in the background.
+  ///
+  /// 1. Tries to load `ai_vocab_cache.json` from [gameDirectory].
+  /// 2. If no cache exists, performs one-time deduplication with Google GenAI and persists to disk.
+  /// 3. Pre-warms the active room's candidate embeddings into memory.
+  Future<void> prewarmAi() {
+    if (!isAiEnabled || aiApiKey.isEmpty) return Future.value();
+    if (_prewarmFuture != null) return _prewarmFuture!;
+    _prewarmFuture = _doPrewarmAi().whenComplete(() {
+      _prewarmFuture = null;
+    });
+    return _prewarmFuture!;
+  }
+
+  Future<void> _doPrewarmAi() async {
+    await ensureVocabReady();
+    await prewarmCurrentRoomCandidates();
+  }
+
+  Future<void>? _vocabFuture;
+
+  /// Ensures vocabulary is loaded from disk or deduplicated via GenAI
+  /// before candidate phrase generation begins.
+  Future<void> ensureVocabReady() {
+    if (!isAiEnabled || aiApiKey.isEmpty) return Future.value();
+    final dict = dictionary;
+    if (dict == null || dict.isDeduplicated) return Future.value();
+
+    if (_vocabFuture != null) return _vocabFuture!;
+    _vocabFuture = _doEnsureVocabReady().whenComplete(() {
+      _vocabFuture = null;
+    });
+    return _vocabFuture!;
+  }
+
+  Future<void> _doEnsureVocabReady() async {
+    final dict = dictionary;
+    if (dict == null || dict.isDeduplicated) return;
+
+    final gameDir = gameDirectory;
+    if (gameDir != null && !dict.isDeduplicated) {
+      final loaded = await AiDiskCache.tryLoadVocab(
+        directory: gameDir,
+        model: aiModel,
+        dictionary: dict,
+      );
+      if (loaded) {
+        _saidExtractor.clearCache();
+        notifyListeners();
+        return;
+      }
+    }
+
+    if (!dict.isDeduplicated && aiApiKey.isNotEmpty) {
+      _isAiIndexing = true;
+      notifyListeners();
+      try {
+        Set<int>? relevantWordIds;
+        final loader = resourceLoader;
+        if (loader != null) {
+          try {
+            final ids = <int>{};
+            for (final num in loader.presentLogicNumbers) {
+              try {
+                final logic = loader.loadLogic(num);
+                ids.addAll(AgiSaidExtractor.extractSaidWordGroupIds(logic.bytecodes));
+              } catch (_) {}
+            }
+            if (ids.isNotEmpty) {
+              relevantWordIds = ids;
+            }
+          } catch (_) {}
+        }
+
+        await geminiTranslator.deduplicateDictionary(
+          dict,
+          apiKey: aiApiKey,
+          model: aiModel,
+          relevantWordIds: relevantWordIds,
+        );
+        _saidExtractor.clearCache();
+        if (gameDir != null) {
+          await AiDiskCache.saveVocab(
+            directory: gameDir,
+            model: aiModel,
+            dictionary: dict,
+          );
+        }
+      } finally {
+        _isAiIndexing = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void>? _roomPrewarmFuture;
+  int? _roomPrewarmRoomNumber;
+  final Set<int> _cachedLogicScriptNumbers = {};
+
+  /// Pre-warms active room candidate sentence embeddings in the background.
+  ///
+  /// Checks `<gameDirectory>/ai_cache/<model>/logic_<id>.json.gz` on disk first (< 1 ms, 0 API calls).
+  /// If missing from disk, extracts candidate sentences, embeds them via GenAI,
+  /// and persists them to `logic_<id>.json.gz`.
+  Future<void> prewarmCurrentRoomCandidates() async {
+    if (!isAiEnabled || aiApiKey.isEmpty) return;
+
+    // Ensure vocabulary is loaded from disk or deduplicated before extracting room candidates
+    final dict = dictionary;
+    if (dict != null && !dict.isDeduplicated) {
+      await ensureVocabReady();
+    }
+    if (isAiIndexing) return;
+    final currentRoom = memory.getVar(0);
+
+    // If already prewarming the exact same room, wait for it
+    if (_roomPrewarmFuture != null && _roomPrewarmRoomNumber == currentRoom) {
+      await _roomPrewarmFuture;
+      return;
+    }
+
+    // Wait for any prior in-flight room prewarm to cleanly complete
+    while (_roomPrewarmFuture != null) {
+      if (_roomPrewarmRoomNumber == currentRoom) {
+        await _roomPrewarmFuture;
+        return;
+      }
+      await _roomPrewarmFuture;
+    }
+
+    _roomPrewarmRoomNumber = currentRoom;
+    final future = _doPrewarmRoomCandidates(currentRoom);
+    _roomPrewarmFuture = future;
+    try {
+      await future;
+    } finally {
+      if (_roomPrewarmFuture == future) {
+        _roomPrewarmFuture = null;
+      }
+    }
+  }
+
+  Future<void> _doPrewarmRoomCandidates(int currentRoom) async {
+    final gameDir = gameDirectory;
+    final dict = dictionary ?? AgiDictionary();
+    final scriptsToWarm = <int>{0, currentRoom, ..._loadedLogicNumbers};
+
+    for (final scriptId in scriptsToWarm) {
+      if (_cachedLogicScriptNumbers.contains(scriptId)) {
+        continue;
+      }
+
+      // 1. Try loading from on-disk cache
+      if (gameDir != null) {
+        final diskEmbeddings = await AiDiskCache.loadLogicCandidates(
+          directory: gameDir,
+          model: aiModel,
+          scriptNumber: scriptId,
+        );
+        if (diskEmbeddings != null && diskEmbeddings.isNotEmpty) {
+          geminiTranslator.embeddingService.storeAllInCache(diskEmbeddings);
+          _cachedLogicScriptNumbers.add(scriptId);
+          continue;
+        }
+      }
+
+      // 2. Not on disk: load logic script and extract candidate phrases
+      AgiLogicScript? script;
+      try {
+        script = resourceLoader?.loadLogic(scriptId);
+      } catch (_) {
+        // Logic script may not exist in some games or test environments
+      }
+      if (script == null || script.bytecodes.isEmpty) {
+        continue;
+      }
+
+      final extracted = _saidExtractor.extractFromScript(
+        script: script,
+        dictionary: dict,
+        scriptNumber: scriptId,
+      );
+
+      final candidateTexts = <String>{};
+      for (final cmd in extracted) {
+        candidateTexts.addAll(cmd.generateCandidatePhrases());
+      }
+
+      if (candidateTexts.isNotEmpty) {
+        final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
+          candidateTexts.toList(),
+          apiKey: aiApiKey,
+          model: aiModel,
+        );
+
+        if (gameDir != null && embeddedMap.isNotEmpty) {
+          await AiDiskCache.saveLogicCandidates(
+            directory: gameDir,
+            model: aiModel,
+            scriptNumber: scriptId,
+            embeddings: embeddedMap,
+          );
+        }
+      }
+      _cachedLogicScriptNumbers.add(scriptId);
+    }
+  }
+
+  /// Precomputes and caches embedding vectors for all logic scripts in the game.
+  ///
+  /// Can be used as a pre-indexing utility. Skips logic scripts that are already cached on disk.
+  /// Provides an optional [onProgress] callback with `(current, total, scriptNumber)`.
+  Future<void> precomputeAllRoomCaches({
+    void Function(int current, int total, int scriptNumber)? onProgress,
+  }) async {
+    final gameDir = gameDirectory;
+    final loader = resourceLoader;
+    if (gameDir == null || loader == null || aiApiKey.isEmpty) return;
+
+    final dict = dictionary ?? AgiDictionary();
+    if (!dict.isDeduplicated) {
+      await ensureVocabReady();
+    }
+    final scriptNumbers = loader.presentLogicNumbers.toList()..sort();
+    final total = scriptNumbers.length;
+    var current = 0;
+
+    for (final scriptId in scriptNumbers) {
+      current++;
+      onProgress?.call(current, total, scriptId);
+
+      final diskEmbeddings = await AiDiskCache.loadLogicCandidates(
+        directory: gameDir,
+        model: aiModel,
+        scriptNumber: scriptId,
+      );
+      if (diskEmbeddings != null && diskEmbeddings.isNotEmpty) {
+        geminiTranslator.embeddingService.storeAllInCache(diskEmbeddings);
+        _cachedLogicScriptNumbers.add(scriptId);
+        continue;
+      }
+
+      AgiLogicScript? script;
+      try {
+        script = loader.loadLogic(scriptId);
+      } catch (_) {}
+      if (script == null || script.bytecodes.isEmpty) continue;
+
+      final extracted = _saidExtractor.extractFromScript(
+        script: script,
+        dictionary: dict,
+        scriptNumber: scriptId,
+      );
+
+      final candidateTexts = <String>{};
+      for (final cmd in extracted) {
+        candidateTexts.addAll(cmd.generateCandidatePhrases());
+      }
+
+      if (candidateTexts.isNotEmpty) {
+        final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
+          candidateTexts.toList(),
+          apiKey: aiApiKey,
+          model: aiModel,
+        );
+
+        if (embeddedMap.isNotEmpty) {
+          await AiDiskCache.saveLogicCandidates(
+            directory: gameDir,
+            model: aiModel,
+            scriptNumber: scriptId,
+            embeddings: embeddedMap,
+          );
+        }
+      }
+      _cachedLogicScriptNumbers.add(scriptId);
+    }
+  }
+
+  /// Clears in-memory AI candidate caches.
+  void clearAiCache() {
+    _cachedLogicScriptNumbers.clear();
+    geminiTranslator.clearCache();
+    _saidExtractor.clearCache();
+  }
 
   /// Google AI Studio API key for Gemini command translation.
   String aiApiKey = '';
 
-  /// Gemini model name (default: 'gemini-3.5-flash-lite').
+  /// Gemini / Embedding model name (default: 'gemini-embedding-001').
   String aiModel = GeminiCommandTranslator.defaultModel;
+
+  /// Cosine similarity threshold for embedding matching (default: 0.75).
+  double aiSimilarityThreshold = 0.75;
 
   /// Gemini translator instance (can be overridden for testing).
   GeminiCommandTranslator geminiTranslator = GeminiCommandTranslator();
@@ -670,6 +997,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       updateStatusLine(force: true);
 
       ego.updateCachedView(getView(ego.view));
+      if (isAiEnabled && aiApiKey.isNotEmpty) {
+        prewarmAi();
+      }
       notifyListeners();
     }
 
@@ -1026,28 +1356,48 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   Future<void> _submitCommandWithAi(String cleanInput) async {
+    final dict = dictionary ?? AgiDictionary();
+    if (!dict.isDeduplicated && aiApiKey.isNotEmpty) {
+      await prewarmAi();
+    } else {
+      await prewarmCurrentRoomCandidates();
+    }
+
     final currentRoom = memory.getVar(0);
     AgiLogicScript? logic0;
     AgiLogicScript? roomLogic;
+    final additionalScripts = <AgiLogicScript>[];
     try {
       logic0 = resourceLoader?.loadLogic(0);
+    } catch (_) {}
+    try {
       roomLogic = resourceLoader?.loadLogic(currentRoom);
     } catch (_) {}
+    for (final scriptId in _loadedLogicNumbers) {
+      if (scriptId != 0 && scriptId != currentRoom) {
+        try {
+          final s = resourceLoader?.loadLogic(scriptId);
+          if (s != null && s.bytecodes.isNotEmpty) {
+            additionalScripts.add(s);
+          }
+        } catch (_) {}
+      }
+    }
 
     final extracted = _saidExtractor.extractActiveRoomCommands(
       logic0: logic0,
       roomLogic: roomLogic,
-      dictionary: dictionary ?? AgiDictionary(),
+      additionalLogics: additionalScripts,
+      dictionary: dict,
       roomNumber: currentRoom,
     );
 
-    final roomCommands = extracted.map((e) => e.toPromptDescription()).toList();
-
     final result = await geminiTranslator.translate(
       rawInput: cleanInput,
-      roomCommands: roomCommands,
+      commands: extracted,
       apiKey: aiApiKey,
       model: aiModel,
+      threshold: aiSimilarityThreshold,
       roomNumber: currentRoom,
     );
 
@@ -2094,6 +2444,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
 
     ego.updateCachedView(getView(ego.view));
     atlasManager.prepareAtlasAsync();
+    prewarmCurrentRoomCandidates();
 
     notifyListeners();
   }
@@ -2246,6 +2597,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   @override
   AgiLogicScript? loadLogic(int logicNumber) {
     _loadedLogicNumbers.add(logicNumber);
+    if (isAiEnabled && !_cachedLogicScriptNumbers.contains(logicNumber)) {
+      prewarmCurrentRoomCandidates();
+    }
     if (resourceLoader != null && resourceLoader!.hasLogic(logicNumber)) {
       return resourceLoader!.loadLogic(logicNumber);
     }
@@ -3366,6 +3720,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     currentPic?.dispose();
     currentPic = null;
     atlasManager.dispose();
+    _cachedLogicScriptNumbers.clear();
     _saidExtractor.clearCache();
     super.dispose();
   }

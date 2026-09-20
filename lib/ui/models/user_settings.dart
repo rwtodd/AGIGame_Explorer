@@ -170,22 +170,26 @@ class AgiAiSettings {
   final bool enabled;
   final String apiKey;
   final String model;
+  final double similarityThreshold;
 
   const AgiAiSettings({
     this.enabled = false,
     this.apiKey = '',
-    this.model = 'gemini-3.5-flash-lite',
+    this.model = 'gemini-embedding-001',
+    this.similarityThreshold = 0.75,
   });
 
   AgiAiSettings copyWith({
     bool? enabled,
     String? apiKey,
     String? model,
+    double? similarityThreshold,
   }) {
     return AgiAiSettings(
       enabled: enabled ?? this.enabled,
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
+      similarityThreshold: similarityThreshold ?? this.similarityThreshold,
     );
   }
 
@@ -193,15 +197,24 @@ class AgiAiSettings {
         'enabled': enabled,
         'apiKey': apiKey,
         'model': model,
+        'similarityThreshold': similarityThreshold,
       };
 
   factory AgiAiSettings.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AgiAiSettings();
 
-    final rawModel = json['model'] as String? ?? 'gemini-3.5-flash-lite';
-    // Auto-migrate retired/legacy models
+    final rawModel = json['model'] as String? ?? 'gemini-embedding-001';
+    // Auto-migrate retired/legacy models to active gemini-embedding-001
     final sanitizedModel = switch (rawModel) {
-      'gemini-2.0-flash' || 'gemini-2.5-flash' || 'gemini-1.5-flash' => 'gemini-3.5-flash-lite',
+      'text-embedding-004' ||
+      'gemini-3.5-flash-lite' ||
+      'gemini-3.6-flash' ||
+      'gemini-3.7-flash' ||
+      'gemini-flash-latest' ||
+      'gemini-2.0-flash' ||
+      'gemini-2.5-flash' ||
+      'gemini-1.5-flash' =>
+        'gemini-embedding-001',
       _ => rawModel,
     };
 
@@ -209,6 +222,8 @@ class AgiAiSettings {
       enabled: json['enabled'] as bool? ?? false,
       apiKey: json['apiKey'] as String? ?? '',
       model: sanitizedModel,
+      similarityThreshold:
+          (json['similarityThreshold'] as num?)?.toDouble() ?? 0.75,
     );
   }
 }
