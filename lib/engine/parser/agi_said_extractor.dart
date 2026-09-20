@@ -43,6 +43,7 @@ class ExtractedSaidCommand {
               w != '<any>' &&
               w != '<rol>' &&
               !w.startsWith('word_') &&
+              !AgiSaidExtractor.isDemotedWord(w) &&
               w.trim().isNotEmpty)
           .toList();
 
@@ -360,12 +361,16 @@ class AgiSaidExtractor {
     // Core Nouns & Entities
     'wizard', 'manannan', 'door', 'key', 'cupboard', 'chest', 'box',
     'book', 'spell', 'wand', 'screen', 'computer', 'ship', 'button',
-    'switch', 'lever', 'rock', 'stone', 'tree', 'flower', 'water',
-    'food', 'meat', 'bread', 'potion', 'bottle', 'cup', 'glass',
+    'switch', 'lever', 'rock', 'stone', 'boulder', 'tree', 'flower', 'water',
+    'ocean', 'sea', 'lake', 'pond', 'beach', 'sand',
+    'clam', 'shell', 'clamshell',
+    'food', 'meat', 'bread', 'potion', 'bottle', 'cup', 'glass', 'jar',
     'gold', 'coin', 'purse', 'money', 'treasure', 'diamond', 'gem',
-    'ring', 'sword', 'knife', 'dagger', 'rope', 'ladder', 'stairs',
+    'ring', 'sword', 'knife', 'dagger', 'rope', 'ladder', 'stairs', 'steps',
     'window', 'wall', 'floor', 'ceiling', 'bed', 'table', 'chair',
     'desk', 'mirror', 'clock', 'candle', 'torch', 'lamp', 'fire',
+    'hat', 'cap', 'cape', 'cloak', 'pot', 'cauldron', 'casket', 'coffin',
+    'rug', 'carpet', 'cave', 'cavern', 'castle', 'palace',
     'girl', 'woman', 'man', 'boy', 'guard', 'king', 'queen', 'prince',
     'princess', 'witch', 'fairy', 'cat', 'dog', 'bird', 'eagle', 'dragon', 'snake',
     'horse', 'donkey', 'chicken', 'fish', 'mermaid', 'monster', 'bear',
@@ -381,6 +386,12 @@ class AgiSaidExtractor {
     'fuck', 'fucking', 'shit', 'piss', 'ass', 'asshole', 'bastard', 'cock',
     'dick', 'tits', 'boobs', 'fag', 'faggot',
   };
+
+  /// Whether [word] is an obscenity or slur that should be excluded from AI candidate generation.
+  static bool isDemotedWord(String word) {
+    final clean = word.trim().toLowerCase();
+    return _demotedWords.contains(clean);
+  }
 
   /// Returns a sorting rank for [word] to order words for display or clustering.
   /// Lower numbers indicate higher preference / priority.

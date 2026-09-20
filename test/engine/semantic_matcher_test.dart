@@ -294,6 +294,27 @@ void main() {
 
         expect(deduplicated, equals(['tree', 'bush']));
       });
+
+      test('preserves distinct core adventure objects (clam, shell, clamshell) and purges obscenities', () {
+        final vectors = {
+          'clam': EmbeddingService.normalize([1.0, 0.0]),
+          'shell': EmbeddingService.normalize([0.92, 0.39]), // highly aligned
+          'clamshell': EmbeddingService.normalize([0.94, 0.34]), // highly aligned
+          'clam shell': EmbeddingService.normalize([0.96, 0.28]), // compound
+          'cunt': EmbeddingService.normalize([0.1, 0.9]), // unrelated obscenity
+        };
+
+        final words = ['clam', 'clam shell', 'clamshell', 'cunt', 'shell'];
+        final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
+          words,
+          vectors,
+        );
+
+        expect(deduplicated, contains('clam'));
+        expect(deduplicated, contains('shell'));
+        expect(deduplicated, contains('clamshell'));
+        expect(deduplicated, isNot(contains('cunt')));
+      });
     });
   });
 }

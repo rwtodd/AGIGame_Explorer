@@ -127,6 +127,9 @@ class SemanticMatcher {
       final clean = word.trim().toLowerCase();
       if (clean.isEmpty) continue;
 
+      // Never retain demoted obscenities or slurs
+      if (AgiSaidExtractor.isDemotedWord(clean)) continue;
+
       final isPreferred = AgiSaidExtractor.preferredWordRanks.containsKey(clean);
 
       final vec = wordVectors[clean] ?? wordVectors[word];

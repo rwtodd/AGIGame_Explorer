@@ -105,6 +105,20 @@ When a player types a natural language command:
   - Candidate generation for `said(14, 35)` includes `"take fly"`, `"get fly"`, and `"catch fly"`.
   - `"get the fly"` directly matches `"get fly"` with >0.985 similarity.
 
+### Case 3: King's Quest 2 Room 22 (`get the clamshell` matching `open clam`)
+- **Problem**: In KQ2 Room 22 (the beach with a clam), typing `"get the clamshell"` matched `"open clam"`. The game responded: *"You must get the clam first!"*
+- **Cause**:
+  - KQ2 Group 59 contained `[clam, clam shell, clamshell, shell]`.
+  - Because neither `shell` nor `clamshell` was on the protected preferred list, greedy deduplication collapsed Group 59 down to only `["clam"]`.
+  - The candidates generated for Room 22 only included `"take clam"`, `"get clam"`, and `"open clam"`. No candidate contained `"clamshell"` or `"shell"`.
+  - In modern embedding corpora, the word "clamshell" has strong packaging/device connotations ("open clamshell packaging", "open the clamshell").
+  - Comparing `"get the clamshell"` against `"get clam"` vs `"open clam"` resulted in `"open clam"` winning slightly due to the "clamshell" $\leftrightarrow$ "open" contextual bias.
+- **Resolution**:
+  - Expanded `preferredAgiWords` to protect distinct adventure nouns (`clam`, `shell`, `clamshell`, `ocean`, `beach`, `sand`, `steps`, `hat`, etc.) alongside verbs.
+  - Enforced `isDemotedWord()` checks so obscenities and slurs are never retained in prototypes or emitted in candidate phrases.
+  - Room 22 candidates now generate `"get clamshell"`, `"take clamshell"`, `"open clamshell"`, `"take shell"`, `"get shell"`, `"open shell"`, etc.
+  - Typing `"get the clamshell"` matches `"get clamshell"` directly with >0.985 similarity, correctly acquiring the item.
+
 ---
 
 ## 4. On-Disk Persistence & Int8 Quantization
