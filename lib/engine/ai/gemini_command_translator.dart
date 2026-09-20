@@ -120,26 +120,30 @@ class GeminiCommandTranslator {
       }
     }
 
-    if (wordsToEmbed.isNotEmpty && apiKey.trim().isNotEmpty) {
-      final vectors = await embeddingService.batchEmbedDocuments(
-        wordsToEmbed.toList(),
-        apiKey: apiKey,
-        model: model,
-        taskType: EmbeddingService.defaultTaskType,
-      );
-
-      for (final entry in multiWordGroups.entries) {
-        final id = entry.key;
-        final words = entry.value;
-        final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
-          words,
-          vectors,
-          threshold: clusterThreshold,
-        );
-        dictionary.setDeduplicatedWords(id, deduplicated);
-      }
+    if (wordsToEmbed.isEmpty) {
+      dictionary.isDeduplicated = true;
+      return;
     }
+    if (apiKey.trim().isEmpty) return;
 
+    final vectors = await embeddingService.batchEmbedDocuments(
+      wordsToEmbed.toList(),
+      apiKey: apiKey,
+      model: model,
+      taskType: EmbeddingService.defaultTaskType,
+    );
+    if (vectors.isEmpty) return;
+
+    for (final entry in multiWordGroups.entries) {
+      final id = entry.key;
+      final words = entry.value;
+      final deduplicated = SemanticMatcher.deduplicateWordsSemantically(
+        words,
+        vectors,
+        threshold: clusterThreshold,
+      );
+      dictionary.setDeduplicatedWords(id, deduplicated);
+    }
     dictionary.isDeduplicated = true;
   }
 

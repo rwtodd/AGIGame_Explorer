@@ -32,6 +32,13 @@ void main() {
       expect(SemanticMatcher.computeCosineSimilarity(v1, v2), closeTo(1.0, 1e-6));
       expect(SemanticMatcher.computeCosineSimilarity(v1, v3), closeTo(0.0, 1e-6));
       expect(SemanticMatcher.computeCosineSimilarity(v1, v4), closeTo(0.7071, 1e-3));
+      expect(
+        SemanticMatcher.computeCosineSimilarity(
+          EmbeddingService.normalize([1.0, 0.0]),
+          EmbeddingService.normalize([1.0, 0.0, 0.0]),
+        ),
+        0.0,
+      );
     });
 
     test('findBestMatch returns winning candidate when above threshold', () async {
@@ -78,6 +85,7 @@ void main() {
       expect(result.matchedCandidate!.targetCommand, equals('look desk'));
       expect(result.candidateIndex, equals(0));
       expect(result.score, greaterThan(0.95));
+      expect(result.fromCache, isTrue);
     });
 
     test('findBestMatch triggers none fallback when max score is below threshold', () async {

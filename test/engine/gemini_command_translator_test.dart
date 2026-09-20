@@ -254,6 +254,20 @@ void main() {
       expect(dict.idToDeduplicatedWords(99), equals(['key']));
     });
 
+    test('deduplicateDictionary does not freeze vocab when embeddings fail', () async {
+      mockClient.statusCode = 500;
+      mockClient.batchEmbedResponse = jsonEncode({
+        'error': {'message': 'unavailable'},
+      });
+
+      final dict = AgiDictionary();
+      dict.addWord('look', 2);
+      dict.addWord('see', 2);
+
+      await translator.deduplicateDictionary(dict, apiKey: 'test-key');
+      expect(dict.isDeduplicated, isFalse);
+    });
+
     test('matches overloaded candidate phrase back to canonical target command', () async {
       mockClient.statusCode = 200;
       // Command: canonical 'look wizard', with slots: ['look'], ['wizard', 'ogre']

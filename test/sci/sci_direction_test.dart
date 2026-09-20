@@ -19,9 +19,8 @@ void main() {
       final engine = SciGameEngine(volumeManager: volumeMgr);
       engine.initializeGame();
 
-      // Initially stopped: pressing 1 moves North (posts direction 1)
-      // Note: handleDirection calls tick(), which processes and consumes events in VM
-      // so we can observe events posted to kernel or track direction commands.
+      // Initially stopped: pressing 1 moves North. handleDirection pumps the
+      // VM, but lastDirection stays until the event is consumed and ego idles.
       engine.handleDirection(1);
       expect(engine.lastDirectionForTest, 1);
 
@@ -169,6 +168,29 @@ void main() {
       engine.handleDirection(1);
       expect(engine.lastDirectionForTest, 0);
 
+      engine.dispose();
+    });
+
+    test('idle ticks do not clear lastDirection while a direction event is queued', () {
+      if (!pq2Dir.existsSync()) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+
+      final volumeMgr = SciVolumeManager.fromDirectory(pq2Dir.path);
+      final engine = SciGameEngine(volumeManager: volumeMgr);
+      engine.initializeGame();
+
+      engine.handleDirection(3);
+      expect(engine.lastDirectionForTest, 3);
+      for (var i = 0; i < 4; i++) {
+        engine.tick();
+      }
+      expect(engine.lastDirectionForTest, 3,
+          reason: 'Wait must not drop toggle state before GetEvent sees the direction');
+
+      engine.handleDirection(3);
+      expect(engine.lastDirectionForTest, 0);
       engine.dispose();
     });
   });

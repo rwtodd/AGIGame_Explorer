@@ -8,8 +8,8 @@ class CandidateSentence {
   /// Unique identifier for this candidate (e.g. script:command or text hash).
   final String id;
 
-  /// The enriched descriptive text used for vector embedding.
-  /// Example: "look desk (synonyms: table, drawer)"
+  /// Bare candidate phrase embedded for cosine matching.
+  /// Example: "look desk"
   final String textToEmbed;
 
   /// The canonical command to execute if matched.
@@ -88,12 +88,11 @@ class SemanticMatcher {
   /// cosine similarity simplifies to the Euclidean dot product:
   /// $\cos(\theta) = a \cdot b$.
   static double computeCosineSimilarity(Float32List a, Float32List b) {
-    final len = math.min(a.length, b.length);
+    if (a.length != b.length) return 0.0;
     double dot = 0.0;
-    for (var i = 0; i < len; i++) {
+    for (var i = 0; i < a.length; i++) {
       dot += a[i] * b[i];
     }
-    // Clamp to [0.0, 1.0] for similarity comparison
     return dot.clamp(0.0, 1.0);
   }
 
@@ -144,11 +143,10 @@ class SemanticMatcher {
 
   /// Finds the candidate sentence that best matches [userQuery].
   ///
-  /// 1. Ensures candidate embeddings are pre-computed / cached via [EmbeddingService].
-  /// 2. Embeds the [userQuery] with `taskType: RETRIEVAL_QUERY`.
-  /// 3. Computes local dot product against each candidate vector in memory.
-  /// 4. If `maxScore < threshold`, returns a fallback result [SemanticMatchResult.none].
-  /// 5. Otherwise, returns the winning candidate with [SemanticMatchResult.match].
+  /// Embeds the query and candidates with `SEMANTIC_SIMILARITY`, then scores
+  /// local cosine similarity. Returns [SemanticMatchResult.none] below
+  /// [threshold]. [fromCache] is true when both the query and the winner
+  /// were already in the embedding cache before this call.
   Future<SemanticMatchResult> findBestMatch({
     required String userQuery,
     required List<CandidateSentence> candidates,
@@ -161,7 +159,12 @@ class SemanticMatcher {
       return const SemanticMatchResult.none(score: 0.0);
     }
 
-    // Step 1: Ensure candidate embeddings are batch-computed/cached
+    final queryWasCached = embeddingService.getCached(cleanQuery) != null;
+    final cachedCandidateTexts = {
+      for (final c in candidates)
+        if (embeddingService.getCached(c.textToEmbed) != null) c.textToEmbed,
+    };
+
     final candidateTexts = candidates.map((c) => c.textToEmbed).toList();
     final docVectors = await embeddingService.batchEmbedDocuments(
       candidateTexts,
@@ -169,7 +172,6 @@ class SemanticMatcher {
       model: model,
     );
 
-    // Step 2: Embed the incoming user search query
     final queryVector = await embeddingService.embedQuery(
       cleanQuery,
       apiKey: apiKey,
@@ -180,7 +182,6 @@ class SemanticMatcher {
       return const SemanticMatchResult.none(score: 0.0);
     }
 
-    // Step 3: Compute cosine similarity locally in memory
     double maxScore = -1.0;
     CandidateSentence? bestCandidate;
     int? bestIndex;
@@ -202,7 +203,6 @@ class SemanticMatcher {
 
     final finalScore = math.max(0.0, maxScore);
 
-    // Step 4: Apply threshold / fallback logic
     if (bestCandidate == null || finalScore < threshold) {
       return SemanticMatchResult.none(score: finalScore);
     }
@@ -211,6 +211,8 @@ class SemanticMatcher {
       matchedCandidate: bestCandidate,
       candidateIndex: bestIndex,
       score: finalScore,
+      fromCache: queryWasCached &&
+          cachedCandidateTexts.contains(bestCandidate.textToEmbed),
     );
   }
 }

@@ -136,7 +136,10 @@ class SciKernel {
   /// True when a key or mouse-down is waiting. Dialog.doit / Wait must not
   /// sleep the host — GetInput should see the character in this pump.
   bool get hasPendingInput => eventQueue.any(
-        (e) => e.type == SciEventType.keyDown || e.type == SciEventType.mousePress,
+        (e) =>
+            e.type == SciEventType.keyDown ||
+            e.type == SciEventType.mousePress ||
+            e.type == SciEventType.direction,
       );
 
   int _masterVolume = 15;

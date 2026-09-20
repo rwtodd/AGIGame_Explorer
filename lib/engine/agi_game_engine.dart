@@ -25,6 +25,7 @@ import 'package:flutter_agigame/logic/agi_message_formatter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
 import 'package:flutter_agigame/engine/ai/ai_disk_cache.dart';
+import 'package:flutter_agigame/engine/ai/embedding_service.dart';
 import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
@@ -426,6 +427,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   Future<void>? _roomPrewarmFuture;
   int? _roomPrewarmRoomNumber;
   final Set<int> _cachedLogicScriptNumbers = {};
+  final Map<String, int> _cachedPhraseToScript = {};
 
   /// Pre-warms active room candidate sentence embeddings in the background.
   ///
@@ -471,6 +473,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   Future<void> _doPrewarmRoomCandidates(int currentRoom) async {
+    _hookEmbeddingEviction();
     final gameDir = gameDirectory;
     final dict = dictionary ?? AgiDictionary();
     final scriptsToWarm = <int>{0, currentRoom, ..._loadedLogicNumbers};
@@ -489,7 +492,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         );
         if (diskEmbeddings != null && diskEmbeddings.isNotEmpty) {
           geminiTranslator.embeddingService.storeAllInCache(diskEmbeddings);
-          _cachedLogicScriptNumbers.add(scriptId);
+          _markScriptCached(scriptId, diskEmbeddings.keys);
           continue;
         }
       }
@@ -516,23 +519,30 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         candidateTexts.addAll(cmd.generateCandidatePhrases());
       }
 
-      if (candidateTexts.isNotEmpty) {
-        final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
-          candidateTexts.toList(),
-          apiKey: aiApiKey,
-          model: aiModel,
-        );
-
-        if (gameDir != null && embeddedMap.isNotEmpty) {
-          await AiDiskCache.saveLogicCandidates(
-            directory: gameDir,
-            model: aiModel,
-            scriptNumber: scriptId,
-            embeddings: embeddedMap,
-          );
-        }
+      if (candidateTexts.isEmpty) {
+        _cachedLogicScriptNumbers.add(scriptId);
+        continue;
       }
-      _cachedLogicScriptNumbers.add(scriptId);
+
+      final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
+        candidateTexts.toList(),
+        apiKey: aiApiKey,
+        model: aiModel,
+      );
+
+      if (!_allCandidatesEmbedded(candidateTexts, embeddedMap)) {
+        continue;
+      }
+
+      if (gameDir != null) {
+        await AiDiskCache.saveLogicCandidates(
+          directory: gameDir,
+          model: aiModel,
+          scriptNumber: scriptId,
+          embeddings: embeddedMap,
+        );
+      }
+      _markScriptCached(scriptId, embeddedMap.keys);
     }
   }
 
@@ -546,6 +556,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     final gameDir = gameDirectory;
     final loader = resourceLoader;
     if (gameDir == null || loader == null || aiApiKey.isEmpty) return;
+    _hookEmbeddingEviction();
 
     final dict = dictionary ?? AgiDictionary();
     if (!dict.isDeduplicated) {
@@ -566,7 +577,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       );
       if (diskEmbeddings != null && diskEmbeddings.isNotEmpty) {
         geminiTranslator.embeddingService.storeAllInCache(diskEmbeddings);
-        _cachedLogicScriptNumbers.add(scriptId);
+        _markScriptCached(scriptId, diskEmbeddings.keys);
         continue;
       }
 
@@ -587,38 +598,92 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         candidateTexts.addAll(cmd.generateCandidatePhrases());
       }
 
-      if (candidateTexts.isNotEmpty) {
-        final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
-          candidateTexts.toList(),
-          apiKey: aiApiKey,
-          model: aiModel,
-        );
-
-        if (embeddedMap.isNotEmpty) {
-          await AiDiskCache.saveLogicCandidates(
-            directory: gameDir,
-            model: aiModel,
-            scriptNumber: scriptId,
-            embeddings: embeddedMap,
-          );
-        }
+      if (candidateTexts.isEmpty) {
+        _cachedLogicScriptNumbers.add(scriptId);
+        continue;
       }
-      _cachedLogicScriptNumbers.add(scriptId);
+
+      final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
+        candidateTexts.toList(),
+        apiKey: aiApiKey,
+        model: aiModel,
+      );
+
+      if (!_allCandidatesEmbedded(candidateTexts, embeddedMap)) {
+        continue;
+      }
+
+      await AiDiskCache.saveLogicCandidates(
+        directory: gameDir,
+        model: aiModel,
+        scriptNumber: scriptId,
+        embeddings: embeddedMap,
+      );
+      _markScriptCached(scriptId, embeddedMap.keys);
     }
   }
 
   /// Clears in-memory AI candidate caches.
   void clearAiCache() {
     _cachedLogicScriptNumbers.clear();
+    _cachedPhraseToScript.clear();
     geminiTranslator.clearCache();
     _saidExtractor.clearCache();
   }
 
+  void _invalidateAiMemory() {
+    clearAiCache();
+    dictionary?.clearDeduplicatedWords();
+    _prewarmFuture = null;
+    _vocabFuture = null;
+  }
+
+  bool _allCandidatesEmbedded(
+    Set<String> candidateTexts,
+    Map<String, Float32List> embeddedMap,
+  ) {
+    return candidateTexts.every(embeddedMap.containsKey);
+  }
+
+  void _hookEmbeddingEviction() {
+    geminiTranslator.embeddingService.onEvict = (key) {
+      final script = _cachedPhraseToScript.remove(key);
+      if (script != null) {
+        _cachedLogicScriptNumbers.remove(script);
+      }
+    };
+  }
+
+  void _markScriptCached(int scriptId, Iterable<String> phrases) {
+    _hookEmbeddingEviction();
+    for (final phrase in phrases) {
+      _cachedPhraseToScript[EmbeddingService.normalizeKey(phrase)] = scriptId;
+    }
+    _cachedLogicScriptNumbers.add(scriptId);
+  }
+
   /// Google AI Studio API key for Gemini command translation.
-  String aiApiKey = '';
+  String _aiApiKey = '';
+  String get aiApiKey => _aiApiKey;
+  set aiApiKey(String val) {
+    if (_aiApiKey == val) return;
+    _aiApiKey = val;
+    if (_isAiEnabled && val.isNotEmpty) {
+      prewarmAi();
+    }
+  }
 
   /// Gemini / Embedding model name (default: 'gemini-embedding-001').
-  String aiModel = GeminiCommandTranslator.defaultModel;
+  String _aiModel = GeminiCommandTranslator.defaultModel;
+  String get aiModel => _aiModel;
+  set aiModel(String val) {
+    if (_aiModel == val) return;
+    _aiModel = val;
+    _invalidateAiMemory();
+    if (_isAiEnabled) {
+      prewarmAi();
+    }
+  }
 
   /// Cosine similarity threshold for embedding matching (default: 0.75).
   double aiSimilarityThreshold = 0.75;
@@ -682,6 +747,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       }
       return null;
     };
+    _hookEmbeddingEviction();
   }
 
   bool? _cachedFlag1Obscured;
@@ -3721,6 +3787,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     currentPic = null;
     atlasManager.dispose();
     _cachedLogicScriptNumbers.clear();
+    _cachedPhraseToScript.clear();
     _saidExtractor.clearCache();
     super.dispose();
   }

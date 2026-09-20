@@ -18,10 +18,14 @@ class EmbeddingService {
   final int maxCacheSize;
   final Map<String, Float32List> _cache = {};
 
+  /// Called with the normalized key when an entry is FIFO/LRU-evicted.
+  void Function(String evictedKey)? onEvict;
+
   EmbeddingService({
     HttpClient? httpClient,
     this.timeout = const Duration(milliseconds: 10000),
     this.maxCacheSize = defaultMaxCacheSize,
+    this.onEvict,
   }) : _httpClient = httpClient ?? HttpClient();
 
   /// Number of unique text embeddings currently stored in memory.
@@ -54,13 +58,24 @@ class EmbeddingService {
   }
 
   /// Retrieves an existing embedding from cache if present.
-  Float32List? getCached(String text) => _cache[normalizeKey(text)];
+  /// Hits are moved to the most-recent end so Logic 0 is not FIFO-evicted first.
+  Float32List? getCached(String text) {
+    final key = normalizeKey(text);
+    final vec = _cache.remove(key);
+    if (vec == null) return null;
+    _cache[key] = vec;
+    return vec;
+  }
 
-  /// Stores an embedding vector in cache, evicting the oldest entries if capacity is reached.
+  /// Stores an embedding vector in cache, evicting the least-recent entry if full.
   void storeInCache(String text, Float32List vector) {
     final key = normalizeKey(text);
-    if (_cache.length >= maxCacheSize && !_cache.containsKey(key)) {
-      _cache.remove(_cache.keys.first);
+    if (_cache.containsKey(key)) {
+      _cache.remove(key);
+    } else if (_cache.length >= maxCacheSize) {
+      final evicted = _cache.keys.first;
+      _cache.remove(evicted);
+      onEvict?.call(evicted);
     }
     _cache[key] = vector;
   }

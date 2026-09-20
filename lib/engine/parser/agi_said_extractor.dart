@@ -61,10 +61,8 @@ class ExtractedSaidCommand {
     if (results.isEmpty) {
       return [canonicalPhrase];
     }
-    // Ensure canonical phrase is included first
-    if (!results.contains(canonicalPhrase)) {
-      results.insert(0, canonicalPhrase);
-    }
+    results.remove(canonicalPhrase);
+    results.insert(0, canonicalPhrase);
     if (results.length > maxCandidates) {
       results = results.sublist(0, maxCandidates);
     }

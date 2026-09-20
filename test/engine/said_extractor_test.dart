@@ -216,6 +216,23 @@ void main() {
       expect(candidates.first, equals('look screen'));
     });
 
+    test('generateCandidatePhrases keeps canonical first when it is not first in the product', () {
+      const cmd = ExtractedSaidCommand(
+        scriptNumber: 1,
+        wordGroupIds: [1, 2],
+        canonicalPhrase: 'gaze pane',
+        wordSynonyms: [
+          ['look', 'gaze'],
+          ['window', 'pane'],
+        ],
+      );
+
+      final candidates = cmd.generateCandidatePhrases(maxCandidates: 3);
+      expect(candidates.first, equals('gaze pane'));
+      expect(candidates, contains('gaze pane'));
+      expect(candidates.length, equals(3));
+    });
+
     test('extractSaidWordGroupIds extracts unique word group IDs from bytecode', () {
       final bytecode = Uint8List.fromList([
         0xFF,

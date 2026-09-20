@@ -267,5 +267,25 @@ void main() {
       expect(results, contains('retry test phrase'));
       expect(mockClient.postCount, equals(2));
     });
+
+    test('storeInCache LRU-evicts the least recently used key and notifies onEvict', () {
+      final evicted = <String>[];
+      final service = EmbeddingService(
+        httpClient: mockClient,
+        maxCacheSize: 2,
+        onEvict: evicted.add,
+      );
+      final a = EmbeddingService.normalize([1.0]);
+      final b = EmbeddingService.normalize([0.0, 1.0]);
+      final c = EmbeddingService.normalize([0.5, 0.5]);
+      service.storeInCache('logic0', a);
+      service.storeInCache('room1', b);
+      expect(service.getCached('logic0'), isNotNull);
+      service.storeInCache('room2', c);
+      expect(evicted, equals(['room1']));
+      expect(service.getCached('logic0'), isNotNull);
+      expect(service.getCached('room1'), isNull);
+      expect(service.getCached('room2'), isNotNull);
+    });
   });
 }

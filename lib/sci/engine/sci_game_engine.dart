@@ -439,7 +439,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       kernel.updateSci0Cues(vm);
       _pumpVm();
       _restorePq2SpeedAfterTest();
-      if (_lastDirection != 0 && _isEgoStopped()) {
+      if (_lastDirection != 0 &&
+          _isEgoStopped() &&
+          !kernel.eventQueue.any((e) => e.type == SciEventType.direction)) {
         _lastDirection = 0;
       }
       notifyListeners();
@@ -534,6 +536,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     }
     _lastDirection = dir;
     kernel.postDirectionEvent(dir);
+    tick();
   }
 
   @override
