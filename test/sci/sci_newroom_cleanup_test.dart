@@ -80,5 +80,25 @@ void main() {
       // The door actor must be completely removed from cast, preventing graphical ghosting
       expect(segManager.listElements(castList), isEmpty);
     });
+
+    test('purgeUnmappedScripts drops a disposed script with no live pointers', () {
+      if (!lsl2Dir.existsSync()) {
+        markTestSkipped('LSL2 reference tree missing');
+        return;
+      }
+      final volumeMgr = SciVolumeManager.fromDirectory(lsl2Dir.path);
+      final segManager = SciSegManager();
+      segManager.volumeManager = volumeMgr;
+      segManager.loadClassTable(volumeMgr.getResource(SciResourceType.vocab, 996));
+      final script = segManager.instantiateScript(3, volumeMgr);
+      expect(segManager.loadedScripts.containsKey(script.segmentId), isTrue);
+
+      segManager.disposeScript(3);
+      expect(segManager.scriptToSegment.containsKey(3), isFalse);
+      expect(segManager.loadedScripts.containsKey(script.segmentId), isTrue);
+
+      expect(segManager.purgeUnmappedScripts(), 1);
+      expect(segManager.loadedScripts.containsKey(script.segmentId), isFalse);
+    });
   });
 }

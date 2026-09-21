@@ -509,6 +509,10 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       kernel.updateSci0Cues(vm);
       _pumpVm();
       _restorePq2SpeedAfterTest();
+      segManager.purgeUnmappedScripts(pinned: [
+        for (final frame in vm.executionStack) ...[frame.pc, frame.objp],
+        ...vm.stack,
+      ]);
       if (_lastDirection != 0 &&
           _isEgoStopped() &&
           !kernel.eventQueue.any((e) => e.type == SciEventType.direction)) {

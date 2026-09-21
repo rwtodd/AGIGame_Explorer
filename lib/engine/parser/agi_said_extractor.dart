@@ -127,6 +127,19 @@ class AgiSaidExtractor {
   /// Clears the cached extracted said commands.
   void clearCache() => _scriptCache.clear();
 
+  /// Previously extracted commands for [scriptNumber], if any.
+  List<ExtractedSaidCommand>? peekScript(int scriptNumber) =>
+      _scriptCache[scriptNumber];
+
+  /// Stores [commands] so later submits do not reload the logic resource.
+  List<ExtractedSaidCommand> rememberScript(
+    int scriptNumber,
+    List<ExtractedSaidCommand> commands,
+  ) {
+    _scriptCache[scriptNumber] = commands;
+    return commands;
+  }
+
   /// Number of scripts currently cached in memory.
   int get cachedScriptCount => _scriptCache.length;
 
@@ -165,7 +178,9 @@ class AgiSaidExtractor {
     required AgiDictionary dictionary,
     int scriptNumber = 0,
   }) {
-    if (script.bytecodes.isEmpty) return const [];
+    if (script.bytecodes.isEmpty) {
+      return rememberScript(scriptNumber, const []);
+    }
 
     final cached = _scriptCache[scriptNumber];
     if (cached != null) {

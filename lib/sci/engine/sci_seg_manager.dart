@@ -489,6 +489,66 @@ class SciSegManager {
     // from scriptToSegment so future script loads allocate/reload fresh, but
     // we keep the script in loadedScripts so existing object and class references
     // on the heap/cast can safely resolve during cleanup.
+    // [purgeUnmappedScripts] frees it once those references are gone.
+  }
+
+  /// Frees scripts unmapped by [disposeScript] when nothing still points at them.
+  ///
+  /// [pinned] are registers that must keep their segment alive (the live VM
+  /// stack and execution frames). Returns how many scripts were dropped.
+  int purgeUnmappedScripts({Iterable<SciReg> pinned = const []}) {
+    final mapped = scriptToSegment.values.toSet();
+    final doomed = loadedScripts.keys.where((seg) => !mapped.contains(seg)).toList();
+    if (doomed.isEmpty) return 0;
+    final doomedSet = doomed.toSet();
+
+    final referenced = <int>{};
+    void note(SciReg reg) {
+      if (reg.isPointer && doomedSet.contains(reg.segment)) {
+        referenced.add(reg.segment);
+      }
+    }
+
+    for (final reg in pinned) {
+      note(reg);
+    }
+    for (final g in globals) {
+      note(g);
+    }
+    for (final clone in clones.values) {
+      note(clone.pos);
+      note(clone.species);
+      note(clone.superClass);
+      for (final v in clone.variables) {
+        note(v);
+      }
+    }
+    for (final script in loadedScripts.values) {
+      if (doomedSet.contains(script.segmentId)) continue;
+      for (final obj in script.objects.values) {
+        note(obj.pos);
+        note(obj.species);
+        note(obj.superClass);
+        for (final v in obj.variables) {
+          note(v);
+        }
+      }
+      for (final local in script.locals) {
+        note(local);
+      }
+    }
+    for (final node in nodes.values) {
+      note(node.value);
+      note(node.key);
+    }
+
+    var freed = 0;
+    for (final seg in doomed) {
+      if (referenced.contains(seg)) continue;
+      loadedScripts.remove(seg);
+      freed++;
+    }
+    return freed;
   }
 
   Uint8List? bytesFor(SciReg ptr) {

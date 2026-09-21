@@ -413,7 +413,9 @@ class SciGameStateSnapshot {
 
     // Capture scripts
     final scripts = <SciScriptSnapshot>[];
+    final mappedSegments = seg.scriptToSegment.values.toSet();
     for (final s in seg.loadedScripts.values) {
+      if (!mappedSegments.contains(s.segmentId)) continue;
       final objects = <int, List<SciReg>>{};
       for (final obj in s.objects.values) {
         objects[obj.pos.offset] = List<SciReg>.from(obj.variables);

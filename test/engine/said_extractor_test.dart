@@ -60,6 +60,7 @@ void main() {
       expect(extracted[0].scriptNumber, equals(2));
       expect(extracted[0].wordSynonyms[0], equals(['look', 'examine', 'see']));
       expect(extracted[0].wordSynonyms[1], equals(['screen', 'terminal']));
+      expect(extractor.peekScript(2), same(extracted));
 
       expect(extracted[1].canonicalPhrase, equals('take tree'));
       expect(extracted[2].canonicalPhrase, equals('open door'));

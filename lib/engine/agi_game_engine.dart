@@ -1451,6 +1451,46 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     }
   }
 
+  /// Room-first said() list. Reloads a logic resource only when that script
+  /// has not been extracted since the last vocab rebuild.
+  Future<List<ExtractedSaidCommand>> _saidCommandsFor(
+    Set<int> scriptIds,
+    int currentRoom,
+    AgiDictionary dict,
+  ) async {
+    final combined = <ExtractedSaidCommand>[];
+    final seen = <String>{};
+
+    Future<void> addScript(int id) async {
+      var commands = _saidExtractor.peekScript(id);
+      if (commands == null) {
+        AgiLogicScript? script;
+        try {
+          script = resourceLoader?.loadLogic(id);
+        } catch (_) {}
+        if (script == null || script.bytecodes.isEmpty) {
+          commands = _saidExtractor.rememberScript(id, const []);
+        } else {
+          commands = _saidExtractor.extractFromScript(
+            script: script,
+            dictionary: dict,
+            scriptNumber: id,
+          );
+        }
+      }
+      for (final cmd in commands) {
+        if (seen.add(cmd.canonicalPhrase)) combined.add(cmd);
+      }
+    }
+
+    if (scriptIds.contains(currentRoom)) await addScript(currentRoom);
+    for (final id in scriptIds) {
+      if (id != currentRoom && id != 0) await addScript(id);
+    }
+    if (scriptIds.contains(0)) await addScript(0);
+    return combined;
+  }
+
   Future<void> _submitCommandWithAi(String cleanInput) async {
     final dict = dictionary ?? AgiDictionary();
     if (!dict.isDeduplicated && aiApiKey.isNotEmpty) {
@@ -1460,33 +1500,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     }
 
     final currentRoom = memory.getVar(0);
-    AgiLogicScript? logic0;
-    AgiLogicScript? roomLogic;
-    final additionalScripts = <AgiLogicScript>[];
-    try {
-      logic0 = resourceLoader?.loadLogic(0);
-    } catch (_) {}
-    try {
-      roomLogic = resourceLoader?.loadLogic(currentRoom);
-    } catch (_) {}
-    for (final scriptId in _loadedLogicNumbers) {
-      if (scriptId != 0 && scriptId != currentRoom) {
-        try {
-          final s = resourceLoader?.loadLogic(scriptId);
-          if (s != null && s.bytecodes.isNotEmpty) {
-            additionalScripts.add(s);
-          }
-        } catch (_) {}
-      }
-    }
-
-    final extracted = _saidExtractor.extractActiveRoomCommands(
-      logic0: logic0,
-      roomLogic: roomLogic,
-      additionalLogics: additionalScripts,
-      dictionary: dict,
-      roomNumber: currentRoom,
-    );
+    final scriptIds = <int>{0, currentRoom, ..._loadedLogicNumbers};
+    final extracted = await _saidCommandsFor(scriptIds, currentRoom, dict);
 
     final result = await geminiTranslator.translate(
       rawInput: cleanInput,
