@@ -21,16 +21,16 @@ class SciVocabWord {
 
 /// Manages parsed `VOCAB.000` entries, word class lookups, and synonym resolution.
 class SciVocab {
-  // Word classes (bitfield values)
-  static const int classPreposition = 0x01;
-  static const int classArticle = 0x02;
-  static const int classAdjective = 0x04;
-  static const int classPronoun = 0x08;
-  static const int classNoun = 0x10;
-  static const int classIndicativeVerb = 0x20;
-  static const int classAdverb = 0x40;
-  static const int classImperativeVerb = 0x80;
-  static const int classAnyWord = 0xFF;
+  // Word classes (12-bit bitfield values stored in VOCAB.000)
+  static const int classPreposition = 0x010;
+  static const int classArticle = 0x020;
+  static const int classAdjective = 0x040;
+  static const int classPronoun = 0x080;
+  static const int classNoun = 0x100;
+  static const int classIndicativeVerb = 0x200;
+  static const int classAdverb = 0x400;
+  static const int classImperativeVerb = 0x800;
+  static const int classAnyWord = 0xFF0;
 
   // Special magic word groups
   static const int groupNumber = 0x0FFD;

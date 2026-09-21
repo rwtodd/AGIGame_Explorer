@@ -244,5 +244,200 @@ void main() {
         SciSaidMatcher.aiHook = null;
       }
     });
+
+    test('supports aiHookOverride scoped to engine instance', () {
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        0x03, 0xE8, // 1000 look
+        SciSaidOp.slash,
+        0x03, 0xFC, // 1020 car
+        SciSaidOp.term,
+      ]));
+
+      final inputWords = <SciVocabWord>[
+        const SciVocabWord(text: 'inspect', wordClass: SciVocab.classImperativeVerb, group: 999),
+      ];
+
+      final matched = SciSaidMatcher.match(
+        spec,
+        inputWords,
+        rawInput: 'inspect automobile',
+        aiHookOverride: (candidate, raw, words) => raw.contains('automobile'),
+      );
+      expect(matched, isTrue);
+    });
+
+    test('matches optional direct object with omitted verb: [/room, floor, house, garage]', () {
+      const roomGroup = 2001;
+      const floorGroup = 2002;
+      const houseGroup = 2003;
+      const garageGroup = 2004;
+
+      // Bytecode for: [/room, floor, house, garage]
+      final specBytes = Uint8List.fromList([
+        SciSaidOp.bracketOpen,
+        SciSaidOp.slash,
+        (roomGroup >> 8) & 0xFF, roomGroup & 0xFF,
+        SciSaidOp.comma,
+        (floorGroup >> 8) & 0xFF, floorGroup & 0xFF,
+        SciSaidOp.comma,
+        (houseGroup >> 8) & 0xFF, houseGroup & 0xFF,
+        SciSaidOp.comma,
+        (garageGroup >> 8) & 0xFF, garageGroup & 0xFF,
+        SciSaidOp.bracketClose,
+        SciSaidOp.term,
+      ]);
+
+      final spec = SciSaidSpec.fromBytes(specBytes);
+      expect(spec.clauses.length, 3);
+      expect(spec.clauses[0].isPresent, isFalse, reason: 'Verb is omitted');
+      expect(spec.clauses[1].isPresent, isTrue);
+      expect(spec.clauses[1].isOptional, isTrue, reason: 'Direct object is optional');
+      expect(spec.clauses[2].isPresent, isFalse);
+
+      // 1. Plain "look" with no direct object MUST match
+      final lookOnly = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+      ];
+      expect(
+        SciSaidMatcher.match(spec, lookOnly),
+        isTrue,
+        reason: 'Typing "look" alone must match optional [/room, floor, house, garage]',
+      );
+
+      // 2. "look garage" MUST match
+      final lookGarage = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'garage', wordClass: SciVocab.classNoun, group: garageGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, lookGarage), isTrue);
+
+      // 3. "look sky" (non-matching direct object) MUST NOT match
+      final lookSky = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'sky', wordClass: SciVocab.classNoun, group: 9990),
+      ];
+      expect(SciSaidMatcher.match(spec, lookSky), isFalse);
+    });
+
+    test('omitted verb with required noun: /pole, sign', () {
+      const poleGroup = 3001;
+      const signGroup = 3002;
+
+      // /pole, sign
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        SciSaidOp.slash,
+        (poleGroup >> 8) & 0xFF, poleGroup & 0xFF,
+        SciSaidOp.comma,
+        (signGroup >> 8) & 0xFF, signGroup & 0xFF,
+        SciSaidOp.term,
+      ]));
+
+      expect(spec.clauses[0].isPresent, isFalse);
+      expect(spec.clauses[1].isPresent, isTrue);
+      expect(spec.clauses[1].isOptional, isFalse);
+
+      // 1. Plain "look" must NOT match required /pole, sign
+      final lookOnly = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+      ];
+      expect(SciSaidMatcher.match(spec, lookOnly), isFalse);
+
+      // 2. "look pole" MUST match
+      final lookPole = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'pole', wordClass: SciVocab.classNoun, group: poleGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, lookPole), isTrue);
+
+      // 3. "look sky" must NOT match
+      final lookSky = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: 1000),
+        const SciVocabWord(text: 'sky', wordClass: SciVocab.classNoun, group: 9990),
+      ];
+      expect(SciSaidMatcher.match(spec, lookSky), isFalse);
+    });
+
+    test('verb with optional noun: look[/door]', () {
+      const lookGroup = 1000;
+      const doorGroup = 1020;
+
+      // look[/door] -> look [ / door ]
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        (lookGroup >> 8) & 0xFF, lookGroup & 0xFF,
+        SciSaidOp.bracketOpen,
+        SciSaidOp.slash,
+        (doorGroup >> 8) & 0xFF, doorGroup & 0xFF,
+        SciSaidOp.bracketClose,
+        SciSaidOp.term,
+      ]));
+
+      expect(spec.clauses[0].isPresent, isTrue);
+      expect(spec.clauses[0].isOptional, isFalse);
+      expect(spec.clauses[1].isPresent, isTrue);
+      expect(spec.clauses[1].isOptional, isTrue);
+
+      // 1. "look" matches
+      final lookOnly = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: lookGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, lookOnly), isTrue);
+
+      // 2. "look door" matches
+      final lookDoor = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: lookGroup),
+        const SciVocabWord(text: 'door', wordClass: SciVocab.classNoun, group: doorGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, lookDoor), isTrue);
+
+      // 3. "look window" does NOT match
+      final lookWindow = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: lookGroup),
+        const SciVocabWord(text: 'window', wordClass: SciVocab.classNoun, group: 9991),
+      ];
+      expect(SciSaidMatcher.match(spec, lookWindow), isFalse);
+    });
+
+    test('phrasal verb with qualifier: (look<in), search / pants', () {
+      const lookGroup = 1000;
+      const inGroup = 5001;
+      const searchGroup = 1005;
+      const pantsGroup = 6001;
+
+      // (look < in), search / pants
+      final spec = SciSaidSpec.fromBytes(Uint8List.fromList([
+        SciSaidOp.parenOpen,
+        (lookGroup >> 8) & 0xFF, lookGroup & 0xFF,
+        SciSaidOp.lt,
+        (inGroup >> 8) & 0xFF, inGroup & 0xFF,
+        SciSaidOp.parenClose,
+        SciSaidOp.comma,
+        (searchGroup >> 8) & 0xFF, searchGroup & 0xFF,
+        SciSaidOp.slash,
+        (pantsGroup >> 8) & 0xFF, pantsGroup & 0xFF,
+        SciSaidOp.term,
+      ]));
+
+      // 1. "look in pants" matches
+      final lookInPants = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: lookGroup),
+        const SciVocabWord(text: 'in', wordClass: SciVocab.classPreposition, group: inGroup),
+        const SciVocabWord(text: 'pants', wordClass: SciVocab.classNoun, group: pantsGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, lookInPants), isTrue);
+
+      // 2. "search pants" matches
+      final searchPants = <SciVocabWord>[
+        const SciVocabWord(text: 'search', wordClass: SciVocab.classImperativeVerb, group: searchGroup),
+        const SciVocabWord(text: 'pants', wordClass: SciVocab.classNoun, group: pantsGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, searchPants), isTrue);
+
+      // 3. Plain "look pants" (without qualifier) should fail the qualifier branch
+      final lookPants = <SciVocabWord>[
+        const SciVocabWord(text: 'look', wordClass: SciVocab.classImperativeVerb, group: lookGroup),
+        const SciVocabWord(text: 'pants', wordClass: SciVocab.classNoun, group: pantsGroup),
+      ];
+      expect(SciSaidMatcher.match(spec, lookPants), isFalse);
+    });
   });
 }

@@ -478,8 +478,17 @@ class SciSegManager {
     if (scriptNr == 0) return;
     final seg = scriptToSegment.remove(scriptNr);
     if (seg == null) return;
-    loadedScripts.remove(seg);
-    classAddresses.removeWhere((_, addr) => addr.segment == seg);
+    // In SCI0 (e.g. LSL2 rm000::newRoom), (DisposeScript DOORS) is invoked
+    // before (super newRoom: n) runs (cast eachElementDo: #dispose) and
+    // (cast eachElementDo: #delete). Cloned instances of classes defined in
+    // the disposed script (such as AutoDoor in script 3) must still be able to
+    // walk their superClass hierarchy in loadedScripts to resolve #dispose and
+    // #delete, setting kSignalDisposeMe and removing themselves from cast.
+    //
+    // Following ScummVM's Script::markDeleted() pattern, we unmap the script
+    // from scriptToSegment so future script loads allocate/reload fresh, but
+    // we keep the script in loadedScripts so existing object and class references
+    // on the heap/cast can safely resolve during cleanup.
   }
 
   Uint8List? bytesFor(SciReg ptr) {

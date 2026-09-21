@@ -121,6 +121,9 @@ class SciSaidSpec {
     );
   }
 
+  /// Returns the decomposed sentence-part clauses (Verb, Direct Object, Indirect Object).
+  List<SciSaidClause> get clauses => SciSaidMatcher.parseSpecClauses(tokens);
+
   /// Decompiles the Said spec into a human-readable and LLM-friendly string,
   /// e.g. `look/door`, `open/compartment<glove`, or `[open]/door`.
   String toSaidString(SciVocab? vocab) {
@@ -149,6 +152,37 @@ class SciSaidSpec {
   String toString() => toSaidString(null);
 }
 
+/// A decomposed positional slot / clause in a Said specification:
+/// Slot 0: Verb / Action clause
+/// Slot 1: Direct Object clause
+/// Slot 2: Indirect Object clause
+class SciSaidClause {
+  final bool isPresent;
+  final bool isOptional;
+  final bool isNone;
+  final List<SciSaidToken> tokens;
+
+  const SciSaidClause({
+    required this.isPresent,
+    required this.isOptional,
+    required this.isNone,
+    required this.tokens,
+  });
+
+  const SciSaidClause.omitted()
+      : isPresent = false,
+        isOptional = false,
+        isNone = false,
+        tokens = const [];
+
+  @override
+  String toString() {
+    if (!isPresent) return '<omitted>';
+    final s = tokens.map((t) => t.toString()).join();
+    return isOptional ? '[$s]' : s;
+  }
+}
+
 /// Evaluates player sentences against Sierra SCI0 `Said` specifications.
 class SciSaidMatcher {
   /// Global AI hook invoked when standard matching fails or when AI mode is active.
@@ -158,20 +192,23 @@ class SciSaidMatcher {
   ///
   /// [vocab] is used for synonym resolution and word group translations.
   /// [rawInput] is provided for AI semantic hooks.
+  /// [aiHookOverride] allows scoping an AI semantic matcher hook to an engine instance.
   static bool match(
     SciSaidSpec spec,
     List<SciVocabWord> parsedWords, {
     SciVocab? vocab,
     String? rawInput,
+    SciSaidAiHook? aiHookOverride,
   }) {
     // 1. Try standard pattern matching
     final standardMatch = _matchInternal(spec, parsedWords, vocab);
     if (standardMatch) return true;
 
     // 2. If standard match failed and an AI hook is attached, let AI evaluate semantic intent
-    if (aiHook != null && rawInput != null && rawInput.trim().isNotEmpty) {
+    final hook = aiHookOverride ?? aiHook;
+    if (hook != null && rawInput != null && rawInput.trim().isNotEmpty) {
       try {
-        if (aiHook!(spec, rawInput, parsedWords)) {
+        if (hook(spec, rawInput, parsedWords)) {
           return true;
         }
       } catch (_) {}
@@ -186,63 +223,231 @@ class SciSaidMatcher {
     List<SciVocabWord> inputWords,
     SciVocab? vocab,
   ) {
-    if (inputWords.isEmpty) {
-      return _specMatchesEmpty(spec);
+    final specSlots = parseSpecClauses(spec.tokens);
+    final inputSlots = _partitionInput(inputWords);
+
+    // Slot 0 (Verb / Action)
+    final slot0 = specSlots[0];
+    if (slot0.isPresent) {
+      if (inputSlots.verb.isEmpty) {
+        if (!slot0.isOptional && !slot0.isNone) return false;
+      } else {
+        if (slot0.isNone) return false;
+        if (!_matchClause(slot0.tokens, inputSlots.verb, vocab)) return false;
+      }
+    } else {
+      // Omitted verb in sub-Said matches any input verb or empty verb
     }
 
-    final clauses = <List<SciSaidToken>>[];
-    var currentClause = <SciSaidToken>[];
-
-    for (final token in spec.tokens) {
-      if (token.operator == SciSaidOp.term) break;
-      if (token.operator == SciSaidOp.slash) {
-        clauses.add(currentClause);
-        currentClause = <SciSaidToken>[];
-      } else if (token.operator != SciSaidOp.gt) {
-        currentClause.add(token);
+    // Slot 1 (Direct Object)
+    final slot1 = specSlots[1];
+    if (slot1.isPresent) {
+      if (inputSlots.direct.isEmpty) {
+        if (!slot1.isOptional && !slot1.isNone) return false;
+      } else {
+        if (slot1.isNone) return false;
+        if (!_matchClause(slot1.tokens, inputSlots.direct, vocab)) return false;
+      }
+    } else {
+      if (inputSlots.direct.isNotEmpty && !spec.isNonClaiming) {
+        return false;
       }
     }
-    clauses.add(currentClause);
 
-    var inputClauses = _partitionInput(inputWords);
-
-    // Optional leading verb: "door" must match `[open]/door`, not sit in clause 0.
-    if (clauses.isNotEmpty &&
-        _clauseIsOptional(clauses.first) &&
-        inputClauses.isNotEmpty &&
-        !_matchClause(clauses.first, inputClauses.first, vocab)) {
-      inputClauses = [<SciVocabWord>[], ...inputClauses];
-    }
-
-    // `>` is a partial match: extra input clauses are allowed and the event
-    // is not claimed (ScummVM SAID_PARTIAL_MATCH).
-    if (!spec.isNonClaiming && inputClauses.length > clauses.length) {
-      return false;
-    }
-
-    for (int i = 0; i < clauses.length; i++) {
-      final specClause = clauses[i];
-      final inputClause =
-          i < inputClauses.length ? inputClauses[i] : <SciVocabWord>[];
-      if (!_matchClause(specClause, inputClause, vocab)) return false;
+    // Slot 2 (Indirect Object)
+    final slot2 = specSlots[2];
+    if (slot2.isPresent) {
+      if (inputSlots.indirect.isEmpty) {
+        if (!slot2.isOptional && !slot2.isNone) return false;
+      } else {
+        if (slot2.isNone) return false;
+        if (!_matchClause(slot2.tokens, inputSlots.indirect, vocab)) return false;
+      }
+    } else {
+      if (inputSlots.indirect.isNotEmpty && !spec.isNonClaiming) {
+        return false;
+      }
     }
 
     return true;
   }
 
-  /// Checks if a Said spec accepts an empty input sentence.
-  static bool _specMatchesEmpty(SciSaidSpec spec) {
-    // If empty or only brackets / wordNone
-    var insideBracket = false;
-    for (final t in spec.tokens) {
-      if (t.operator == SciSaidOp.term) break;
-      if (t.operator == SciSaidOp.bracketOpen) insideBracket = true;
-      if (t.operator == SciSaidOp.bracketClose) insideBracket = false;
-      if (t.isWord && !insideBracket && t.wordGroup != SciSaidOp.wordNone) {
-        return false;
+  /// Parses compiled Said tokens into 3 sentence-part slots:
+  /// Slot 0: Verb / Action clause
+  /// Slot 1: Direct Object clause
+  /// Slot 2: Indirect Object clause
+  static List<SciSaidClause> parseSpecClauses(List<SciSaidToken> allTokens) {
+    final tokens = allTokens
+        .where((t) => t.operator != SciSaidOp.term && t.operator != SciSaidOp.gt)
+        .toList();
+
+    if (tokens.isEmpty) {
+      return const [
+        SciSaidClause.omitted(),
+        SciSaidClause.omitted(),
+        SciSaidClause.omitted(),
+      ];
+    }
+
+    int p = 0;
+
+    // Slot 0 (verb) is omitted if the spec starts with '/' or '[' followed by '/'
+    final slot0Omitted = tokens[p].operator == SciSaidOp.slash ||
+        (tokens[p].operator == SciSaidOp.bracketOpen &&
+            p + 1 < tokens.length &&
+            tokens[p + 1].operator == SciSaidOp.slash);
+
+    SciSaidClause slot0;
+    if (slot0Omitted) {
+      slot0 = const SciSaidClause.omitted();
+    } else {
+      final slot0Tokens = <SciSaidToken>[];
+      while (p < tokens.length) {
+        if (tokens[p].operator == SciSaidOp.slash) break;
+        if (tokens[p].operator == SciSaidOp.bracketOpen &&
+            p + 1 < tokens.length &&
+            tokens[p + 1].operator == SciSaidOp.slash) {
+          break;
+        }
+        slot0Tokens.add(tokens[p]);
+        p++;
+      }
+      slot0 = _buildClause(slot0Tokens);
+    }
+
+    // Slot 1 (Direct Object)
+    SciSaidClause slot1;
+    if (p < tokens.length) {
+      bool isOpt = false;
+      if (tokens[p].operator == SciSaidOp.bracketOpen &&
+          p + 1 < tokens.length &&
+          tokens[p + 1].operator == SciSaidOp.slash) {
+        isOpt = true;
+        p += 2; // skip '[' and '/'
+      } else if (tokens[p].operator == SciSaidOp.slash) {
+        p += 1; // skip '/'
+      }
+
+      final slot1Tokens = <SciSaidToken>[];
+      int bracketDepth = isOpt ? 1 : 0;
+
+      while (p < tokens.length) {
+        if (bracketDepth <= (isOpt ? 1 : 0)) {
+          if (tokens[p].operator == SciSaidOp.slash) break;
+          if (tokens[p].operator == SciSaidOp.bracketOpen &&
+              p + 1 < tokens.length &&
+              tokens[p + 1].operator == SciSaidOp.slash) {
+            break;
+          }
+        }
+
+        if (tokens[p].operator == SciSaidOp.bracketOpen) {
+          bracketDepth++;
+          slot1Tokens.add(tokens[p]);
+        } else if (tokens[p].operator == SciSaidOp.bracketClose) {
+          bracketDepth--;
+          if (isOpt && bracketDepth == 0) {
+            p++; // consume matching ']'
+            break;
+          }
+          slot1Tokens.add(tokens[p]);
+        } else {
+          slot1Tokens.add(tokens[p]);
+        }
+        p++;
+      }
+
+      slot1 = _buildClause(slot1Tokens, forcedOptional: isOpt);
+    } else {
+      slot1 = const SciSaidClause.omitted();
+    }
+
+    // Slot 2 (Indirect Object)
+    SciSaidClause slot2;
+    if (p < tokens.length) {
+      bool isOpt = false;
+      if (tokens[p].operator == SciSaidOp.bracketOpen &&
+          p + 1 < tokens.length &&
+          tokens[p + 1].operator == SciSaidOp.slash) {
+        isOpt = true;
+        p += 2;
+      } else if (tokens[p].operator == SciSaidOp.slash) {
+        p += 1;
+      }
+
+      final slot2Tokens = <SciSaidToken>[];
+      int bracketDepth = isOpt ? 1 : 0;
+
+      while (p < tokens.length) {
+        if (tokens[p].operator == SciSaidOp.bracketOpen) {
+          bracketDepth++;
+          slot2Tokens.add(tokens[p]);
+        } else if (tokens[p].operator == SciSaidOp.bracketClose) {
+          bracketDepth--;
+          if (isOpt && bracketDepth == 0) {
+            p++;
+            break;
+          }
+          slot2Tokens.add(tokens[p]);
+        } else {
+          slot2Tokens.add(tokens[p]);
+        }
+        p++;
+      }
+
+      slot2 = _buildClause(slot2Tokens, forcedOptional: isOpt);
+    } else {
+      slot2 = const SciSaidClause.omitted();
+    }
+
+    // Consume any leftover closing brackets (e.g. in nested [/door[/keyhole]])
+    while (p < tokens.length && tokens[p].operator == SciSaidOp.bracketClose) {
+      p++;
+    }
+
+    return [slot0, slot1, slot2];
+  }
+
+  static SciSaidClause _buildClause(
+    List<SciSaidToken> tokens, {
+    bool forcedOptional = false,
+  }) {
+    if (tokens.isEmpty && !forcedOptional) {
+      return const SciSaidClause.omitted();
+    }
+
+    var cleanTokens = List<SciSaidToken>.from(tokens);
+    var isOpt = forcedOptional;
+
+    if (!isOpt &&
+        cleanTokens.length >= 2 &&
+        cleanTokens.first.operator == SciSaidOp.bracketOpen &&
+        cleanTokens.last.operator == SciSaidOp.bracketClose) {
+      var depth = 0;
+      var wrapsAll = true;
+      for (int i = 0; i < cleanTokens.length - 1; i++) {
+        if (cleanTokens[i].operator == SciSaidOp.bracketOpen) depth++;
+        if (cleanTokens[i].operator == SciSaidOp.bracketClose) depth--;
+        if (depth == 0) {
+          wrapsAll = false;
+          break;
+        }
+      }
+      if (wrapsAll) {
+        isOpt = true;
+        cleanTokens = cleanTokens.sublist(1, cleanTokens.length - 1);
       }
     }
-    return true;
+
+    final isNone = cleanTokens.any((t) => t.wordGroup == SciSaidOp.wordNone) &&
+        !cleanTokens.any((t) => t.isWord && t.wordGroup != SciSaidOp.wordNone && t.wordGroup != SciSaidOp.wordAny);
+
+    return SciSaidClause(
+      isPresent: true,
+      isOptional: isOpt,
+      isNone: isNone,
+      tokens: cleanTokens,
+    );
   }
 
   /// Matches a single clause (e.g. `look,examine` or `compartment<glove` or `[open]`)
@@ -334,11 +539,12 @@ class SciSaidMatcher {
       } else if (t.operator == SciSaidOp.bracketClose) {
         isOptional = false;
       } else if (t.operator == SciSaidOp.lt) {
-        if (currentTarget != null && i + 1 < tokens.length) {
+        final target = currentTarget ?? SciSaidOp.wordAny;
+        if (i + 1 < tokens.length) {
           final next = tokens[i + 1];
           if (next.isWord) {
             final dest = isOptional ? optionalQualifiers : qualifiers;
-            dest.putIfAbsent(currentTarget, () => []).add(next.wordGroup!);
+            dest.putIfAbsent(target, () => []).add(next.wordGroup!);
             i++;
           }
         }
@@ -370,6 +576,13 @@ class SciSaidMatcher {
         }
       }
       if (!found) return false;
+    } else if (qualifiers.isNotEmpty) {
+      // Qualifier without explicit target word in clause (e.g. `<behind`):
+      for (final quals in qualifiers.values) {
+        if (!quals.any((q) => _groupInInput(q, inputGroups, vocab))) {
+          return false;
+        }
+      }
     } else if (inputWords.isNotEmpty) {
       // Optional-only clause: leftover words must belong to the optional set.
       if (optionalGroups.isEmpty) return false;
@@ -383,49 +596,64 @@ class SciSaidMatcher {
     return true;
   }
 
-  /// Partitions input sentence into up to 3 clauses:
-  /// Clause 0: Action / Verb
-  /// Clause 1: Direct Object
-  /// Clause 2: Indirect Object / Target
-  static List<List<SciVocabWord>> _partitionInput(List<SciVocabWord> inputWords) {
-    if (inputWords.isEmpty) return [];
+  /// Partitions input sentence into 3 positional slots:
+  /// Slot 0: Action / Verb (including phrasal verb prepositions like 'look in')
+  /// Slot 1: Direct Object
+  /// Slot 2: Indirect Object / Target
+  static _InputSlots _partitionInput(List<SciVocabWord> inputWords) {
+    if (inputWords.isEmpty) {
+      return const _InputSlots(verb: [], direct: [], indirect: []);
+    }
 
-    final clauses = <List<SciVocabWord>>[];
-    final clause0 = <SciVocabWord>[];
-    final clause1 = <SciVocabWord>[];
-    final clause2 = <SciVocabWord>[];
+    final meaningful = inputWords
+        .where((w) => w.wordClass != SciVocab.classArticle)
+        .toList();
 
-    int stage = 0;
+    if (meaningful.isEmpty) {
+      return const _InputSlots(verb: [], direct: [], indirect: []);
+    }
 
-    for (final word in inputWords) {
-      // Noise / article words can be skipped
-      if (word.wordClass == SciVocab.classArticle) continue;
+    final verb = <SciVocabWord>[];
+    final direct = <SciVocabWord>[];
+    final indirect = <SciVocabWord>[];
 
-      if (stage == 0) {
-        clause0.add(word);
-        // If word is a verb or first word, advance to direct object stage
-        if ((word.wordClass & (SciVocab.classIndicativeVerb | SciVocab.classImperativeVerb)) != 0 ||
-            clause0.isNotEmpty) {
-          stage = 1;
-        }
-      } else if (stage == 1) {
-        // If word is preposition, advance to indirect object
-        if ((word.wordClass & SciVocab.classPreposition) != 0 && clause1.isNotEmpty) {
-          stage = 2;
-          clause2.add(word);
-        } else {
-          clause1.add(word);
-        }
-      } else {
-        clause2.add(word);
+    int p = 0;
+
+    final first = meaningful[0];
+    final isVerb = (first.wordClass &
+            (SciVocab.classIndicativeVerb | SciVocab.classImperativeVerb)) !=
+        0;
+
+    if (isVerb) {
+      verb.add(first);
+      p = 1;
+      // If the next word is a preposition immediately following the verb (e.g. 'look in', 'turn on', 'look under'),
+      // attach it to the verb phrase as part of the phrasal verb/qualifier (provided another word follows).
+      if (p < meaningful.length &&
+          (meaningful[p].wordClass & SciVocab.classPreposition) != 0 &&
+          p + 1 < meaningful.length) {
+        verb.add(meaningful[p]);
+        p++;
       }
     }
 
-    if (clause0.isNotEmpty) clauses.add(clause0);
-    if (clause1.isNotEmpty) clauses.add(clause1);
-    if (clause2.isNotEmpty) clauses.add(clause2);
+    int stage = 1;
+    while (p < meaningful.length) {
+      final w = meaningful[p];
+      if (stage == 1) {
+        if ((w.wordClass & SciVocab.classPreposition) != 0 && direct.isNotEmpty) {
+          stage = 2;
+          indirect.add(w);
+        } else {
+          direct.add(w);
+        }
+      } else {
+        indirect.add(w);
+      }
+      p++;
+    }
 
-    return clauses.isEmpty ? [inputWords] : clauses;
+    return _InputSlots(verb: verb, direct: direct, indirect: indirect);
   }
 
   /// Splits tokens in a clause by comma (',').
@@ -470,4 +698,16 @@ class SciSaidMatcher {
     }
     return false;
   }
+}
+
+class _InputSlots {
+  final List<SciVocabWord> verb;
+  final List<SciVocabWord> direct;
+  final List<SciVocabWord> indirect;
+
+  const _InputSlots({
+    required this.verb,
+    required this.direct,
+    required this.indirect,
+  });
 }

@@ -38,9 +38,10 @@ void main() {
       expect(engine.currentPic, isNotNull);
       expect(engine.actors, isNotEmpty);
 
-      // Direction event handling
+      // Direction event handling — handleDirection pumps the VM immediately, so
+      // the direction event is consumed by GetEvent and lastDirection is updated.
       engine.handleDirection(3); // East
-      expect(engine.kernel.eventQueue, isNotEmpty);
+      expect(engine.lastDirectionForTest, 3);
 
       // Key event handling — handleKeyPress pumps the VM immediately, so the
       // key is consumed by GetEvent instead of sitting in the queue.
