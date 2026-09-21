@@ -63,7 +63,7 @@ class SciSegManager {
   static bool isLocalSegment(int seg) => (seg & 0xF000) == localSegmentBase;
   static int scriptSegFromLocalSeg(int localSeg) => localSeg & 0x0FFF;
 
-  int _nextScriptSegmentId = 1;
+  int nextScriptSegmentId = 1;
 
   /// Map of script number -> segment ID.
   final Map<int, int> scriptToSegment = {};
@@ -91,7 +91,7 @@ class SciSegManager {
 
   /// Dynamic memory buffers (hunks / strings) indexed by offset.
   final Map<int, Uint8List> hunkBuffers = {};
-  int _nextHunkOffset = 1;
+  int nextHunkOffset = 1;
 
   /// Global variables array (in SCI0, corresponds to script 0 locals).
   List<SciReg> globals = [];
@@ -109,7 +109,7 @@ class SciSegManager {
 
   /// Resets all loaded scripts, objects, lists, nodes, hunks, and globals.
   void reset() {
-    _nextScriptSegmentId = 1;
+    nextScriptSegmentId = 1;
     scriptToSegment.clear();
     loadedScripts.clear();
     classAddresses.clear();
@@ -120,7 +120,7 @@ class SciSegManager {
     clones.clear();
     _cloneIds.clear();
     hunkBuffers.clear();
-    _nextHunkOffset = 1;
+    nextHunkOffset = 1;
     globals.clear();
     currentStack = null;
     isEarlySci0 = false;
@@ -141,7 +141,7 @@ class SciSegManager {
     if (scriptToSegment.containsKey(scriptNr)) {
       return scriptToSegment[scriptNr]!;
     }
-    final segId = _nextScriptSegmentId++;
+    final segId = nextScriptSegmentId++;
     scriptToSegment[scriptNr] = segId;
     return segId;
   }
@@ -815,8 +815,8 @@ class SciSegManager {
   // --- Dynamic Memory Allocation (Hunk) ---
 
   SciReg allocHunk(int bytes) {
-    final offset = _nextHunkOffset;
-    _nextHunkOffset += bytes;
+    final offset = nextHunkOffset;
+    nextHunkOffset += bytes;
     hunkBuffers[offset] = Uint8List(bytes);
     return SciReg.pointer(hunkSegmentId, offset);
   }

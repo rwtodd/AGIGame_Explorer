@@ -13,6 +13,7 @@ import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
+import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/domain/sierra_font.dart';
 import 'package:flutter_agigame/sci/engine/sci_window_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_menu_bar.dart';
@@ -101,6 +102,12 @@ class SciKernel {
   List<PlayfieldActorSprite> currentSprites = [];
   int gameIsRestarting = 0;
   VoidCallback? onRestartGameRequested;
+  VoidCallback? onSaveGameRequested;
+  VoidCallback? onRestoreGameRequested;
+  bool Function(int slot, String description)? onSaveGameSync;
+  bool Function(int slot)? onRestoreGameSync;
+  bool Function(int slot)? onCheckSaveGameSync;
+  List<SaveSlotInfo> Function()? onListSlotsSync;
 
   // --- External Callbacks for UI & Graphics Engine (Stage 10 Hooks) ---
   void Function(int picNum, int showStyle)? onDrawPic;
@@ -209,8 +216,8 @@ class SciKernel {
     lastWaitTicks = 0;
     waitingForPit = false;
     _sciTicks = 0;
-    _lastWaitTime = 0;
-    _getTimeStreak = 0;
+    lastWaitTime = 0;
+    getTimeStreak = 0;
     _playTimeStopwatch
       ..reset()
       ..start();
@@ -263,8 +270,6 @@ class SciKernel {
     0x30, // GameIsRestarting (queries / non-zero only)
   };
 
-  int get getTimeStreak => _getTimeStreak;
-
   String getKernelName(int id) => _entries[id]?.name ?? 'k_0x${id.toRadixString(16)}';
 
   /// When true after a kernel call, the VM rewinds `callk` and yields so a
@@ -273,7 +278,7 @@ class SciKernel {
 
   SciReg call(SciVM vm, int kernelId, int argc, List<SciReg> argv) {
     suspendCallk = false;
-    if (kernelId != 0x46) _getTimeStreak = 0;
+    if (kernelId != 0x46) getTimeStreak = 0;
     final entry = _entries[kernelId];
     SciReg result;
     if (entry != null) {
@@ -489,8 +494,8 @@ class SciKernel {
     _register(0x2C, 'FClose', _kStub);
 
     // 0x2D..0x31: Game state & Sound
-    _register(0x2D, 'SaveGame', _kStub);
-    _register(0x2E, 'RestoreGame', _kStub);
+    _register(0x2D, 'SaveGame', _kSaveGame);
+    _register(0x2E, 'RestoreGame', _kRestoreGame);
     _register(0x2F, 'RestartGame', _kRestartGame);
     _register(0x30, 'GameIsRestarting', _kGameIsRestarting);
     _register(0x31, 'DoSound', _kDoSound);
@@ -551,7 +556,7 @@ class SciKernel {
     _register(0x5E, 'Profiler', _kStub);
     _register(0x5F, 'GetMenu', _kGetMenu);
     _register(0x60, 'SetMenu', _kSetMenu);
-    _register(0x61, 'GetSaveFiles', _kStub);
+    _register(0x61, 'GetSaveFiles', _kGetSaveFiles);
     _register(0x62, 'GetCWD', _kStub);
     _register(0x63, 'CheckFreeSpace', _kStub);
     _register(0x64, 'ValidPath', _kStub);
@@ -559,7 +564,7 @@ class SciKernel {
     _register(0x66, 'StrAt', _kStrAt);
     _register(0x67, 'DeviceInfo', _kStub);
     _register(0x68, 'GetSaveDir', _kStub);
-    _register(0x69, 'CheckSaveGame', _kStub);
+    _register(0x69, 'CheckSaveGame', _kCheckSaveGame);
     _register(0x6A, 'ShakeScreen', _kStub);
     _register(0x6B, 'FlushResources', _kStub);
 
@@ -574,6 +579,68 @@ class SciKernel {
 
   // --- Default Stub ---
   SciReg _kStub(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+
+  // --- Save / Restore Management (Stage 15) ---
+
+  SciReg _kSaveGame(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc >= 3 && !argv[0].isNull) {
+      final virtualId = argv[1].toSint16();
+      final slot = (virtualId >= 100) ? (virtualId - 100) : virtualId;
+      final desc = vm.segManager.getString(argv[2]);
+      if (onSaveGameSync != null) {
+        final success = onSaveGameSync!(slot, desc);
+        return success ? const SciReg(0, 1) : SciReg.nullReg;
+      }
+      return const SciReg(0, 1);
+    }
+    onSaveGameRequested?.call();
+    return const SciReg(0, 1);
+  }
+
+  SciReg _kRestoreGame(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc >= 2 && !argv[0].isNull) {
+      final virtualId = argv[1].toSint16();
+      final slot = (virtualId >= 100) ? (virtualId - 100) : virtualId;
+      if (onRestoreGameSync != null) {
+        final success = onRestoreGameSync!(slot);
+        return success ? SciReg.nullReg : const SciReg(0, 1);
+      }
+      return SciReg.nullReg;
+    }
+    onRestoreGameRequested?.call();
+    return SciReg.nullReg;
+  }
+
+  SciReg _kCheckSaveGame(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc >= 2) {
+      final virtualId = argv[1].toSint16();
+      final slot = (virtualId >= 100) ? (virtualId - 100) : virtualId;
+      if (onCheckSaveGameSync != null) {
+        return onCheckSaveGameSync!(slot) ? const SciReg(0, 1) : SciReg.nullReg;
+      }
+    }
+    return const SciReg(0, 1);
+  }
+
+  SciReg _kGetSaveFiles(SciVM vm, int argc, List<SciReg> argv) {
+    if (onListSlotsSync != null && argc >= 3) {
+      final slots = onListSlotsSync!().where((s) => s.exists).toList();
+      final total = min(slots.length, 12);
+      final namesPtr = argv[1];
+      final slotsPtr = argv[2];
+
+      for (int i = 0; i < total; i++) {
+        final s = slots[i];
+        final id = s.slot + 100;
+        vm.segManager.writeWord(slotsPtr, i, SciReg.fromInt(id));
+        final entryPtr = SciReg.pointer(namesPtr.segment, namesPtr.offset + (i * 36));
+        vm.segManager.writeString(entryPtr, s.description, maxLen: 35);
+      }
+      vm.segManager.writeByte(SciReg.pointer(namesPtr.segment, namesPtr.offset + (total * 36)), 0, 0);
+      return SciReg.fromInt(total);
+    }
+    return SciReg.nullReg;
+  }
 
   // --- Restart Management ---
 
@@ -666,13 +733,12 @@ class SciKernel {
 
   // --- Graphics & Views ---
 
-  SciReg _kDrawPic(SciVM vm, int argc, List<SciReg> argv) {
-    final picNum = argc >= 1 ? argv[0].toUint16() : 0;
-    final showStyle = argc >= 2 ? argv[1].toUint16() : 0;
-    final vmManager = volumeManager ?? vm.volumeManager;
-    if (vmManager != null) {
+  /// Loads and interprets the picture resource for [picNum], setting [currentPic] and priority bands.
+  void initPicture(int picNum, {SciVolumeManager? vmManager}) {
+    final mgr = vmManager ?? volumeManager;
+    if (mgr != null) {
       try {
-        final picBytes = vmManager.getResource(SciResourceType.pic, picNum);
+        final picBytes = mgr.getResource(SciResourceType.pic, picNum);
         final pic = SciPicInterpreter.interpret(
           picBytes,
           picNumber: picNum,
@@ -689,6 +755,12 @@ class SciKernel {
         // Fallback or ignore corrupt picture
       }
     }
+  }
+
+  SciReg _kDrawPic(SciVM vm, int argc, List<SciReg> argv) {
+    final picNum = argc >= 1 ? argv[0].toUint16() : 0;
+    final showStyle = argc >= 2 ? argv[1].toUint16() : 0;
+    initPicture(picNum, vmManager: volumeManager ?? vm.volumeManager);
     picNotValid = 1;
     onDrawPic?.call(picNum, showStyle);
     return const SciReg.fromInt(0);
@@ -2116,8 +2188,8 @@ class SciKernel {
   /// [currentSciTicks] is `max(host-stepped, wall)` so unit tests that only
   /// `Future.delayed` still see time move, and `tick()`-only tests do too.
   int _sciTicks = 0;
-  int _lastWaitTime = 0;
-  int _getTimeStreak = 0;
+  int lastWaitTime = 0;
+  int getTimeStreak = 0;
   final Stopwatch _playTimeStopwatch = Stopwatch()..start();
 
   /// Advance the PIT by `60 / hostHz` ticks (3 at 20 Hz). One host tick is
@@ -2132,17 +2204,16 @@ class SciKernel {
     final wall = (_playTimeStopwatch.elapsedMilliseconds * 60) ~/ 1000;
     return _sciTicks > wall ? _sciTicks : wall;
   }
-
-  int get lastWaitTime => _lastWaitTime;
+  set currentSciTicks(int val) => _sciTicks = val;
 
   SciReg _kWait(SciVM vm, int argc, List<SciReg> argv) {
     final ticks = argc >= 1 ? argv[0].toUint16() : 0;
     lastWaitTicks = ticks;
     waitingForPit = false;
-    _getTimeStreak = 0;
+    getTimeStreak = 0;
     final now = currentSciTicks;
-    final elapsed = now - _lastWaitTime;
-    _lastWaitTime = now;
+    final elapsed = now - lastWaitTime;
+    lastWaitTime = now;
     return SciReg.fromInt((elapsed < 0 ? 0 : elapsed) & 0xFFFF);
   }
 
@@ -2168,10 +2239,10 @@ class SciKernel {
   }
 
   SciReg _ticksGetTime(SciVM vm) {
-    _getTimeStreak++;
-    if (_getTimeStreak > 2) {
+    getTimeStreak++;
+    if (getTimeStreak > 2) {
       _sciTicks++;
-      _getTimeStreak = 0;
+      getTimeStreak = 0;
     }
     return SciReg.fromInt(currentSciTicks & 0x7FFF);
   }

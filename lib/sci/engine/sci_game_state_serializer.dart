@@ -1,54 +1,55 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/domain/save_slot_info.dart';
-import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_state_snapshot.dart';
 import 'package:path/path.dart' as p;
 
-export 'package:flutter_agigame/domain/save_slot_info.dart';
-
-/// Serializer and Deserializer for Sierra AGI save game states (`.sav` files).
-///
-/// Fully unified with [AgiGameStateSnapshot] for single-source-of-truth state
-/// management across both disk save games (F5/F7) and interactive debug checkpoints.
-class GameStateSerializer {
+/// Serializer and Deserializer for Sierra SCI0 save game states (`.sav` files).
+class SciGameStateSerializer {
   /// Current save state format version.
   static const String version = '1.0';
 
   /// Default file extension for save game states.
   static const String fileExtension = 'sav';
 
-  /// Serializes live [AgiGameEngine] state to a JSON-compatible Map.
+  /// Serializes live [SciGameEngine] state to a JSON-compatible Map.
   static Map<String, dynamic> serialize(
-    AgiGameEngine engine, {
+    SciGameEngine engine, {
     String description = '',
     bool includeThumbnail = true,
   }) {
-    final snap = engine.createSnapshot(label: description);
+    final snap = SciGameStateSnapshot.capture(
+      engine,
+      label: description.isNotEmpty ? description : null,
+    );
     return snap.toJson(includeThumbnail: includeThumbnail);
   }
 
   /// Formats serialized state as a JSON string.
   static String serializeToJson(
-    AgiGameEngine engine, {
+    SciGameEngine engine, {
     String description = '',
     bool pretty = true,
     bool includeThumbnail = true,
   }) {
-    final snap = engine.createSnapshot(label: description);
+    final snap = SciGameStateSnapshot.capture(
+      engine,
+      label: description.isNotEmpty ? description : null,
+    );
     return snap.toJsonString(pretty: pretty, includeThumbnail: includeThumbnail);
   }
 
   /// Deserializes game state from [data] Map and restores it into [engine].
-  static void deserialize(Map<String, dynamic> data, AgiGameEngine engine) {
-    final snap = AgiGameStateSnapshot.fromJson(data);
+  static void deserialize(Map<String, dynamic> data, SciGameEngine engine) {
+    final snap = SciGameStateSnapshot.fromJson(data);
     snap.restore(engine);
   }
 
   /// Deserializes game state from a JSON string into [engine].
-  static void deserializeFromJson(String jsonString, AgiGameEngine engine) {
-    final snap = AgiGameStateSnapshot.fromJsonString(jsonString);
+  static void deserializeFromJson(String jsonString, SciGameEngine engine) {
+    final snap = SciGameStateSnapshot.fromJsonString(jsonString);
     snap.restore(engine);
   }
 
@@ -106,17 +107,17 @@ class GameStateSerializer {
     }
   }
 
-  /// Generates the standard file name for save slot [slot] (1..12).
+  /// Generates standard file name for save slot [slot] (1..12).
   static String getSlotFileName(int slot) => 'slot_$slot.$fileExtension';
 
   /// Synchronously saves [engine] state to the specified [slot] in [directory].
   static File saveToSlotSync(
-    AgiGameEngine engine,
+    SciGameEngine engine,
     int slot, {
     String description = '',
     Directory? directory,
   }) {
-    final saveDir = directory ?? Directory.current;
+    final saveDir = directory ?? engine.saveDirectory ?? Directory.current;
     if (!saveDir.existsSync()) {
       saveDir.createSync(recursive: true);
     }
@@ -124,7 +125,8 @@ class GameStateSerializer {
     final filePath = p.join(saveDir.path, getSlotFileName(slot));
     final file = File(filePath);
 
-    final snap = engine.createSnapshot(
+    final snap = SciGameStateSnapshot.capture(
+      engine,
       label: description.isNotEmpty ? description : 'Slot $slot Save',
     );
     final jsonContent = snap.toJsonString(pretty: true, includeThumbnail: true);
@@ -135,7 +137,7 @@ class GameStateSerializer {
 
   /// Saves [engine] state to the specified [slot] in [directory].
   static Future<File> saveToSlot(
-    AgiGameEngine engine,
+    SciGameEngine engine,
     int slot, {
     String description = '',
     Directory? directory,
@@ -150,11 +152,11 @@ class GameStateSerializer {
 
   /// Synchronously restores [engine] state from the specified [slot] in [directory].
   static bool restoreFromSlotSync(
-    AgiGameEngine engine,
+    SciGameEngine engine,
     int slot, {
     Directory? directory,
   }) {
-    final saveDir = directory ?? Directory.current;
+    final saveDir = directory ?? engine.saveDirectory ?? Directory.current;
     final filePath = p.join(saveDir.path, getSlotFileName(slot));
     final file = File(filePath);
 
@@ -163,14 +165,14 @@ class GameStateSerializer {
     }
 
     final jsonContent = file.readAsStringSync();
-    final snap = AgiGameStateSnapshot.fromJsonString(jsonContent);
-    engine.restoreSnapshot(snap);
+    final snap = SciGameStateSnapshot.fromJsonString(jsonContent);
+    snap.restore(engine);
     return true;
   }
 
   /// Restores [engine] state from the specified [slot] in [directory].
   static Future<bool> restoreFromSlot(
-    AgiGameEngine engine,
+    SciGameEngine engine,
     int slot, {
     Directory? directory,
   }) async {

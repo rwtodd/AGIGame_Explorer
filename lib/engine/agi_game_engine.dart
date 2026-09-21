@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
@@ -277,8 +278,22 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   bool? _lastStatusSoundOn;
   bool _statusLineNeedsRedraw = true;
 
+  Directory? _saveDirectory;
+
   /// Optional override directory for saving and loading `.sav` game slots.
-  Directory? saveDirectory;
+  /// If not explicitly set, defaults to `<gameDirectory>/saves`.
+  @override
+  Directory? get saveDirectory {
+    if (_saveDirectory != null) return _saveDirectory;
+    final gameDir = gameDirectory;
+    if (gameDir != null && gameDir.path.isNotEmpty) {
+      return Directory(p.join(gameDir.path, 'saves'));
+    }
+    return null;
+  }
+
+  @override
+  set saveDirectory(Directory? dir) => _saveDirectory = dir;
 
   /// Optional explicit directory of the game files. If null, falls back to `resourceLoader.meta.gamePath`.
   Directory? _gameDirectory;
@@ -300,12 +315,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   set gameDirectory(Directory? dir) => _gameDirectory = dir;
 
   /// Callback triggered when `save.game()` opcode executes.
+  @override
   VoidCallback? onSaveGameRequested;
 
   /// Callback triggered when `restore.game()` opcode executes.
+  @override
   VoidCallback? onRestoreGameRequested;
 
   /// Callback triggered when `restart.game()` opcode executes.
+  @override
   VoidCallback? onRestartGameRequested;
 
   bool _isAiEnabled = false;
@@ -779,8 +797,11 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   int get playfieldRow => _playfieldRow;
   int get inputRow => _inputRow;
   int get statusRow => _statusRow;
+  @override
   int get currentRoom => memory.getVar(0);
+  @override
   int get score => memory.getVar(3);
+  @override
   int get maxScore => memory.getVar(7);
   bool get isMenuOpen => menuManager.isOpen;
   AnimatedObject get ego => animatedObjects[0];
@@ -1670,6 +1691,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
 
   /// Captures a composite 32-bit RGBA thumbnail buffer (default 80x84, aspect-correctable)
   /// of the current game screen, compositing background visual pixels with all active drawn actors.
+  @override
   Uint8List captureScreenThumbnailRgba({
     int targetWidth = 80,
     int targetHeight = 84,
@@ -3529,6 +3551,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Saves current game state to save slot [slot] (1..12).
+  @override
   Future<File> saveGameState({
     int slot = 1,
     String description = '',
@@ -3543,6 +3566,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Restores game state from save slot [slot] (1..12).
+  @override
   Future<bool> restoreGameState({
     int slot = 1,
     Directory? directory,
@@ -3559,6 +3583,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       notifyListeners();
     }
     return success;
+  }
+
+  /// Lists save slot metadata for this AGI session.
+  @override
+  List<SaveSlotInfo> listSaveSlots({
+    Directory? directory,
+    int maxSlots = 12,
+  }) {
+    return GameStateSerializer.listSlotsSync(
+      directory: directory ?? saveDirectory,
+      maxSlots: maxSlots,
+    );
   }
 
   /// Restores state from an existing [AgiGameStateSnapshot].
@@ -3720,6 +3756,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   /// Cancels restart by setting Flag 16.
+  @override
   void cancelRestart() {
     memory.setFlag(16);
     notifyListeners();

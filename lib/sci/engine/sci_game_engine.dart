@@ -1,16 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
+import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_state_serializer.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
@@ -59,9 +64,67 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   int _lastDirection = 0;
   @visibleForTesting
   int get lastDirectionForTest => _lastDirection;
-  int _prevRoom = 0;
-  SciReg? _gameObj;
+  int prevRoomForSnapshot = 0;
+  SciReg? gameObjForRestore;
   bool _started = false;
+
+  Directory? _saveDirectory;
+
+  @override
+  Directory? get saveDirectory =>
+      _saveDirectory ??
+      (volumeManager.gameDirectory.isNotEmpty
+          ? Directory(p.join(volumeManager.gameDirectory, 'saves'))
+          : null);
+
+  @override
+  set saveDirectory(Directory? value) {
+    _saveDirectory = value;
+  }
+
+  @override
+  int get currentRoom {
+    final g = segManager.globals;
+    return g.length > 11 ? g[11].toUint16() : 0;
+  }
+
+  @override
+  int get score {
+    final g = segManager.globals;
+    return g.length > 15 ? g[15].toUint16() : 0;
+  }
+
+  @override
+  int get maxScore => 0;
+
+  @override
+  VoidCallback? get onSaveGameRequested => kernel.onSaveGameRequested;
+
+  @override
+  set onSaveGameRequested(VoidCallback? callback) {
+    kernel.onSaveGameRequested = callback;
+  }
+
+  @override
+  VoidCallback? get onRestoreGameRequested => kernel.onRestoreGameRequested;
+
+  @override
+  set onRestoreGameRequested(VoidCallback? callback) {
+    kernel.onRestoreGameRequested = callback;
+  }
+
+  @override
+  VoidCallback? get onRestartGameRequested => kernel.onRestartGameRequested;
+
+  @override
+  set onRestartGameRequested(VoidCallback? callback) {
+    kernel.onRestartGameRequested = callback;
+  }
+
+  set cycleCountForRestore(int val) => _cycleCount = val;
+  set startedForRestore(bool val) => _started = val;
+
+  void syncGameSpeedForRestore() => _syncGameSpeed();
 
   List<String> get recentKernelLogs => kernel.recentCallLogs.toList();
 
@@ -167,6 +230,20 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     this.kernel.soundPlayer = this.soundPlayer;
     this.segManager.volumeManager = volumeManager;
     this.kernel.onRestartGameRequested ??= () => restartGame();
+    this.kernel.onSaveGameSync = (slot, desc) {
+      saveGameStateSync(slot: slot, description: desc);
+      return true;
+    };
+    this.kernel.onRestoreGameSync = (slot) {
+      return restoreGameStateSync(slot: slot);
+    };
+    this.kernel.onCheckSaveGameSync = (slot) {
+      final info = SciGameStateSerializer.getSlotInfoSync(slot, directory: saveDirectory);
+      return info != null && info.exists;
+    };
+    this.kernel.onListSlotsSync = () {
+      return SciGameStateSerializer.listSlotsSync(directory: saveDirectory);
+    };
     this.kernel.onDrawStatus = (text) {
       _statusLine = text;
       notifyListeners();
@@ -260,7 +337,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       final gameObjOffset = script0.exports[0];
       final game = script0.getObject(gameObjOffset);
       if (game != null) {
-        _gameObj = game.pos;
+        gameObjForRestore = game.pos;
         _statusLine = game.nameString ?? 'Sierra SCI0';
       }
     }
@@ -276,10 +353,10 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _isPaused = false;
 
     // Trigger initial frame / boot if not started
-    if (!_started && _gameObj != null) {
+    if (!_started && gameObjForRestore != null) {
       _started = true;
       try {
-        vm.sendSelector(_gameObj!, selectors.play, []);
+        vm.sendSelector(gameObjForRestore!, selectors.play, []);
       } catch (e, st) {
         if (kernel.verboseLogging) {
           debugPrint('[SciEngine] ERROR during boot: $e\n$st');
@@ -292,16 +369,6 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _tickTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
       tick();
     });
-  }
-
-  /// SCI0 `g11` is `currentRoom` (PQ2 snapshot / LSL2 `GAME.SH`).
-  static const int _globalCurrentRoom = 11;
-
-  int get _currentRoom {
-    if (segManager.globals.length > _globalCurrentRoom) {
-      return segManager.globals[_globalCurrentRoom].toUint16();
-    }
-    return 0;
   }
 
   /// Converts host frequency [speedHz] into Sierra SCI wait ticks (PIT ticks / 60 Hz).
@@ -321,11 +388,11 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   /// Synchronizes Sierra Game object speed and global speed variables with [speedHz].
   /// Does not override unthrottled speed during active room-99 speed tests.
   void _syncGameSpeed() {
-    if (_currentRoom == 99) return;
+    if (currentRoom == 99) return;
     final targetSpeed = currentSciWaitSpeed;
-    if (_gameObj != null) {
+    if (gameObjForRestore != null) {
       final speedSel = selectors.findSelector('speed');
-      final game = segManager.getObject(_gameObj!);
+      final game = segManager.getObject(gameObjForRestore!);
       if (speedSel != null && game != null) {
         game.setProp(segManager, speedSel, SciReg.fromInt(targetSpeed));
       }
@@ -386,7 +453,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _cycleCount = 0;
     _started = false;
     _lastDirection = 0;
-    _prevRoom = 0;
+    prevRoomForSnapshot = 0;
 
     atlasManager.clear();
     segManager.reset();
@@ -402,9 +469,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     _started = true;
     _isPaused = false;
 
-    if (_gameObj != null) {
+    if (gameObjForRestore != null) {
       try {
-        vm.sendSelector(_gameObj!, selectors.play, []);
+        vm.sendSelector(gameObjForRestore!, selectors.play, []);
       } catch (e, st) {
         if (kernel.verboseLogging) {
           debugPrint('[SciEngine] ERROR during restart boot: $e\n$st');
@@ -420,17 +487,20 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     notifyListeners();
   }
 
-  bool _inTick = false;
+  @override
+  void cancelRestart() {}
 
+  bool _inTick = false;
+  
   @override
   void tick() {
     if (_isPaused || _isDisposed || _inTick) return;
     _inTick = true;
     try {
       _cycleCount++;
-      final room = _currentRoom;
-      if (room != _prevRoom) {
-        _prevRoom = room;
+      final room = currentRoom;
+      if (room != prevRoomForSnapshot) {
+        prevRoomForSnapshot = room;
         _lastDirection = 0;
       }
       // Step the 60 Hz PIT from the outside (DOSBox-style). At 20 Hz host
@@ -464,9 +534,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       final targetSpeed = currentSciWaitSpeed;
       if (gameSpeed == 0) g[3] = SciReg.fromInt(targetSpeed);
       if (g.length > 18 && gSpeed == 0) g[18] = SciReg.fromInt(targetSpeed);
-      if (_gameObj != null) {
+      if (gameObjForRestore != null) {
         final speedSel = selectors.findSelector('speed');
-        final game = segManager.getObject(_gameObj!);
+        final game = segManager.getObject(gameObjForRestore!);
         if (speedSel != null && game != null) {
           game.setProp(segManager, speedSel, SciReg.fromInt(targetSpeed));
         }
@@ -865,6 +935,146 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
             .toList(),
       },
     };
+  }
+
+  // --- Persistence Implementation (Stage 15) ---
+
+  @override
+  Future<File> saveGameState({
+    int slot = 1,
+    String description = '',
+    Directory? directory,
+  }) async {
+    return saveGameStateSync(
+      slot: slot,
+      description: description,
+      directory: directory,
+    );
+  }
+
+  @override
+  Future<bool> restoreGameState({
+    int slot = 1,
+    Directory? directory,
+  }) async {
+    return restoreGameStateSync(slot: slot, directory: directory);
+  }
+
+  @override
+  List<SaveSlotInfo> listSaveSlots({
+    Directory? directory,
+    int maxSlots = 12,
+  }) {
+    return SciGameStateSerializer.listSlotsSync(
+      directory: directory ?? saveDirectory,
+      maxSlots: maxSlots,
+    );
+  }
+
+  /// Saves the current engine state synchronously to [slot].
+  File saveGameStateSync({
+    int slot = 1,
+    String description = '',
+    Directory? directory,
+  }) {
+    return SciGameStateSerializer.saveToSlotSync(
+      this,
+      slot,
+      description: description,
+      directory: directory ?? saveDirectory,
+    );
+  }
+
+  /// Restores engine state synchronously from [slot].
+  bool restoreGameStateSync({
+    int slot = 1,
+    Directory? directory,
+  }) {
+    final success = SciGameStateSerializer.restoreFromSlotSync(
+      this,
+      slot,
+      directory: directory ?? saveDirectory,
+    );
+    if (success) {
+      notifyListeners();
+    }
+    return success;
+  }
+
+  @override
+  Uint8List? captureScreenThumbnailRgba({
+    int targetWidth = 80,
+    int targetHeight = 50,
+  }) {
+    final pic = kernel.currentPic;
+    final nativeW = pic?.width ?? 320;
+    final nativeH = pic?.height ?? 200;
+    final buffer = Uint8List(nativeW * nativeH);
+
+    if (pic != null && pic.visualPixels.length == buffer.length) {
+      buffer.setAll(0, pic.visualPixels);
+    }
+
+    final sprites = List<PlayfieldActorSprite>.from(kernel.currentSprites)
+      ..sort((a, b) {
+        final priComp = a.priority.compareTo(b.priority);
+        if (priComp != 0) return priComp;
+        return a.sortY.compareTo(b.sortY);
+      });
+
+    for (final s in sprites) {
+      if (s.viewNumber <= 0) continue;
+      try {
+        final view = kernel.getView(s.viewNumber);
+        if (view == null) continue;
+        final loop = view.getLoop(s.loopNumber);
+        final cel = loop?.getCel(s.celNumber);
+        if (cel == null) continue;
+
+        final pixels = cel.getPixels(parentView: view, celIndex: s.celNumber);
+        final cw = cel.width;
+        final ch = cel.height;
+        final startX = (s.position.dx + s.displaceX).round();
+        final startY = (s.position.dy + s.displaceY - s.z).round();
+
+        for (int cy = 0; cy < ch; cy++) {
+          final py = startY + cy;
+          if (py < 0 || py >= nativeH) continue;
+          final row = py * nativeW;
+          for (int cx = 0; cx < cw; cx++) {
+            final px = startX + cx;
+            if (px < 0 || px >= nativeW) continue;
+            final col = pixels[cy * cw + cx];
+            if (col != cel.transparentColor) {
+              buffer[row + px] = col & 0x0F;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final outRgba = Uint8List(targetWidth * targetHeight * 4);
+    final scaleX = nativeW / targetWidth;
+    final scaleY = nativeH / targetHeight;
+
+    for (int y = 0; y < targetHeight; y++) {
+      final srcY = (y * scaleY).floor().clamp(0, nativeH - 1);
+      final rowOffset = y * targetWidth * 4;
+
+      for (int x = 0; x < targetWidth; x++) {
+        final srcX = (x * scaleX).floor().clamp(0, nativeW - 1);
+        final colorIndex = buffer[srcY * nativeW + srcX] & 0x0F;
+        final col = EgaColors.rgbaBytes[colorIndex];
+
+        final outIdx = rowOffset + (x * 4);
+        outRgba[outIdx + 0] = col[0];
+        outRgba[outIdx + 1] = col[1];
+        outRgba[outIdx + 2] = col[2];
+        outRgba[outIdx + 3] = 255;
+      }
+    }
+
+    return outRgba;
   }
 
   /// Exports the engine state formatted as a JSON string.

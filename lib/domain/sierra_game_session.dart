@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/picture.dart';
+import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
@@ -37,6 +39,31 @@ abstract class SierraGameSession implements Listenable {
 
   /// Whether to render the in-game mouse cursor.
   bool get showMouseCursor => false;
+
+  /// Current room or scene number (e.g. 0..255 in AGI, global 11 in SCI0).
+  int get currentRoom;
+
+  /// Current player score.
+  int get score => 0;
+
+  /// Maximum possible player score.
+  int get maxScore => 0;
+
+  /// Directory where save state files are stored.
+  Directory? get saveDirectory => null;
+  set saveDirectory(Directory? dir) {}
+
+  /// Callback when the game requests the Save Game modal dialog.
+  VoidCallback? get onSaveGameRequested => null;
+  set onSaveGameRequested(VoidCallback? cb) {}
+
+  /// Callback when the game requests the Restore Game modal dialog.
+  VoidCallback? get onRestoreGameRequested => null;
+  set onRestoreGameRequested(VoidCallback? cb) {}
+
+  /// Callback when the game requests the Restart Game confirmation dialog.
+  VoidCallback? get onRestartGameRequested => null;
+  set onRestartGameRequested(VoidCallback? cb) {}
 
   /// Title or status text shown in the top bar.
   String get statusLine;
@@ -98,6 +125,9 @@ abstract class SierraGameSession implements Listenable {
   /// Restarts the active game session to initial state.
   void restartGame({int startingRoom = 0});
 
+  /// Cancels an interactive restart request.
+  void cancelRestart() {}
+
   /// Dispatches 8-direction navigation input (0 = stop, 1 = up, 2 = up-right, ...).
   void handleDirection(int direction);
 
@@ -118,6 +148,35 @@ abstract class SierraGameSession implements Listenable {
 
   /// Submits a typed command string from the user.
   void submitCommand(String command);
+
+  /// Saves the active game state to save slot [slot].
+  Future<File> saveGameState({
+    int slot = 1,
+    String description = '',
+    Directory? directory,
+  }) =>
+      throw UnsupportedError('saveGameState is not supported by this session');
+
+  /// Restores the game state from save slot [slot].
+  Future<bool> restoreGameState({
+    int slot = 1,
+    Directory? directory,
+  }) =>
+      throw UnsupportedError('restoreGameState is not supported by this session');
+
+  /// Lists save slot metadata.
+  List<SaveSlotInfo> listSaveSlots({
+    Directory? directory,
+    int maxSlots = 12,
+  }) =>
+      const [];
+
+  /// Captures an RGBA thumbnail of the current screen.
+  Uint8List? captureScreenThumbnailRgba({
+    int targetWidth = 80,
+    int targetHeight = 84,
+  }) =>
+      null;
 
   /// Disposes of game engine resources, timers, and audio.
   void dispose();

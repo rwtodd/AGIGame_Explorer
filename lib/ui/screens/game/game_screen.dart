@@ -125,10 +125,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         agi.initializeGame(startingRoom: widget.startingRoom);
         agi.start();
       }
-
-      agi.onSaveGameRequested = () => SaveLoadDialog.showSave(context, agi);
-      agi.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, agi);
-      agi.onRestartGameRequested = () => SaveLoadDialog.showRestartConfirmation(context, agi);
     } else {
       final sci = _sciEngine;
       if (sci != null) {
@@ -136,11 +132,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           sci.setSoundMode(initSettings.audio.soundMode);
           sci.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
         }
-        sci.kernel.onRestartGameRequested =
-            () => SaveLoadDialog.showRestartConfirmation(context, sci);
       }
       _session.start();
     }
+
+    _session.onSaveGameRequested = () => SaveLoadDialog.showSave(context, _session);
+    _session.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, _session);
+    _session.onRestartGameRequested =
+        () => SaveLoadDialog.showRestartConfirmation(context, _session);
   }
 
   @override
@@ -504,6 +503,18 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         _session.handleKeyPress(0x5000, ascii: 0);
         return KeyEventResult.handled;
       }
+      if (event.logicalKey == LogicalKeyboardKey.f5) {
+        _session.handleKeyPress(0x3F00, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.f7) {
+        _session.handleKeyPress(0x4100, ascii: 0);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.f9) {
+        _session.handleKeyPress(0x4300, ascii: 0);
+        return KeyEventResult.handled;
+      }
 
       _session.handleKeyPress(rawKey, ascii: ascii, shift: isShift, ctrl: isCtrl, alt: isAlt);
       return KeyEventResult.handled;
@@ -808,36 +819,28 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
           // Save Game (F5)
           IconButton(
-            icon: Icon(
+            icon: const Icon(
               Icons.save_outlined,
               size: 18,
-              color: _agiEngine != null ? const Color(0xFF22C55E) : AgiTheme.egaMuted,
+              color: Color(0xFF22C55E),
             ),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: _agiEngine != null
-                ? () => SaveLoadDialog.showSave(context, _agiEngine!)
-                : null,
-            tooltip: _agiEngine != null
-                ? 'Save Game (F5)'
-                : 'Save Game (F5) - Planned for Stage 15',
+            onPressed: () => SaveLoadDialog.showSave(context, _session),
+            tooltip: 'Save Game (F5)',
           ),
 
           // Restore Game (F7)
           IconButton(
-            icon: Icon(
+            icon: const Icon(
               Icons.folder_open_outlined,
               size: 18,
-              color: _agiEngine != null ? AgiTheme.egaCyan : AgiTheme.egaMuted,
+              color: AgiTheme.egaCyan,
             ),
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            onPressed: _agiEngine != null
-                ? () => SaveLoadDialog.showRestore(context, _agiEngine!)
-                : null,
-            tooltip: _agiEngine != null
-                ? 'Restore Game (F7)'
-                : 'Restore Game (F7) - Planned for Stage 15',
+            onPressed: () => SaveLoadDialog.showRestore(context, _session),
+            tooltip: 'Restore Game (F7)',
           ),
 
           // Restart Game (F9)

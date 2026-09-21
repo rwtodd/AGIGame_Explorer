@@ -1,9 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/domain/sierra_game_session.dart';
-import 'package:flutter_agigame/engine/agi_game_engine.dart';
-import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/widgets/snapshot_thumbnail_widget.dart';
 
@@ -13,15 +12,15 @@ enum SaveLoadMode {
   restore,
 }
 
-/// Interactive 12-Slot Save & Restore Modal Dialog for Sierra AGI Games.
+/// Interactive 12-Slot Save & Restore Modal Dialog for Sierra AGI and SCI Games.
 class SaveLoadDialog extends StatefulWidget {
-  final AgiGameEngine engine;
+  final SierraGameSession session;
   final SaveLoadMode mode;
   final Directory? directory;
 
   const SaveLoadDialog({
     super.key,
-    required this.engine,
+    required this.session,
     required this.mode,
     this.directory,
   });
@@ -29,26 +28,26 @@ class SaveLoadDialog extends StatefulWidget {
   /// Displays the Save Game modal dialog, pausing game execution while open.
   static Future<bool?> showSave(
     BuildContext context,
-    AgiGameEngine engine, {
+    SierraGameSession session, {
     Directory? directory,
   }) async {
-    final wasPaused = engine.isPaused;
+    final wasPaused = session.isPaused;
     if (!wasPaused) {
-      engine.pause();
+      session.pause();
     }
     try {
       return await showDialog<bool>(
         context: context,
         barrierDismissible: true,
         builder: (ctx) => SaveLoadDialog(
-          engine: engine,
+          session: session,
           mode: SaveLoadMode.save,
           directory: directory,
         ),
       );
     } finally {
       if (!wasPaused) {
-        engine.resume();
+        session.resume();
       }
     }
   }
@@ -56,26 +55,26 @@ class SaveLoadDialog extends StatefulWidget {
   /// Displays the Restore Game modal dialog, pausing game execution while open.
   static Future<bool?> showRestore(
     BuildContext context,
-    AgiGameEngine engine, {
+    SierraGameSession session, {
     Directory? directory,
   }) async {
-    final wasPaused = engine.isPaused;
+    final wasPaused = session.isPaused;
     if (!wasPaused) {
-      engine.pause();
+      session.pause();
     }
     try {
       return await showDialog<bool>(
         context: context,
         barrierDismissible: true,
         builder: (ctx) => SaveLoadDialog(
-          engine: engine,
+          session: session,
           mode: SaveLoadMode.restore,
           directory: directory,
         ),
       );
     } finally {
       if (!wasPaused) {
-        engine.resume();
+        session.resume();
       }
     }
   }
@@ -131,8 +130,8 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
   }
 
   void _loadSlots() {
-    final slots = GameStateSerializer.listSlotsSync(
-      directory: widget.directory ?? widget.engine.saveDirectory,
+    final slots = widget.session.listSaveSlots(
+      directory: widget.directory ?? widget.session.saveDirectory,
       maxSlots: _totalSlots,
     );
 
@@ -160,9 +159,9 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
         slot: _selectedSlot,
         description: '',
         timestamp: DateTime.now(),
-        roomNumber: widget.engine.currentRoom,
-        score: widget.engine.memory.getVar(3),
-        maxScore: widget.engine.memory.getVar(7),
+        roomNumber: widget.session.currentRoom,
+        score: widget.session.score,
+        maxScore: widget.session.maxScore,
         filePath: '',
         exists: false,
       ),
@@ -171,7 +170,7 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
     if (currentSlot.exists && currentSlot.description.isNotEmpty) {
       return currentSlot.description;
     }
-    return 'Room ${widget.engine.currentRoom} (Score: ${widget.engine.memory.getVar(3)})';
+    return 'Room ${widget.session.currentRoom} (Score: ${widget.session.score})';
   }
 
   void _onSlotSelected(int slot) {
@@ -183,16 +182,15 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
     });
   }
 
-  void _handleConfirm() {
+  Future<void> _handleConfirm() async {
     if (widget.mode == SaveLoadMode.save) {
       final desc = _descController.text.trim();
       final finalDesc = desc.isNotEmpty ? desc : 'Slot $_selectedSlot Save';
 
-      GameStateSerializer.saveToSlotSync(
-        widget.engine,
-        _selectedSlot,
+      await widget.session.saveGameState(
+        slot: _selectedSlot,
         description: finalDesc,
-        directory: widget.directory ?? widget.engine.saveDirectory,
+        directory: widget.directory ?? widget.session.saveDirectory,
       );
 
       if (mounted) {
@@ -216,10 +214,9 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
         return;
       }
 
-      final success = GameStateSerializer.restoreFromSlotSync(
-        widget.engine,
-        _selectedSlot,
-        directory: widget.directory ?? widget.engine.saveDirectory,
+      final success = await widget.session.restoreGameState(
+        slot: _selectedSlot,
+        directory: widget.directory ?? widget.session.saveDirectory,
       );
 
       if (mounted) {
@@ -596,9 +593,7 @@ class RestartConfirmationDialog extends StatelessWidget {
   }
 
   void _cancelRestart(BuildContext context) {
-    if (session is AgiGameEngine) {
-      (session as AgiGameEngine).cancelRestart();
-    }
+    session.cancelRestart();
     Navigator.of(context).pop(false);
   }
 
