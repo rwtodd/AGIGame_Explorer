@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 
 /// Renders a crisp retro screen thumbnail for an [AgiGameStateSnapshot].
@@ -58,15 +59,27 @@ class _SnapshotThumbnailWidgetState extends State<SnapshotThumbnailWidget> {
     super.dispose();
   }
 
+  (int, int)? get _pixelSize {
+    final rgba = widget.thumbnailRgba;
+    if (rgba == null) return null;
+    final explicitW = widget.sourceWidth;
+    final explicitH = widget.sourceHeight;
+    if (rgba.length == explicitW * explicitH * 4) {
+      return (explicitW, explicitH);
+    }
+    return SaveSlotInfo.inferThumbnailSize(rgba.length);
+  }
+
   void _decodeImage() {
     final rgba = widget.thumbnailRgba;
-    if (rgba == null || rgba.isEmpty || _isDecoding) return;
+    final size = _pixelSize;
+    if (rgba == null || rgba.isEmpty || size == null || _isDecoding) return;
 
     _isDecoding = true;
     ui.decodeImageFromPixels(
       rgba,
-      widget.sourceWidth,
-      widget.sourceHeight,
+      size.$1,
+      size.$2,
       ui.PixelFormat.rgba8888,
       (image) {
         if (mounted) {
@@ -104,7 +117,7 @@ class _SnapshotThumbnailWidgetState extends State<SnapshotThumbnailWidget> {
         image: _cachedImage,
         width: widget.width,
         height: widget.height,
-        fit: BoxFit.fill,
+        fit: BoxFit.contain,
         filterQuality: FilterQuality.none, // Crisp authentic pixels
       );
     }

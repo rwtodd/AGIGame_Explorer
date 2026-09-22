@@ -12,6 +12,10 @@ class SaveSlotInfo {
   final bool exists;
   final Uint8List? thumbnailRgba;
 
+  /// Pixel size of [thumbnailRgba]. AGI saves are 80×84; SCI saves are 80×50.
+  final int? thumbnailWidth;
+  final int? thumbnailHeight;
+
   const SaveSlotInfo({
     required this.slot,
     required this.description,
@@ -22,7 +26,35 @@ class SaveSlotInfo {
     required this.filePath,
     required this.exists,
     this.thumbnailRgba,
+    this.thumbnailWidth,
+    this.thumbnailHeight,
   });
+
+  /// Known thumbnail buffers: AGI 160×168 scaled to 80×84, SCI 320×200 to 80×50.
+  static (int width, int height)? inferThumbnailSize(int byteLength) {
+    const known = <(int, int)>[
+      (80, 50),
+      (80, 84),
+    ];
+    for (final size in known) {
+      if (byteLength == size.$1 * size.$2 * 4) return size;
+    }
+    return null;
+  }
+
+  /// Prefers explicit JSON dimensions when they match [thumb]; otherwise infers.
+  static (int width, int height)? thumbnailSizeFromJson(
+    Map<dynamic, dynamic> json,
+    Uint8List? thumb,
+  ) {
+    final w = (json['thumbnailWidth'] as num?)?.toInt();
+    final h = (json['thumbnailHeight'] as num?)?.toInt();
+    if (thumb != null && w != null && h != null && w > 0 && h > 0 && w * h * 4 == thumb.length) {
+      return (w, h);
+    }
+    if (thumb == null) return null;
+    return inferThumbnailSize(thumb.length);
+  }
 
   /// Formatted slot display string (e.g. `Slot 1: In front of castle (Score: 12/210, Room 1)`).
   String get displayName {

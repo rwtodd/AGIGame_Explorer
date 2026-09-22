@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
@@ -752,7 +753,13 @@ class SciGameStateSnapshot {
           'executionStackBase': executionStackBase,
           'stepCounter': stepCounter,
         },
-        if (includeThumbnail && thumbnailRgba != null) 'thumbnail': base64Encode(thumbnailRgba!),
+        if (includeThumbnail && thumbnailRgba != null) ...{
+          'thumbnail': base64Encode(thumbnailRgba!),
+          if (SaveSlotInfo.inferThumbnailSize(thumbnailRgba!.length) case final size?) ...{
+            'thumbnailWidth': size.$1,
+            'thumbnailHeight': size.$2,
+          },
+        },
       };
 
   String toJsonString({bool pretty = true, bool includeThumbnail = true}) {

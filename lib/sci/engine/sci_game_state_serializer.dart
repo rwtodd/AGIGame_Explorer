@@ -81,6 +81,7 @@ class SciGameStateSerializer {
           thumb = base64Decode(thumbRaw);
         } catch (_) {}
       }
+      final thumbSize = SaveSlotInfo.thumbnailSizeFromJson(map, thumb);
 
       return SaveSlotInfo(
         slot: slot,
@@ -92,6 +93,8 @@ class SciGameStateSerializer {
         filePath: filePath,
         exists: true,
         thumbnailRgba: thumb,
+        thumbnailWidth: thumbSize?.$1,
+        thumbnailHeight: thumbSize?.$2,
       );
     } catch (_) {
       return SaveSlotInfo(

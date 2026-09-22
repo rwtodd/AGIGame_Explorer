@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_state_serializer.dart';
@@ -34,6 +36,20 @@ void main() {
       if (await tempDir.exists()) {
         await tempDir.delete(recursive: true);
       }
+    });
+
+    test('parseMetadata infers 80x50 SCI thumbnails that omit dimensions', () {
+      final pixels = Uint8List(80 * 50 * 4);
+      final json = jsonEncode({
+        'description': 'In the car',
+        'currentRoom': 33,
+        'thumbnail': base64Encode(pixels),
+      });
+      final info = SciGameStateSerializer.parseMetadata(json, slot: 2);
+      expect(info.exists, isTrue);
+      expect(info.thumbnailWidth, 80);
+      expect(info.thumbnailHeight, 50);
+      expect(info.thumbnailRgba!.length, pixels.length);
     });
 
     test('SciGameStateSnapshot serializes and restores complete engine state', () {

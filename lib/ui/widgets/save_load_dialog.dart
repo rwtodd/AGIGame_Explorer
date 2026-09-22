@@ -398,6 +398,8 @@ class _SaveLoadDialogState extends State<SaveLoadDialog> {
                                   if (isPopulated && slotInfo.thumbnailRgba != null) ...[
                                     SnapshotThumbnailWidget(
                                       thumbnailRgba: slotInfo.thumbnailRgba,
+                                      sourceWidth: slotInfo.thumbnailWidth ?? 80,
+                                      sourceHeight: slotInfo.thumbnailHeight ?? 84,
                                       width: 52,
                                       height: 39,
                                       borderColor: isSelected
