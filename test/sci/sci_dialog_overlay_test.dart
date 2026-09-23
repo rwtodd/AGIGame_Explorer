@@ -441,6 +441,42 @@ void main() {
       expect(wnd.controls, isEmpty);
     });
 
+    test('pic-port Display is offset by the picture origin and cleared by DrawPic', () {
+      final textReg = vm.segManager.allocString('Credits');
+      kernel.call(vm, 0x1B, 6, [
+        textReg,
+        const SciReg.fromInt(100),
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(115),
+        const SciReg.fromInt(102),
+        const SciReg.fromInt(0),
+      ]);
+
+      final overlays = kernel.windowManager.toOverlays();
+      expect(overlays, isNotEmpty);
+      final text = overlays.first.controls.single as SciTextControl;
+      expect(text.rect.left, 10);
+      expect(text.rect.top, 115 + kernel.picPortTop);
+
+      kernel.call(vm, 0x08, 1, [const SciReg.fromInt(47)]);
+      expect(kernel.windowManager.toOverlays(), isEmpty);
+    });
+
+    test('kDisplay without p_width keeps a long credit on one line', () {
+      const line = 'Wanted: For excessive verbosity';
+      final textReg = vm.segManager.allocString(line);
+      kernel.call(vm, 0x1B, 4, [
+        textReg,
+        const SciReg.fromInt(100),
+        const SciReg.fromInt(10),
+        const SciReg.fromInt(165),
+      ]);
+      final text = kernel.windowManager.toOverlays().single.controls.single
+          as SciTextControl;
+      expect(text.rect.width, greaterThan(192));
+      expect(text.rect.height, lessThanOrEqualTo(10));
+    });
+
     test('kGetFarText retrieves message from volumeManager and writes to stack buffer', () {
       final fakeVm = _FakeVolumeManager({
         35: Uint8List.fromList('Line zero\x00You don\'t have it.\x00Line two\x00'.codeUnits),

@@ -294,6 +294,22 @@ class SciWindowManager {
     _curPort = _ports[portId] ?? _picWind;
   }
 
+  /// Pic-window origin used when turning port-local `Display` coords into screen space.
+  void setPicWindowOrigin(int top, int left) {
+    _picWind.top = top;
+    _picWind.left = left;
+    if (_curPort.id == picWindId) {
+      _curPort = _picWind;
+    }
+  }
+
+  /// `DrawPic` replaces the visual screen, so unsaved picture-port text goes with it.
+  void clearPicDisplays() {
+    if (_picDisplays.isEmpty && _savedDisplays.isEmpty) return;
+    _picDisplays.clear();
+    _savedDisplays.removeWhere((_, entry) => entry.portId == picWindId);
+  }
+
   /// Gets the ID of the active port via `kGetPort`.
   int getPort() => _curPort.id;
 

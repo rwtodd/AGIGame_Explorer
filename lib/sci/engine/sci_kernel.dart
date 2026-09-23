@@ -762,6 +762,9 @@ class SciKernel {
     final showStyle = argc >= 2 ? argv[1].toUint16() : 0;
     initPicture(picNum, vmManager: volumeManager ?? vm.volumeManager);
     picNotValid = 1;
+    // Display paints into the visual screen. A new picture replaces that screen.
+    windowManager.clearPicDisplays();
+    onWindowsChanged?.call();
     onDrawPic?.call(picNum, showStyle);
     return const SciReg.fromInt(0);
   }
@@ -1205,6 +1208,7 @@ class SciKernel {
     if (argc == 6 || argc == 7) {
       picPortTop = argv[4].toSint16();
       picPortLeft = argv[5].toSint16();
+      windowManager.setPicWindowOrigin(picPortTop, picPortLeft);
       if (argc == 7) {
         initPriorityBands();
       }
@@ -1570,16 +1574,49 @@ class SciKernel {
     final font = getFont(fontId);
     final align = _sciTextAlign(mode);
 
-    final wrapWidth = width > 0 ? width : 192;
+    // ScummVM GfxText16::Size: maxWidth < 0 forces a single line. p_width
+    // omitted leaves width at -1. 0 means wrap at 192.
     final fontH = font?.fontHeight ?? 8;
-    final lines = wrapText(text, font, wrapWidth);
+    final List<String> lines;
+    final int boxWidth;
+    if (width < 0) {
+      lines = text.split('\n');
+      var widest = 0;
+      for (final line in lines) {
+        final w = font != null ? font.measureTextWidth(line) : line.length * 8;
+        if (w > widest) widest = w;
+      }
+      boxWidth = widest;
+    } else {
+      final wrapWidth = width > 0 ? width : 192;
+      lines = wrapText(text, font, wrapWidth);
+      if (width > 0) {
+        boxWidth = width;
+      } else {
+        var widest = 0;
+        for (final line in lines) {
+          final w = font != null ? font.measureTextWidth(line) : line.length * 8;
+          if (w > widest) widest = w;
+        }
+        boxWidth = min(wrapWidth, widest);
+      }
+    }
     final textHeight = max(fontH, lines.length * fontH);
+
+    // Picture-port text is port-local. The canvas is 320×200 screen space, and
+    // ScummVM draws at `port.top + curTop` (pic origin is normally 10).
+    var drawX = x;
+    var drawY = y;
+    if (windowManager.currentPort.id == SciWindowManager.picWindId) {
+      drawX += picPortLeft;
+      drawY += picPortTop;
+    }
 
     final controlItem = SciTextControl(
       rect: ui.Rect.fromLTWH(
-        x.toDouble(),
-        y.toDouble(),
-        wrapWidth.toDouble(),
+        drawX.toDouble(),
+        drawY.toDouble(),
+        boxWidth.toDouble(),
         textHeight.toDouble(),
       ),
       text: text,
