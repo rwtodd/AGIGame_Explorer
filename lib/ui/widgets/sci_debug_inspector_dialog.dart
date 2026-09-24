@@ -537,6 +537,8 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
+          _buildStubHitsSection(engine),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -617,6 +619,78 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
                     ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Unimplemented kernel ops ranked by hit count. Play the game with this
+  /// open and the hottest rows are the next stubs worth implementing.
+  Widget _buildStubHitsSection(SciGameEngine engine) {
+    final total = engine.kernel.stubHitTotal;
+    final top = engine.kernel.topStubHits(10);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131926),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AgiTheme.egaBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber, color: AgiTheme.egaAmber, size: 14),
+              const SizedBox(width: 6),
+              Text(
+                'UNIMPLEMENTED KERNEL OPS ($total calls)',
+                style: const TextStyle(
+                  color: AgiTheme.egaAmber,
+                  fontFamily: 'Courier',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  engine.kernel.clearStubStats();
+                  setState(() {});
+                },
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Reset',
+                  style: TextStyle(color: AgiTheme.egaCyan, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          if (top.isEmpty)
+            const Text(
+              'No stubbed kernel calls this session.',
+              style: TextStyle(color: AgiTheme.egaMuted, fontFamily: 'Courier', fontSize: 11),
+            )
+          else
+            for (final row in top)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 1),
+                child: Text(
+                  '0x${row.id.toRadixString(16).padLeft(2, "0")} ${row.name} × ${row.hits}',
+                  style: const TextStyle(
+                    color: AgiTheme.egaWhite,
+                    fontFamily: 'Courier',
+                    fontSize: 11,
+                  ),
+                ),
+              ),
         ],
       ),
     );

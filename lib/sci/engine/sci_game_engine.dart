@@ -310,6 +310,8 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   /// Loads classes, selectors, vocabulary, and script 0. SCI start is always `(Game play:)`.
   /// [startingRoom] is a debug warp reserved for later; boot still uses play:.
   void initializeGame({int startingRoom = 0}) {
+    // Fresh game session: stub-hit triage starts from zero.
+    kernel.clearStubStats();
     segManager.isEarlySci0 = volumeManager.isEarlySci0;
 
     final vocab996Bytes = volumeManager.getResource(SciResourceType.vocab, 996);

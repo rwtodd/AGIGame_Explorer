@@ -73,7 +73,12 @@ class SciKernelEntry {
   final String name;
   final SciKernelFunc function;
 
-  const SciKernelEntry(this.id, this.name, this.function);
+  /// True when [function] is the shared no-op stub: the op is dispatched
+  /// but silently does nothing. Hit counts on these entries drive stub
+  /// implementation priority per game.
+  final bool isStub;
+
+  const SciKernelEntry(this.id, this.name, this.function, {this.isStub = false});
 }
 
 /// SCI0 Kernel Function Dispatcher.
@@ -246,7 +251,10 @@ class SciKernel {
   }
 
   void _register(int id, String name, SciKernelFunc func) {
-    _entries[id] = SciKernelEntry(id, name, func);
+    // Method tear-offs of the same method on the same receiver compare
+    // equal, so every `_kStub` registration is flagged without touching
+    // the ~30 stub call sites.
+    _entries[id] = SciKernelEntry(id, name, func, isStub: func == _kStub);
   }
 
   void registerKernel(int id, String name, SciKernelFunc func) {
@@ -272,6 +280,30 @@ class SciKernel {
 
   String getKernelName(int id) => _entries[id]?.name ?? 'k_0x${id.toRadixString(16)}';
 
+  /// True when [id] is an unimplemented op: a registered `_kStub` or a
+  /// completely unknown id. Unknown ids count as stubs for triage.
+  bool isStubKernel(int id) => _entries[id]?.isStub ?? true;
+
+  /// Per-op invocation counts for unimplemented kernel ops (stubs and
+  /// unknown ids), keyed by kernel id. Populated on every [call]; read it
+  /// from the debug inspector to prioritize stub implementations per game.
+  final Map<int, int> stubHitCounts = {};
+
+  /// Total unimplemented-op invocations since the last [clearStubStats].
+  int get stubHitTotal => stubHitCounts.values.fold(0, (a, b) => a + b);
+
+  /// Top unimplemented ops by hit count, hottest first.
+  List<({int id, String name, int hits})> topStubHits([int limit = 10]) {
+    final rows = stubHitCounts.entries
+        .map((e) => (id: e.key, name: getKernelName(e.key), hits: e.value))
+        .toList()
+      ..sort((a, b) => b.hits.compareTo(a.hits));
+    return rows.length <= limit ? rows : rows.sublist(0, limit);
+  }
+
+  /// Resets stub-hit statistics, e.g. when starting a new game session.
+  void clearStubStats() => stubHitCounts.clear();
+
   /// When true after a kernel call, the VM rewinds `callk` and yields so a
   /// modal kernel (MenuSelect) can resume on the next tick.
   bool suspendCallk = false;
@@ -282,8 +314,14 @@ class SciKernel {
     final entry = _entries[kernelId];
     SciReg result;
     if (entry != null) {
+      // One map update per *unimplemented* call only; implemented ops pay
+      // for a single boolean check on the hot path.
+      if (entry.isStub) {
+        stubHitCounts.update(kernelId, (c) => c + 1, ifAbsent: () => 1);
+      }
       result = entry.function(vm, argc, argv);
     } else {
+      stubHitCounts.update(kernelId, (c) => c + 1, ifAbsent: () => 1);
       if (verboseLogging) {
         debugPrint(
           '[SciKernel] Unimplemented kernel 0x${kernelId.toRadixString(16)} '
