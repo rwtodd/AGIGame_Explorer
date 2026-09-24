@@ -124,6 +124,7 @@ class SciSegManager {
     globals.clear();
     currentStack = null;
     isEarlySci0 = false;
+    _purgePending = false;
   }
 
   /// Loads the class-to-script mapping table from `VOCAB.996`.
@@ -474,10 +475,20 @@ class SciSegManager {
     return list == null || list.first.isNull;
   }
 
+  /// True when [disposeScript] has unmapped a script that no sweep has
+  /// reclaimed yet. Memory is plentiful on modern machines, so sweeps are
+  /// lazy: callers purge on room change / FlushResources plus a dilute
+  /// periodic backstop, never on every frame tick.
+  bool _purgePending = false;
+
+  /// Whether a disposed script may still be waiting for reclamation.
+  bool get hasPendingPurge => _purgePending;
+
   void disposeScript(int scriptNr) {
     if (scriptNr == 0) return;
     final seg = scriptToSegment.remove(scriptNr);
     if (seg == null) return;
+    _purgePending = true;
     // In SCI0 (e.g. LSL2 rm000::newRoom), (DisposeScript DOORS) is invoked
     // before (super newRoom: n) runs (cast eachElementDo: #dispose) and
     // (cast eachElementDo: #delete). Cloned instances of classes defined in
@@ -497,9 +508,15 @@ class SciSegManager {
   /// [pinned] are registers that must keep their segment alive (the live VM
   /// stack and execution frames). Returns how many scripts were dropped.
   int purgeUnmappedScripts({Iterable<SciReg> pinned = const []}) {
+    // Cheap exit: the only unmapper is disposeScript, so with no pending
+    // flag there is nothing to reclaim and no heap scan is needed.
+    if (!_purgePending) return 0;
     final mapped = scriptToSegment.values.toSet();
     final doomed = loadedScripts.keys.where((seg) => !mapped.contains(seg)).toList();
-    if (doomed.isEmpty) return 0;
+    if (doomed.isEmpty) {
+      _purgePending = false;
+      return 0;
+    }
     final doomedSet = doomed.toSet();
 
     final referenced = <int>{};
@@ -548,6 +565,10 @@ class SciSegManager {
       loadedScripts.remove(seg);
       freed++;
     }
+    // Keep the flag only while unreclaimed (still-referenced) scripts remain.
+    // Benign room objects may linger until the next sweep; only SCI-engine
+    // limits (segment/address space) would force an eager pass.
+    _purgePending = doomed.any(referenced.contains);
     return freed;
   }
 

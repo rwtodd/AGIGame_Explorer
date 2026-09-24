@@ -100,5 +100,31 @@ void main() {
       expect(segManager.purgeUnmappedScripts(), 1);
       expect(segManager.loadedScripts.containsKey(script.segmentId), isFalse);
     });
+
+    test('purge is lazy: no heap scan without a dispose, pending flag drains on sweep', () {
+      if (!lsl2Dir.existsSync()) {
+        markTestSkipped('LSL2 reference tree missing');
+        return;
+      }
+      final volumeMgr = SciVolumeManager.fromDirectory(lsl2Dir.path);
+      final segManager = SciSegManager();
+      segManager.volumeManager = volumeMgr;
+      segManager.loadClassTable(volumeMgr.getResource(SciResourceType.vocab, 996));
+      final script = segManager.instantiateScript(3, volumeMgr);
+
+      // Steady state: no dispose means no work, without scanning.
+      expect(segManager.hasPendingPurge, isFalse);
+      expect(segManager.purgeUnmappedScripts(), 0);
+
+      segManager.disposeScript(3);
+      expect(segManager.hasPendingPurge, isTrue);
+
+      expect(segManager.purgeUnmappedScripts(), 1);
+      expect(segManager.loadedScripts.containsKey(script.segmentId), isFalse);
+      expect(segManager.hasPendingPurge, isFalse);
+
+      // Drained flag means later sweeps stay cheap no-ops.
+      expect(segManager.purgeUnmappedScripts(), 0);
+    });
   });
 }

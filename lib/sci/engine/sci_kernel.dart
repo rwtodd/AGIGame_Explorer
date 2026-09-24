@@ -566,7 +566,7 @@ class SciKernel {
     _register(0x68, 'GetSaveDir', _kStub);
     _register(0x69, 'CheckSaveGame', _kCheckSaveGame);
     _register(0x6A, 'ShakeScreen', _kStub);
-    _register(0x6B, 'FlushResources', _kStub);
+    _register(0x6B, 'FlushResources', _kFlushResources);
 
     // 0x6C..0x71: Math & Graph
     _register(0x6C, 'SinMult', _kSinMult);
@@ -579,6 +579,18 @@ class SciKernel {
 
   // --- Default Stub ---
   SciReg _kStub(SciVM vm, int argc, List<SciReg> argv) => const SciReg.fromInt(0);
+
+  /// `FlushResources` (aka `Purge`): game scripts call this on room change.
+  /// ScummVM answers with a GC pass here instead of sweeping every tick, so
+  /// we reclaim disposed scripts now — pinning the live VM frames and stack
+  /// — and otherwise let benign room objects linger.
+  SciReg _kFlushResources(SciVM vm, int argc, List<SciReg> argv) {
+    vm.segManager.purgeUnmappedScripts(pinned: [
+      for (final frame in vm.executionStack) ...[frame.pc, frame.objp],
+      ...vm.stack,
+    ]);
+    return vm.acc;
+  }
 
   // --- Save / Restore Management (Stage 15) ---
 

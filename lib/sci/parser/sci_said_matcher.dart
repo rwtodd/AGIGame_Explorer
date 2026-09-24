@@ -1,6 +1,6 @@
 // Sierra SCI0 Said bytecode parser and pattern matcher.
 
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 
 /// Pluggable AI semantic matcher hook (for Gemini natural language intent matching).
@@ -211,7 +211,11 @@ class SciSaidMatcher {
         if (hook(spec, rawInput, parsedWords)) {
           return true;
         }
-      } catch (_) {}
+      } catch (e) {
+        // Never fail a parse silently: a throwing AI hook must not turn a
+        // valid command into a silent no-match.
+        debugPrint('[SciSaidMatcher] AI hook threw: $e');
+      }
     }
 
     return false;
@@ -315,89 +319,20 @@ class SciSaidMatcher {
       slot0 = _buildClause(slot0Tokens);
     }
 
-    // Slot 1 (Direct Object)
-    SciSaidClause slot1;
+    // Slots 1-2 (Direct / Indirect Object) share one `/`-separated grammar,
+    // so both parse through the same helper instead of duplicated loops.
+    var slot1 = const SciSaidClause.omitted();
     if (p < tokens.length) {
-      bool isOpt = false;
-      if (tokens[p].operator == SciSaidOp.bracketOpen &&
-          p + 1 < tokens.length &&
-          tokens[p + 1].operator == SciSaidOp.slash) {
-        isOpt = true;
-        p += 2; // skip '[' and '/'
-      } else if (tokens[p].operator == SciSaidOp.slash) {
-        p += 1; // skip '/'
-      }
-
-      final slot1Tokens = <SciSaidToken>[];
-      int bracketDepth = isOpt ? 1 : 0;
-
-      while (p < tokens.length) {
-        if (bracketDepth <= (isOpt ? 1 : 0)) {
-          if (tokens[p].operator == SciSaidOp.slash) break;
-          if (tokens[p].operator == SciSaidOp.bracketOpen &&
-              p + 1 < tokens.length &&
-              tokens[p + 1].operator == SciSaidOp.slash) {
-            break;
-          }
-        }
-
-        if (tokens[p].operator == SciSaidOp.bracketOpen) {
-          bracketDepth++;
-          slot1Tokens.add(tokens[p]);
-        } else if (tokens[p].operator == SciSaidOp.bracketClose) {
-          bracketDepth--;
-          if (isOpt && bracketDepth == 0) {
-            p++; // consume matching ']'
-            break;
-          }
-          slot1Tokens.add(tokens[p]);
-        } else {
-          slot1Tokens.add(tokens[p]);
-        }
-        p++;
-      }
-
-      slot1 = _buildClause(slot1Tokens, forcedOptional: isOpt);
-    } else {
-      slot1 = const SciSaidClause.omitted();
+      final parsed = _parseSlashSlot(tokens, p);
+      slot1 = parsed.$1;
+      p = parsed.$2;
     }
 
-    // Slot 2 (Indirect Object)
-    SciSaidClause slot2;
+    var slot2 = const SciSaidClause.omitted();
     if (p < tokens.length) {
-      bool isOpt = false;
-      if (tokens[p].operator == SciSaidOp.bracketOpen &&
-          p + 1 < tokens.length &&
-          tokens[p + 1].operator == SciSaidOp.slash) {
-        isOpt = true;
-        p += 2;
-      } else if (tokens[p].operator == SciSaidOp.slash) {
-        p += 1;
-      }
-
-      final slot2Tokens = <SciSaidToken>[];
-      int bracketDepth = isOpt ? 1 : 0;
-
-      while (p < tokens.length) {
-        if (tokens[p].operator == SciSaidOp.bracketOpen) {
-          bracketDepth++;
-          slot2Tokens.add(tokens[p]);
-        } else if (tokens[p].operator == SciSaidOp.bracketClose) {
-          bracketDepth--;
-          if (isOpt && bracketDepth == 0) {
-            p++;
-            break;
-          }
-          slot2Tokens.add(tokens[p]);
-        } else {
-          slot2Tokens.add(tokens[p]);
-        }
-        p++;
-      }
-
-      slot2 = _buildClause(slot2Tokens, forcedOptional: isOpt);
-    } else {
-      slot2 = const SciSaidClause.omitted();
+      final parsed = _parseSlashSlot(tokens, p);
+      slot2 = parsed.$1;
+      p = parsed.$2;
     }
 
     // Consume any leftover closing brackets (e.g. in nested [/door[/keyhole]])
@@ -406,6 +341,53 @@ class SciSaidMatcher {
     }
 
     return [slot0, slot1, slot2];
+  }
+
+  /// Parses one `/`-separated slot starting at cursor [p]: consumes an
+  /// optional `[/` opener or a plain `/` separator, then collects tokens
+  /// until the next top-level `/`, `[/`, or end of input. Returns the built
+  /// clause and the new cursor position.
+  static (SciSaidClause, int) _parseSlashSlot(List<SciSaidToken> tokens, int p) {
+    var isOpt = false;
+    if (tokens[p].operator == SciSaidOp.bracketOpen &&
+        p + 1 < tokens.length &&
+        tokens[p + 1].operator == SciSaidOp.slash) {
+      isOpt = true;
+      p += 2; // skip '[' and '/'
+    } else if (tokens[p].operator == SciSaidOp.slash) {
+      p += 1; // skip '/'
+    }
+
+    final slotTokens = <SciSaidToken>[];
+    var bracketDepth = isOpt ? 1 : 0;
+
+    while (p < tokens.length) {
+      if (bracketDepth <= (isOpt ? 1 : 0)) {
+        if (tokens[p].operator == SciSaidOp.slash) break;
+        if (tokens[p].operator == SciSaidOp.bracketOpen &&
+            p + 1 < tokens.length &&
+            tokens[p + 1].operator == SciSaidOp.slash) {
+          break;
+        }
+      }
+
+      if (tokens[p].operator == SciSaidOp.bracketOpen) {
+        bracketDepth++;
+        slotTokens.add(tokens[p]);
+      } else if (tokens[p].operator == SciSaidOp.bracketClose) {
+        bracketDepth--;
+        if (isOpt && bracketDepth == 0) {
+          p++; // consume matching ']'
+          break;
+        }
+        slotTokens.add(tokens[p]);
+      } else {
+        slotTokens.add(tokens[p]);
+      }
+      p++;
+    }
+
+    return (_buildClause(slotTokens, forcedOptional: isOpt), p);
   }
 
   static SciSaidClause _buildClause(

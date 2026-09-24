@@ -45,7 +45,11 @@ class _SnapshotThumbnailWidgetState extends State<SnapshotThumbnailWidget> {
   @override
   void didUpdateWidget(covariant SnapshotThumbnailWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.thumbnailRgba != widget.thumbnailRgba) {
+    // Same bytes reinterpreted at different dimensions (AGI 80x84 vs SCI
+    // 80x50) decode to a different image, so dimension changes re-decode too.
+    if (oldWidget.thumbnailRgba != widget.thumbnailRgba ||
+        oldWidget.sourceWidth != widget.sourceWidth ||
+        oldWidget.sourceHeight != widget.sourceHeight) {
       _cachedImage?.dispose();
       _cachedImage = null;
       _decodeImage();
@@ -73,7 +77,16 @@ class _SnapshotThumbnailWidgetState extends State<SnapshotThumbnailWidget> {
   void _decodeImage() {
     final rgba = widget.thumbnailRgba;
     final size = _pixelSize;
-    if (rgba == null || rgba.isEmpty || size == null || _isDecoding) return;
+    if (rgba == null || rgba.isEmpty || _isDecoding) return;
+    if (size == null) {
+      // Unknown buffer shape: surface it instead of silently showing the
+      // placeholder icon, so new thumbnail sizes get noticed.
+      debugPrint(
+        '[SnapshotThumbnail] unrecognized buffer length ${rgba.length}; '
+        'expected 80x50 or 80x84 RGBA.',
+      );
+      return;
+    }
 
     _isDecoding = true;
     ui.decodeImageFromPixels(
@@ -88,6 +101,7 @@ class _SnapshotThumbnailWidgetState extends State<SnapshotThumbnailWidget> {
             _isDecoding = false;
           });
         } else {
+          _isDecoding = false;
           image.dispose();
         }
       },

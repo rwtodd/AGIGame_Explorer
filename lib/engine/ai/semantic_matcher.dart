@@ -194,17 +194,24 @@ class SemanticMatcher {
     };
 
     final candidateTexts = candidates.map((c) => c.textToEmbed).toList();
-    final docVectors = await embeddingService.batchEmbedDocuments(
-      candidateTexts,
-      apiKey: apiKey,
-      model: model,
-    );
-
-    final queryVector = await embeddingService.embedQuery(
-      cleanQuery,
-      apiKey: apiKey,
-      model: model,
-    );
+    // Fetch documents and query concurrently: the two requests are
+    // independent, and serial awaits double input latency on cache misses.
+    // Both entry points are cache-aware, so fully-cached submits still make
+    // zero network calls.
+    final fetched = await Future.wait([
+      embeddingService.batchEmbedDocuments(
+        candidateTexts,
+        apiKey: apiKey,
+        model: model,
+      ),
+      embeddingService.embedQuery(
+        cleanQuery,
+        apiKey: apiKey,
+        model: model,
+      ),
+    ]);
+    final docVectors = fetched[0] as Map<String, Float32List>;
+    final queryVector = fetched[1] as Float32List?;
 
     if (queryVector == null) {
       return const SemanticMatchResult.none(score: 0.0);

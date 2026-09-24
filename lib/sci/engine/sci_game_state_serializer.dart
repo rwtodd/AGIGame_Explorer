@@ -37,6 +37,7 @@ class SciGameStateSerializer {
     final snap = SciGameStateSnapshot.capture(
       engine,
       label: description.isNotEmpty ? description : null,
+      includeThumbnail: includeThumbnail,
     );
     return snap.toJsonString(pretty: pretty, includeThumbnail: includeThumbnail);
   }
@@ -132,7 +133,9 @@ class SciGameStateSerializer {
       engine,
       label: description.isNotEmpty ? description : 'Slot $slot Save',
     );
-    final jsonContent = snap.toJsonString(pretty: true, includeThumbnail: true);
+    // Compact JSON on the save path: identical data, ~30% smaller files and
+    // no pretty-print cost during the F5 hitch.
+    final jsonContent = snap.toJsonString(pretty: false, includeThumbnail: true);
 
     file.writeAsStringSync(jsonContent, flush: true);
     return file;

@@ -52,6 +52,37 @@ void main() {
       expect(info.thumbnailRgba!.length, pixels.length);
     });
 
+    test('parseMetadata with unknown thumbnail size keeps bytes, leaves dimensions null', () {
+      final pixels = Uint8List(1234);
+      final json = jsonEncode({
+        'description': 'Mystery',
+        'currentRoom': 1,
+        'thumbnail': base64Encode(pixels),
+      });
+      final info = SciGameStateSerializer.parseMetadata(json, slot: 3);
+      expect(info.exists, isTrue);
+      expect(info.thumbnailRgba!.length, pixels.length);
+      expect(info.thumbnailWidth, isNull);
+      expect(info.thumbnailHeight, isNull);
+    });
+
+    test('capture with includeThumbnail false skips compositing; saves are compact', () {
+      if (!hasPq2) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+      final snap = SciGameStateSnapshot.capture(engine, includeThumbnail: false);
+      expect(snap.thumbnailRgba, isNull);
+      expect(snap.toJson(includeThumbnail: false).containsKey('thumbnail'), isFalse);
+
+      final file = SciGameStateSerializer.saveToSlotSync(engine, 1);
+      final content = file.readAsStringSync();
+      // Compact JSON: single line, no pretty-print indentation.
+      expect(content.startsWith('{'), isTrue);
+      expect(content.contains('\n  "'), isFalse);
+      expect(SciGameStateSerializer.parseMetadata(content, slot: 1).exists, isTrue);
+    });
+
     test('SciGameStateSnapshot serializes and restores complete engine state', () {
       if (!hasPq2) {
         markTestSkipped('PQ2 reference tree missing');

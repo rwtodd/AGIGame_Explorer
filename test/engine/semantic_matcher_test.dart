@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/ai/embedding_service.dart';
@@ -7,6 +9,88 @@ class _FailingHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> postUrl(Uri url) {
     throw UnsupportedError('Unit tests must never perform real HTTP requests!');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Minimal mock that serves one embedding vector per request and counts calls.
+class _CountingHttpClient implements HttpClient {
+  int postCount = 0;
+  final List<double> queryVector;
+
+  _CountingHttpClient(this.queryVector);
+
+  @override
+  Future<HttpClientRequest> postUrl(Uri url) async {
+    postCount++;
+    return _CountingRequest(url, queryVector);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CountingRequest implements HttpClientRequest {
+  final Uri url;
+  final List<double> queryVector;
+
+  _CountingRequest(this.url, this.queryVector);
+
+  @override
+  HttpHeaders get headers => _DummyHeaders();
+
+  @override
+  void write(Object? obj) {}
+
+  @override
+  Future<HttpClientResponse> close() async {
+    final body = url.path.contains('batchEmbedContents')
+        ? jsonEncode({
+            'embeddings': [
+              {'values': queryVector},
+            ],
+          })
+        : jsonEncode({
+            'embedding': {'values': queryVector},
+          });
+    return _CountingResponse(body);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _DummyHeaders implements HttpHeaders {
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CountingResponse extends Stream<List<int>> implements HttpClientResponse {
+  final String body;
+
+  _CountingResponse(this.body);
+
+  @override
+  int get statusCode => 200;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return Stream.value(utf8.encode(body)).listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
   }
 
   @override
@@ -147,6 +231,37 @@ void main() {
       );
       expect(strictMatch.hasMatch, isFalse);
       expect(strictMatch.isNone, isTrue);
+    });
+
+    test('uncached query embeds once while cached candidates are not refetched', () async {
+      final countingClient = _CountingHttpClient([0.98, 0.15, 0.0]);
+      final cachedService = EmbeddingService(httpClient: countingClient);
+      final cachedMatcher = SemanticMatcher(embeddingService: cachedService);
+
+      cachedService.storeInCache(
+        'look desk',
+        EmbeddingService.normalize([1.0, 0.1, 0.0]),
+      );
+      cachedService.storeInCache(
+        'open door',
+        EmbeddingService.normalize([0.0, 1.0, 0.1]),
+      );
+
+      final result = await cachedMatcher.findBestMatch(
+        userQuery: 'examine table',
+        candidates: const [
+          CandidateSentence(id: '1', textToEmbed: 'look desk', targetCommand: 'look desk'),
+          CandidateSentence(id: '2', textToEmbed: 'open door', targetCommand: 'open door'),
+        ],
+        apiKey: 'dummy-key',
+      );
+
+      expect(result.hasMatch, isTrue);
+      expect(result.matchedCandidate!.targetCommand, equals('look desk'));
+      expect(result.fromCache, isFalse);
+      // Exactly one network call (the uncached query); cached candidates
+      // must not trigger a batch refetch.
+      expect(countingClient.postCount, equals(1));
     });
 
     test('empty query or candidates returns none with zero score', () async {

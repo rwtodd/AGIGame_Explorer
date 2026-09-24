@@ -398,10 +398,16 @@ class SciGameStateSnapshot {
   });
 
   /// Captures a complete snapshot from a live [SciGameEngine].
+  ///
+  /// Pass [includeThumbnail] false to skip screen compositing entirely; the
+  /// pixel walk in [SciGameEngine.captureScreenThumbnailRgba] runs on the UI
+  /// thread, so thumbnail-free callers (metadata, thumbnails-off exports)
+  /// must not pay for it.
   factory SciGameStateSnapshot.capture(
     SciGameEngine engine, {
     String? label,
     Uint8List? thumbnailRgba,
+    bool includeThumbnail = true,
   }) {
     final now = DateTime.now().toIso8601String();
     final seg = engine.segManager;
@@ -482,7 +488,8 @@ class SciGameStateSnapshot {
     // Capture VM execution stack
     final execStack = vm.executionStack.map(SciExecStackSnapshot.fromFrame).toList();
 
-    final thumb = thumbnailRgba ?? engine.captureScreenThumbnailRgba();
+    final Uint8List? thumb =
+        includeThumbnail ? (thumbnailRgba ?? engine.captureScreenThumbnailRgba()) : null;
 
     return SciGameStateSnapshot(
       version: '1.0',

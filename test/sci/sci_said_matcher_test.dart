@@ -319,6 +319,47 @@ void main() {
       expect(SciSaidMatcher.match(spec, lookSky), isFalse);
     });
 
+    test('three-slot specs decompose uniformly, including optional slot 2', () {
+      const verbGroup = 1000;
+      const doorGroup = 1020;
+      const keyGroup = 1030;
+
+      // verb/door/key: all three slots present and required.
+      final full = SciSaidSpec.fromBytes(Uint8List.fromList([
+        (verbGroup >> 8) & 0xFF, verbGroup & 0xFF,
+        SciSaidOp.slash,
+        (doorGroup >> 8) & 0xFF, doorGroup & 0xFF,
+        SciSaidOp.slash,
+        (keyGroup >> 8) & 0xFF, keyGroup & 0xFF,
+        SciSaidOp.term,
+      ]));
+      expect(full.clauses.length, 3);
+      expect(full.clauses[0].isPresent, isTrue);
+      expect(full.clauses[0].isOptional, isFalse);
+      expect(full.clauses[1].isPresent, isTrue);
+      expect(full.clauses[1].isOptional, isFalse);
+      expect(full.clauses[2].isPresent, isTrue);
+      expect(full.clauses[2].isOptional, isFalse);
+
+      // verb/door[/key]: slot 2 present but optional via the shared parser.
+      final optIndirect = SciSaidSpec.fromBytes(Uint8List.fromList([
+        (verbGroup >> 8) & 0xFF, verbGroup & 0xFF,
+        SciSaidOp.slash,
+        (doorGroup >> 8) & 0xFF, doorGroup & 0xFF,
+        SciSaidOp.bracketOpen,
+        SciSaidOp.slash,
+        (keyGroup >> 8) & 0xFF, keyGroup & 0xFF,
+        SciSaidOp.bracketClose,
+        SciSaidOp.term,
+      ]));
+      expect(optIndirect.clauses.length, 3);
+      expect(optIndirect.clauses[0].isPresent, isTrue);
+      expect(optIndirect.clauses[1].isPresent, isTrue);
+      expect(optIndirect.clauses[1].isOptional, isFalse);
+      expect(optIndirect.clauses[2].isPresent, isTrue);
+      expect(optIndirect.clauses[2].isOptional, isTrue);
+    });
+
     test('omitted verb with required noun: /pole, sign', () {
       const poleGroup = 3001;
       const signGroup = 3002;

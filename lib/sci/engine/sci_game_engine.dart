@@ -499,7 +499,8 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     try {
       _cycleCount++;
       final room = currentRoom;
-      if (room != prevRoomForSnapshot) {
+      final roomChanged = room != prevRoomForSnapshot;
+      if (roomChanged) {
         prevRoomForSnapshot = room;
         _lastDirection = 0;
       }
@@ -509,10 +510,15 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       kernel.updateSci0Cues(vm);
       _pumpVm();
       _restorePq2SpeedAfterTest();
-      segManager.purgeUnmappedScripts(pinned: [
-        for (final frame in vm.executionStack) ...[frame.pc, frame.objp],
-        ...vm.stack,
-      ]);
+      // Reclaim disposed scripts lazily, ScummVM-style: promptly on room
+      // change (game scripts also call FlushResources, which purges
+      // directly), otherwise a dilute backstop every ~30 s. Benign room
+      // objects linger in between; only SCI-engine limits would force more.
+      if (roomChanged) {
+        _purgeIfNeeded();
+      } else if (segManager.hasPendingPurge && _cycleCount % 600 == 0) {
+        _purgeIfNeeded();
+      }
       if (_lastDirection != 0 &&
           _isEgoStopped() &&
           !kernel.eventQueue.any((e) => e.type == SciEventType.direction)) {
@@ -522,6 +528,17 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     } finally {
       _inTick = false;
     }
+  }
+
+  /// Sweeps disposed scripts only when one is actually pending, pinning the
+  /// live VM frames and stack. The flag check keeps steady-state ticks free
+  /// of heap scans and stack copies.
+  void _purgeIfNeeded() {
+    if (!segManager.hasPendingPurge) return;
+    segManager.purgeUnmappedScripts(pinned: [
+      for (final frame in vm.executionStack) ...[frame.pc, frame.objp],
+      ...vm.stack,
+    ]);
   }
 
   /// PQ2 1.002.011 leaves `setSpeed: 0` after the room-99 test on the intro
@@ -1035,11 +1052,19 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
         final cel = loop?.getCel(s.celNumber);
         if (cel == null) continue;
 
-        final pixels = cel.getPixels(parentView: view, celIndex: s.celNumber);
         final cw = cel.width;
         final ch = cel.height;
         final startX = (s.position.dx + s.displaceX).round();
         final startY = (s.position.dy + s.displaceY - s.z).round();
+
+        // Skip fully off-screen actors before paying for pixel decoding.
+        if (startX + cw <= 0 ||
+            startY + ch <= 0 ||
+            startX >= nativeW ||
+            startY >= nativeH) {
+          continue;
+        }
+        final pixels = cel.getPixels(parentView: view, celIndex: s.celNumber);
 
         for (int cy = 0; cy < ch; cy++) {
           final py = startY + cy;
