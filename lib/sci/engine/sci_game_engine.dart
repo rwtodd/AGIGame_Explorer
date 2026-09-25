@@ -754,8 +754,9 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
 
       final claimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
       if (!dispatched || !claimed) {
-        if (segManager.globals.length > 1 && !segManager.globals[1].isNull) {
-          final curRoom = segManager.globals[1];
+        if (segManager.globals.length > SciGlobals.currentRoom &&
+            !segManager.globals[SciGlobals.currentRoom].isNull) {
+          final curRoom = segManager.globals[SciGlobals.currentRoom];
           try {
             vm.sendSelector(curRoom, selectors.handleEvent, [eventReg]);
           } catch (_) {}
@@ -763,8 +764,10 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       }
 
       final finalClaimed = eventObj.getProp(segManager, claimedSel).toUint16() != 0;
-      if (!finalClaimed && segManager.globals.isNotEmpty && !segManager.globals[0].isNull) {
-        final theGame = segManager.globals[0];
+      if (!finalClaimed &&
+          segManager.globals.length > SciGlobals.game &&
+          !segManager.globals[SciGlobals.game].isNull) {
+        final theGame = segManager.globals[SciGlobals.game];
         final pragmaFailSel = selectors.pragmaFail >= 0
             ? selectors.pragmaFail
             : selectors.findSelector('pragmaFail');

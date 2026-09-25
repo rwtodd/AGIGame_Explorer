@@ -1736,6 +1736,10 @@ class SciKernel {
   SciReg _kDrawMenuBar(SciVM vm, int argc, List<SciReg> argv) {
     final show = argc >= 1 && !argv[0].isNull && argv[0].toSint16() != 0;
     menuBar.visible = show;
+    // Titles take the strip back (ScummVM `drawBar` fills over the status);
+    // hiding blanks it (ScummVM erases via an empty `DrawStatus`).
+    menuBar.statusActive = false;
+    if (!show) menuBar.statusText = '';
     if (show) menuBar.openMenuId = null;
     onWindowsChanged?.call();
     return vm.r_acc;
@@ -1879,6 +1883,8 @@ class SciKernel {
       final text = vm.segManager.getString(argv[0]);
       currentStatusLine = text;
       menuBar.statusText = text;
+      // Status text paints over the menu titles on the shared 10px strip.
+      menuBar.statusActive = true;
       if (argc >= 2) menuBar.statusPen = argv[1].toSint16();
       if (argc >= 3) menuBar.statusBack = argv[2].toSint16();
       onDrawStatus?.call(text);
@@ -2051,8 +2057,8 @@ class SciKernel {
   }
 
   void _invokeWordFail(SciVM vm, SciReg strReg, String unknownWord) {
-    if (vm.segManager.globals.isEmpty || selectors.wordFail < 0) return;
-    final theGame = vm.segManager.globals[0];
+    if (vm.segManager.globals.length <= SciGlobals.game || selectors.wordFail < 0) return;
+    final theGame = vm.segManager.globals[SciGlobals.game];
     if (theGame.isNull) return;
     final unknownReg = vm.segManager.allocString(unknownWord);
     try {
@@ -2061,8 +2067,8 @@ class SciKernel {
   }
 
   void _invokeSyntaxFail(SciVM vm, SciReg strReg) {
-    if (vm.segManager.globals.isEmpty || selectors.syntaxFail < 0) return;
-    final theGame = vm.segManager.globals[0];
+    if (vm.segManager.globals.length <= SciGlobals.game || selectors.syntaxFail < 0) return;
+    final theGame = vm.segManager.globals[SciGlobals.game];
     if (theGame.isNull) return;
     try {
       vm.sendSelector(theGame, selectors.syntaxFail, [strReg]);

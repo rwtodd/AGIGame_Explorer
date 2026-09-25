@@ -1,5 +1,21 @@
 // Core VM types and registers for the Sierra SCI PMachine.
 
+/// Canonical system global variable indices (ScummVM `kGlobalVar*`).
+///
+/// g0 is the ego object, g1 is the game object (`theGame`), g2 is the
+/// current room object. Higher indices used here: g3 game speed, g11 room
+/// number, g12 previous room, g13 new room, g15 score, g18 game speed copy.
+class SciGlobals {
+  static const int ego = 0;
+  static const int game = 1;
+  static const int currentRoom = 2;
+  static const int speed = 3;
+  static const int roomNumber = 11;
+  static const int previousRoom = 12;
+  static const int newRoom = 13;
+  static const int score = 15;
+}
+
 /// Represents a 32-bit register in the Sierra SCI PMachine.
 ///
 /// Composed of a 16-bit [segment] and a 16-bit [offset].

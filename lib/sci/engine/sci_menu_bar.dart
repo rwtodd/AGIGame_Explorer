@@ -35,6 +35,12 @@ class SciMenuBar {
   String statusText = '';
   int statusPen = 0;
   int statusBack = 15;
+
+  /// True when the strip currently shows [statusText] rather than menu
+  /// titles. Sierra/ScummVM treat the 10px strip as last-writer-wins:
+  /// `DrawStatus` paints status text over the titles, `DrawMenuBar` paints
+  /// titles back over the status.
+  bool statusActive = false;
   int? openMenuId;
   int highlightedItemId = 1;
 
@@ -44,6 +50,7 @@ class SciMenuBar {
     statusText = '';
     statusPen = 0;
     statusBack = 15;
+    statusActive = false;
     openMenuId = null;
     highlightedItemId = 1;
   }
@@ -163,11 +170,15 @@ class SciMenuBar {
     return 0;
   }
 
-  /// Overlay for the 10px strip: menu titles, or status text when the bar is hidden.
+  /// Overlay for the 10px strip: status text wins once `DrawStatus` has
+  /// painted it; menu titles show while a menu is open or when no status
+  /// text has taken over the strip.
   SciWindowOverlay? toOverlay({SierraFont? font}) {
-    if (!visible && statusText.isEmpty) return null;
+    final showTitles =
+        (openMenuId != null || !statusActive) && visible && menus.isNotEmpty;
+    if (!showTitles && statusText.isEmpty) return null;
     final controls = <SciControlItem>[];
-    if (visible && menus.isNotEmpty) {
+    if (showTitles) {
       var x = 8.0;
       for (final menu in menus) {
         final w = (font?.measureTextWidth(menu.title) ?? menu.title.length * 8) + 8;
