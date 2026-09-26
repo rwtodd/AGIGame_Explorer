@@ -238,9 +238,25 @@ class SciSegManager {
   }
 
   /// Gets the address of a class, optionally loading its script via [volumeManager].
+  ///
+  /// Cached entries are validated: game code disposes class scripts on room
+  /// exit (via the DisposeScript kernel call) and [purgeUnmappedScripts]
+  /// then frees the segment, so a cached address may point at a segment that
+  /// no longer holds the script. A stale entry is dropped and the script is
+  /// reloaded on demand instead of handing out a dangling pointer (which
+  /// silently sinks every later send, e.g. PQ2 room 1's station door never
+  /// being created because `(Class_56 new:)` resolved to a freed segment).
   SciReg getClassAddress(int classNr, {SciVolumeManager? volumeManager}) {
     if (classAddresses.containsKey(classNr)) {
-      return classAddresses[classNr]!;
+      final cached = classAddresses[classNr]!;
+      final scriptNr =
+          classNr >= 0 && classNr < classScripts.length ? classScripts[classNr] : -1;
+      if (scriptNr >= 0 &&
+          scriptToSegment[scriptNr] == cached.segment &&
+          loadedScripts.containsKey(cached.segment)) {
+        return cached;
+      }
+      classAddresses.remove(classNr);
     }
     if (classNr < 0 || classNr >= classScripts.length) {
       return SciReg.nullReg;
