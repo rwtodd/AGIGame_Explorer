@@ -409,8 +409,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final isSciWindowOpen =
         _sciEngine != null && _sciEngine!.kernel.windowManager.windowStack.isNotEmpty;
 
-    // 5. Direction controls ALWAYS control Ego/Session (unless an SCI modal window is active)
-    if (!isSciWindowOpen) {
+    // 5. Direction controls ALWAYS control Ego/Session (unless an SCI modal
+    // window is active or an SCI pull-down menu is open, when arrows navigate
+    // the menu instead of walking Ego).
+    final isSciMenuOpen =
+        _sciEngine != null && _sciEngine!.kernel.menuBar.openMenuId != null;
+    if (!isSciWindowOpen && !isSciMenuOpen) {
       switch (event.logicalKey) {
         case LogicalKeyboardKey.arrowUp:
         case LogicalKeyboardKey.numpad8:
@@ -456,6 +460,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     // --- SCI0 Modal Keyboard & Window Handling ---
     if (_sciEngine != null) {
+      if (event.logicalKey == LogicalKeyboardKey.tab &&
+          !isSciWindowOpen &&
+          _session.isInputEnabled) {
+        // No SCI script maps TAB; route it through the game's own inventory
+        // Said handler, exactly as if "inventory" had been typed.
+        _sciEngine!.submitCommand('inventory');
+        return KeyEventResult.handled;
+      }
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter) {
         // User.doit treats both Enter and Space as "open the parser".

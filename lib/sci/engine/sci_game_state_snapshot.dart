@@ -352,6 +352,9 @@ class SciGameStateSnapshot {
   final int nextScriptSegmentId;
   final int nextHunkOffset;
 
+  // Menu bar (titles/items/visibility/status so menus survive save/load)
+  final Map<String, dynamic> menuBarJson;
+
   // VM Execution State
   final SciReg acc;
   final SciReg prev;
@@ -388,6 +391,7 @@ class SciGameStateSnapshot {
     required this.hunks,
     required this.nextScriptSegmentId,
     required this.nextHunkOffset,
+    this.menuBarJson = const {},
     required this.acc,
     required this.prev,
     this.rest = 0,
@@ -518,6 +522,7 @@ class SciGameStateSnapshot {
       hunks: hunks,
       nextScriptSegmentId: seg.nextScriptSegmentId,
       nextHunkOffset: seg.nextHunkOffset,
+      menuBarJson: kernel.menuBar.toJson(),
       acc: vm.acc,
       prev: vm.prev,
       rest: vm.r_rest,
@@ -532,6 +537,12 @@ class SciGameStateSnapshot {
   void restore(SciGameEngine engine, {bool? preservePauseState}) {
     final wasPaused = engine.isPaused;
     engine.pause();
+
+    // Pre-menu saves carry no menu bar data; keep the live bar (built by
+    // AddMenu at boot) instead of landing menuless. Matches real Sierra,
+    // where menus persist across a restore.
+    final keepMenus =
+        menuBarJson.isEmpty ? engine.kernel.menuBar.toJson() : null;
 
     engine.atlasManager.clear();
     engine.segManager.reset();
@@ -643,7 +654,9 @@ class SciGameStateSnapshot {
     engine.segManager.nextHunkOffset = nextHunkOffset;
     engine.segManager.nextScriptSegmentId = nextScriptSegmentId;
 
-    // 8. Restore clock and kernel
+    // 8. Restore clock, kernel, and menu bar (AddMenu only runs at boot,
+    // so without this a restore permanently loses the pull-down menus).
+    engine.kernel.menuBar.restoreJson(keepMenus ?? menuBarJson);
     engine.kernel.currentSciTicks = sciTicks;
     engine.kernel.lastWaitTicks = lastWaitTicks;
     engine.kernel.lastWaitTime = lastWaitTime;
@@ -751,6 +764,7 @@ class SciGameStateSnapshot {
           'nextScriptSegmentId': nextScriptSegmentId,
           'nextHunkOffset': nextHunkOffset,
         },
+        'menuBar': menuBarJson,
         'vm': {
           'acc': regToJson(acc),
           'prev': regToJson(prev),
@@ -818,6 +832,12 @@ class SciGameStateSnapshot {
         .map((f) => SciExecStackSnapshot.fromJson(f as Map<String, dynamic>))
         .toList();
 
+    final rawMenuBar = json['menuBar'];
+    var menuBarJson = <String, dynamic>{};
+    if (rawMenuBar != null && rawMenuBar is Map) {
+      menuBarJson = rawMenuBar.cast<String, dynamic>();
+    }
+
     Uint8List? thumb;
     final thumbRaw = json['thumbnail'];
     if (thumbRaw != null && thumbRaw is String && thumbRaw.isNotEmpty) {
@@ -853,6 +873,7 @@ class SciGameStateSnapshot {
       hunks: hunks,
       nextScriptSegmentId: (rawAlloc['nextScriptSegmentId'] as num?)?.toInt() ?? 1,
       nextHunkOffset: (rawAlloc['nextHunkOffset'] as num?)?.toInt() ?? 1,
+      menuBarJson: menuBarJson,
       acc: regFromJson(rawVm['acc']),
       prev: regFromJson(rawVm['prev']),
       rest: (rawVm['rest'] as num?)?.toInt() ?? 0,

@@ -308,6 +308,16 @@ class SciKernel {
   /// modal kernel (MenuSelect) can resume on the next tick.
   bool suspendCallk = false;
 
+  /// Always-on one-line diagnostic for menu interactions (ESC, strip and
+  /// dropdown clicks). Menu input is rare, so this never touches hot paths;
+  /// lines are visible in the debug inspector's Kernel Logs tab.
+  void noteMenuEvent(String line) {
+    if (recentCallLogs.length >= _logCap) {
+      recentCallLogs.removeFirst();
+    }
+    recentCallLogs.addLast(line);
+  }
+
   SciReg call(SciVM vm, int kernelId, int argc, List<SciReg> argv) {
     suspendCallk = false;
     if (kernelId != 0x46) getTimeStreak = 0;
@@ -1812,6 +1822,8 @@ class SciKernel {
       } else if (type == SciEventType.keyDown && (msg == 27 || msg == 0x1b)) {
         menuId = 1;
       }
+      noteMenuEvent(
+          'MenuSelect fresh type=$type msg=$msg x=$x y=$y -> menu $menuId');
       if (menuId == 0) return const SciReg.fromInt(0);
       menuBar.openMenu(menuId);
       onWindowsChanged?.call();
@@ -1819,6 +1831,7 @@ class SciKernel {
 
     final result = _menuSelectConsumeQueue(font);
     if (result != null) {
+      noteMenuEvent('MenuSelect done open=${menuBar.openMenuId} -> $result');
       menuBar.closeMenu();
       onWindowsChanged?.call();
       return SciReg.fromInt(result);
@@ -1866,6 +1879,8 @@ class SciKernel {
     if (ev.type == SciEventType.mousePress) {
       final onTitle = menuBar.menuIdAt(ev.x, ev.y, font);
       if (onTitle != 0) {
+        noteMenuEvent(
+            'MenuSelect switch ${menuBar.openMenuId} -> $onTitle at ${ev.x},${ev.y}');
         menuBar.openMenu(onTitle);
         return null;
       }

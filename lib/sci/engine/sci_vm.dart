@@ -155,6 +155,26 @@ class SciVM {
   }
 
   /// Invokes a method on an object or performs property read/write across the message sequence.
+  /// Redirects `(game save:)` / `(game restore:)` to the host save/restore
+  /// dialog callbacks when attached. Returns true when routed (the caller
+  /// must advance past the send); false preserves normal dispatch.
+  bool _routeHostSaveRestore(SciReg targetObj, int selectorId) {
+    if (segManager.globals.length <= SciGlobals.game) return false;
+    if (segManager.globals[SciGlobals.game] != targetObj) return false;
+    final name = selectors.getSelectorName(selectorId);
+    if (name == 'save' && kernel.onSaveGameRequested != null) {
+      kernel.onSaveGameRequested!();
+      r_acc = SciReg.nullReg;
+      return true;
+    }
+    if (name == 'restore' && kernel.onRestoreGameRequested != null) {
+      kernel.onRestoreGameRequested!();
+      r_acc = SciReg.nullReg;
+      return true;
+    }
+    return false;
+  }
+
   void _dispatchSend(SciReg targetObj, SciReg workObj, int argBase, int frameSize) {
     var curArg = argBase;
     while (curArg < argBase + frameSize && !abortScriptProcessing && !yieldRequested) {
@@ -177,6 +197,16 @@ class SciVM {
 
       final obj = segManager.getObject(workObj);
       if (obj == null) {
+        curArg += 2 + argc;
+        continue;
+      }
+
+      // 0. Route the game menu's Save/Restore through the host save dialog
+      // (same entry point the side-panel buttons use) instead of the script
+      // SaveDialog, whose button hit-testing does not line up with our
+      // overlay geometry, leaving it inoperable. Only when a host handler
+      // is attached; headless runs keep authentic script behavior.
+      if (_routeHostSaveRestore(targetObj, selectorId)) {
         curArg += 2 + argc;
         continue;
       }

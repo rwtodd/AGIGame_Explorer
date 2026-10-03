@@ -17,6 +17,22 @@ class SciMenuItem {
     this.checked = false,
     this.isSeparator = false,
   });
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'shortcut': shortcut,
+        'enabled': enabled,
+        'checked': checked,
+        'isSeparator': isSeparator,
+      };
+
+  factory SciMenuItem.fromJson(Map<String, dynamic> json) => SciMenuItem(
+        label: json['label']?.toString() ?? '',
+        shortcut: json['shortcut']?.toString() ?? '',
+        enabled: json['enabled'] as bool? ?? true,
+        checked: json['checked'] as bool? ?? false,
+        isSeparator: json['isSeparator'] as bool? ?? false,
+      );
 }
 
 /// One top-level menu (File, Game, …). Ids are 1-based like Sierra.
@@ -26,6 +42,23 @@ class SciMenu {
   final List<SciMenuItem> items;
 
   SciMenu({required this.id, required this.title, required this.items});
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'items': items.map((i) => i.toJson()).toList(),
+      };
+
+  factory SciMenu.fromJson(Map<String, dynamic> json) {
+    final rawItems = json['items'] as List? ?? const [];
+    return SciMenu(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      title: json['title']?.toString() ?? '',
+      items: rawItems
+          .map((i) => SciMenuItem.fromJson((i as Map).cast<String, dynamic>()))
+          .toList(),
+    );
+  }
 }
 
 /// SCI0 menu bar + status strip (rows 0..9).
@@ -53,6 +86,39 @@ class SciMenuBar {
     statusActive = false;
     openMenuId = null;
     highlightedItemId = 1;
+  }
+
+  /// Serializes titles, items (including SetMenu enabled/checked/label
+  /// state), visibility, and status text so save/restore keeps working
+  /// menus. Transient open/highlight state is intentionally not persisted;
+  /// saves happen with the menu closed.
+  Map<String, dynamic> toJson() => {
+        'visible': visible,
+        'statusText': statusText,
+        'statusPen': statusPen,
+        'statusBack': statusBack,
+        'statusActive': statusActive,
+        'menus': menus.map((m) => m.toJson()).toList(),
+      };
+
+  /// Replaces bar contents from [toJson] output. Missing or empty input
+  /// leaves the reset state alone (pre-menu saves stay menuless rather
+  /// than crashing, and pick menus back up on reboot).
+  void restoreJson(Map<String, dynamic> json) {
+    reset();
+    if (json.isEmpty) return;
+    visible = json['visible'] as bool? ?? false;
+    statusText = json['statusText']?.toString() ?? '';
+    statusPen = (json['statusPen'] as num?)?.toInt() ?? 0;
+    statusBack = (json['statusBack'] as num?)?.toInt() ?? 15;
+    statusActive = json['statusActive'] as bool? ?? false;
+    final rawMenus = json['menus'] as List? ?? const [];
+    var id = 0;
+    for (final m in rawMenus) {
+      id++;
+      final menu = SciMenu.fromJson((m as Map).cast<String, dynamic>());
+      menus.add(SciMenu(id: id, title: menu.title, items: menu.items));
+    }
   }
 
   void openMenu(int menuId) {

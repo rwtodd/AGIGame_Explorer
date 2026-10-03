@@ -662,8 +662,31 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     kernel.mouseY = y;
     _hitTestWindows(x, y);
     _lastDirection = 0;
+    final menuWasOpen = kernel.menuBar.openMenuId != null;
     kernel.postMouseEvent(SciEventType.mousePress, x, y);
     tick();
+    // QoL: a click on the menu/status strip (rows 0..9) that hit no title —
+    // e.g. status text is covering the titles — would otherwise do nothing.
+    // Bring up the first menu exactly as if ESC had been pressed. Skipped
+    // when a menu was already open so click-away-to-cancel keeps working.
+    if (!menuWasOpen &&
+        y >= 0 &&
+        y < 10 &&
+        kernel.menuBar.visible &&
+        kernel.menuBar.menus.isNotEmpty &&
+        kernel.menuBar.openMenuId == null &&
+        kernel.windowManager.windowStack.isEmpty) {
+      kernel.noteMenuEvent('stripClick miss at $x,$y -> ESC fallback');
+      handleKeyPress(27, ascii: 27);
+    } else if (!menuWasOpen &&
+        y >= 0 &&
+        y < 10 &&
+        kernel.menuBar.openMenuId == null) {
+      kernel.noteMenuEvent('stripClick at $x,$y ignored '
+          '(visible=${kernel.menuBar.visible} '
+          'menus=${kernel.menuBar.menus.length} '
+          'windows=${kernel.windowManager.windowStack.length})');
+    }
   }
 
   void _hitTestWindows(int x, int y) {
