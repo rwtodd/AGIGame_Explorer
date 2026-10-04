@@ -105,25 +105,31 @@ void main() {
       );
     });
 
-    test('unknown word opens the wordFail response dialog', () {
+    test('unknown word opens the wordFail response dialog and frees hunks', () {
       if (!hasPq2) {
         markTestSkipped('PQ2 reference tree missing');
         return;
       }
+      final hunksBefore = engine.segManager.hunkBuffers.length;
       engine.submitCommand('dfai');
       expect(
         dialogText(),
         contains('dfai'),
       );
+      expect(engine.segManager.hunkBuffers.length, hunksBefore,
+          reason: 'command string and wordFail hunks must be freed');
     });
 
-    test('known command reaches the room handler', () {
+    test('known command reaches the room handler and frees hunks', () {
       if (!hasPq2) {
         markTestSkipped('PQ2 reference tree missing');
         return;
       }
+      final hunksBefore = engine.segManager.hunkBuffers.length;
       engine.submitCommand('look');
       expect(dialogText(), contains('behind the wheel'));
+      expect(engine.segManager.hunkBuffers.length, hunksBefore,
+          reason: 'command string hunk must be freed');
     });
 
     test('pragmaFail on the game object prints a response', () {

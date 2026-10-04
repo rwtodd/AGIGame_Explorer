@@ -462,7 +462,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (_sciEngine != null) {
       if (event.logicalKey == LogicalKeyboardKey.tab &&
           !isSciWindowOpen &&
-          _session.isInputEnabled) {
+          _session.isInputEnabled &&
+          _currentInputText.isEmpty) {
         // No SCI script maps TAB; route it through the game's own inventory
         // Said handler, exactly as if "inventory" had been typed.
         _sciEngine!.submitCommand('inventory');
@@ -499,19 +500,23 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         _session.handleKeyPress(0x4F00, ascii: 0);
         return KeyEventResult.handled;
       }
-      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+          event.logicalKey == LogicalKeyboardKey.numpad4) {
         _session.handleKeyPress(0x4B00, ascii: 0);
         return KeyEventResult.handled;
       }
-      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
+          event.logicalKey == LogicalKeyboardKey.numpad6) {
         _session.handleKeyPress(0x4D00, ascii: 0);
         return KeyEventResult.handled;
       }
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+          event.logicalKey == LogicalKeyboardKey.numpad8) {
         _session.handleKeyPress(0x4800, ascii: 0);
         return KeyEventResult.handled;
       }
-      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+          event.logicalKey == LogicalKeyboardKey.numpad2) {
         _session.handleKeyPress(0x5000, ascii: 0);
         return KeyEventResult.handled;
       }

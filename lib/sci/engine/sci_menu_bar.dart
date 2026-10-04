@@ -33,6 +33,24 @@ class SciMenuItem {
         checked: json['checked'] as bool? ?? false,
         isSeparator: json['isSeparator'] as bool? ?? false,
       );
+
+  /// Formats raw Sierra shortcut strings (e.g. `#5` -> `F5`, `^q` -> `Ctrl+Q`).
+  static String formatShortcut(String raw) {
+    if (raw.isEmpty) return '';
+    if (raw.startsWith('#')) {
+      final sub = raw.substring(1);
+      if (sub == '0') return 'F10';
+      final n = int.tryParse(sub);
+      if (n != null) return 'F$n';
+    }
+    if (raw.startsWith('^') && raw.length > 1) {
+      return 'Ctrl+${raw.substring(1).toUpperCase()}';
+    }
+    if (raw.startsWith('@') && raw.length > 1) {
+      return 'Alt+${raw.substring(1).toUpperCase()}';
+    }
+    return raw;
+  }
 }
 
 /// One top-level menu (File, Game, …). Ids are 1-based like Sierra.
@@ -183,8 +201,11 @@ class SciMenuBar {
       final w = (font?.measureTextWidth(menu.title) ?? menu.title.length * 8) + 8;
       if (menu.id == id) {
         final menuW = menu.items.fold<int>(w.toInt(), (m, it) {
-          final iw = (font?.measureTextWidth(it.label) ?? it.label.length * 8) + 16;
-          return iw > m ? iw : m;
+          final labelW = (font?.measureTextWidth(it.label) ?? it.label.length * 8) + 16;
+          final sc = SciMenuItem.formatShortcut(it.shortcut);
+          final scW = sc.isNotEmpty ? ((font?.measureTextWidth(sc) ?? sc.length * 8) + 16) : 0;
+          final totalW = labelW + scW;
+          return totalW > m ? totalW : m;
         });
         return Rect.fromLTWH(cx, 10, menuW.toDouble(), menu.items.length * 10.0);
       }
@@ -302,6 +323,17 @@ class SciMenuBar {
         colorBack: hi ? 0 : 15,
         font: font,
       ));
+      final sc = SciMenuItem.formatShortcut(item.shortcut);
+      if (sc.isNotEmpty) {
+        controls.add(SciTextControl(
+          rect: Rect.fromLTWH(row.left, row.top, row.width - 4, row.height),
+          text: sc,
+          colorPen: hi ? 15 : 0,
+          colorBack: null,
+          font: font,
+          align: TextAlign.right,
+        ));
+      }
     }
     return SciWindowOverlay(
       id: 0,

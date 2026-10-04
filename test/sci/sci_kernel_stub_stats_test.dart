@@ -1,10 +1,27 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 
+Future<ui.Image> _createTestImage({int width = 8, int height = 8}) {
+  final completer = Completer<ui.Image>();
+  final pixels = Uint8List(width * height * 4);
+  ui.decodeImageFromPixels(pixels, width, height, ui.PixelFormat.rgba8888, (image) {
+    completer.complete(image);
+  });
+  return completer.future;
+}
+
 void main() {
+  setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+  });
+
   group('SCI kernel stub-hit stats', () {
     late SciKernel kernel;
     late SciVM vm;
@@ -45,6 +62,71 @@ void main() {
       kernel.clearStubStats();
       expect(kernel.stubHitTotal, 0);
       expect(kernel.topStubHits(), isEmpty);
+    });
+
+    test('topStubHits memoizes sorted result and recalculates only when stats change', () {
+      kernel.call(vm, 0x57, 0, []);
+      kernel.call(vm, 0x62, 0, []);
+
+      final first = kernel.topStubHits();
+      final second = kernel.topStubHits();
+      expect(identical(first, second), isTrue);
+
+      // Invalidate memoization by triggering another stub call
+      kernel.call(vm, 0x62, 0, []);
+      final third = kernel.topStubHits();
+      expect(identical(first, third), isFalse);
+      expect(third.first.id, 0x62);
+      expect(third.first.hits, 2);
+    });
+
+    test('cel cache bounds texture memory and prunes inactive cels on DrawPic and reset', () async {
+      final img1 = await _createTestImage();
+      final img2 = await _createTestImage();
+      final img3 = await _createTestImage();
+
+      kernel.cacheCelImage(0, 0, 0, img1);
+      kernel.cacheCelImage(1, 0, 0, img2);
+      kernel.cacheCelImage(2, 0, 0, img3);
+      expect(kernel.cachedCelImageCount, 3);
+
+      // Only view 0 is in active sprites
+      kernel.currentSprites = [
+        PlayfieldActorSprite(
+          priority: 5,
+          baselineY: 100,
+          objectNumber: 1,
+          isUpdating: true,
+          position: Offset.zero,
+          viewNumber: 0,
+          loopNumber: 0,
+          celNumber: 0,
+          image: img1,
+        ),
+      ];
+
+      // Pruning inactive cels (as triggered on DrawPic)
+      kernel.pruneCelCache();
+      expect(kernel.cachedCelImageCount, 1);
+      expect(kernel.getCelImage(0, 0, 0), isNotNull);
+      expect(img2.debugDisposed, isTrue);
+      expect(img3.debugDisposed, isTrue);
+
+      // Reset clears everything
+      kernel.reset();
+      expect(kernel.cachedCelImageCount, 0);
+      expect(img1.debugDisposed, isTrue);
+    });
+
+    test('caching beyond capacity automatically triggers inactive cel eviction', () async {
+      for (int i = 0; i < 130; i++) {
+        final img = await _createTestImage(width: 2, height: 2);
+        kernel.cacheCelImage(100 + i, 0, 0, img);
+      }
+
+      // Since currentSprites is empty and capacity >= 128 triggered pruning to 64,
+      // inactive cels were pruned down.
+      expect(kernel.cachedCelImageCount, lessThanOrEqualTo(64));
     });
   });
 }

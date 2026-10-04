@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_menu_bar.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -320,6 +322,131 @@ void main() {
             rect.top + topOffset + fittedHeight * 0.01));
         await tester.pump();
         expect(engine.kernel.menuBar.openMenuId, isNotNull);
+      } finally {
+        engine.dispose();
+      }
+    });
+
+    test('menu horizontal navigation wraps around boundaries', () {
+      final engine = bootSq3();
+      if (engine == null) {
+        markTestSkipped('SQ3 reference tree missing');
+        return;
+      }
+      try {
+        final totalMenus = engine.kernel.menuBar.menus.length;
+        expect(totalMenus, greaterThan(1));
+
+        // Open menu 1
+        engine.handleKeyPress(27, ascii: 27);
+        for (var t = 0; t < 10; t++) {
+          engine.tick();
+        }
+        expect(engine.kernel.menuBar.openMenuId, 1);
+
+        // Press Left: wraps to last menu
+        engine.handleKeyPress(0x4B00, ascii: 0);
+        for (var t = 0; t < 5; t++) {
+          engine.tick();
+        }
+        expect(engine.kernel.menuBar.openMenuId, totalMenus);
+
+        // Press Right: wraps back to menu 1
+        engine.handleKeyPress(0x4D00, ascii: 0);
+        for (var t = 0; t < 5; t++) {
+          engine.tick();
+        }
+        expect(engine.kernel.menuBar.openMenuId, 1);
+      } finally {
+        engine.dispose();
+      }
+    });
+
+    test('dropdown overlay renders shortcuts right-aligned and expands width', () {
+      final bar = SciMenuBar()
+        ..addMenu(' File ', 'Save`#5:Restore`#7:Quit`^q');
+      bar.visible = true;
+      bar.openMenu(1);
+
+      final drop = bar.dropdownOverlay();
+      expect(drop, isNotNull);
+
+      final texts = drop!.controls.whereType<SciTextControl>().toList();
+      // Should include labels and shortcuts
+      final textStrings = texts.map((t) => t.text).toList();
+      expect(textStrings, contains('Save'));
+      expect(textStrings, contains('F5'));
+      expect(textStrings, contains('Restore'));
+      expect(textStrings, contains('F7'));
+      expect(textStrings, contains('Quit'));
+      expect(textStrings, contains('Ctrl+Q'));
+
+      // Shortcut controls must be right-aligned
+      final f5Control = texts.firstWhere((t) => t.text == 'F5');
+      expect(f5Control.align, TextAlign.right);
+    });
+
+    testWidgets('numpad arrows navigate open menu in GameScreen',
+        (tester) async {
+      final engine = bootSq3();
+      if (engine == null) {
+        markTestSkipped('SQ3 reference tree missing');
+        return;
+      }
+      try {
+        await tester.pumpWidget(
+          MaterialApp(home: GameScreen(session: engine)),
+        );
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump();
+        expect(engine.kernel.menuBar.openMenuId, 1);
+        expect(engine.kernel.menuBar.highlightedItemId, 1);
+
+        // Numpad 2 (down) navigates highlight down
+        await tester.sendKeyEvent(LogicalKeyboardKey.numpad2);
+        await tester.pump();
+        expect(engine.kernel.menuBar.highlightedItemId, 2);
+
+        // Numpad 8 (up) navigates highlight up
+        await tester.sendKeyEvent(LogicalKeyboardKey.numpad8);
+        await tester.pump();
+        expect(engine.kernel.menuBar.highlightedItemId, 1);
+      } finally {
+        engine.dispose();
+      }
+    });
+
+    testWidgets('TAB is ignored when an SCI window is active',
+        (tester) async {
+      final engine = bootSq3();
+      if (engine == null) {
+        markTestSkipped('SQ3 reference tree missing');
+        return;
+      }
+      try {
+        await tester.pumpWidget(
+          MaterialApp(home: GameScreen(session: engine)),
+        );
+        await tester.pump();
+
+        // When an SCI window is open, TAB must not trigger inventory
+        final win = engine.kernel.windowManager.openWindow(
+          dims: const Rect.fromLTWH(10, 10, 100, 50),
+        );
+        expect(engine.kernel.windowManager.windowStack.length, 1);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(engine.kernel.windowManager.windowStack.length, 1);
+
+        // Once window is closed, TAB opens inventory
+        engine.kernel.windowManager.closeWindow(win.id);
+        expect(engine.kernel.windowManager.windowStack.isEmpty, isTrue);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(engine.kernel.windowManager.windowStack.isNotEmpty, isTrue);
       } finally {
         engine.dispose();
       }

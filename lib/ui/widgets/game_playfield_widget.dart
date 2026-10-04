@@ -137,6 +137,9 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     final mode = widget.renderMode;
     final epoch = pic?.rasterEpoch;
     if (pic == _trackedPic && mode == _trackedMode && epoch == _trackedEpoch) return;
+    if (pic != _trackedPic && _session is SciGameEngine) {
+      _spriteTextureCache.clear();
+    }
     _trackedPic = pic;
     _trackedMode = mode;
     _trackedEpoch = epoch;
@@ -624,7 +627,12 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           continue;
         }
         final cacheKey = AtlasCelEntry.computeKey(sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
-        final cachedImage = _spriteTextureCache[cacheKey];
+        var cachedImage = _spriteTextureCache[cacheKey];
+        if (cachedImage != null && cachedImage.debugDisposed) {
+          _spriteTextureCache.remove(cacheKey);
+          cachedImage = null;
+        }
+        cachedImage ??= sci.kernel.getCelImage(sprite.viewNumber, sprite.loopNumber, sprite.celNumber);
         actors.add(sprite.copyWith(image: cachedImage));
         if (cachedImage == null) {
           _decodeSciSpriteCel(sci, sprite.viewNumber, sprite.loopNumber, sprite.celNumber);

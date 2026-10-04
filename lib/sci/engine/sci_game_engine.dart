@@ -805,6 +805,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     } finally {
       if (kernel.parserEvent == eventReg) kernel.parserEvent = null;
       segManager.disposeClone(eventReg);
+      segManager.freeHunk(strReg);
     }
   }
 

@@ -247,6 +247,7 @@ class SciKernel {
     cursorVisible = false;
     _cursorCache.clear();
     suspendCallk = false;
+    pruneCelCache(clearAll: true);
     onWindowsChanged?.call();
   }
 
@@ -288,21 +289,39 @@ class SciKernel {
   /// unknown ids), keyed by kernel id. Populated on every [call]; read it
   /// from the debug inspector to prioritize stub implementations per game.
   final Map<int, int> stubHitCounts = {};
+  int _stubHitTotal = 0;
+  bool _stubStatsDirty = false;
+  List<({int id, String name, int hits})> _cachedTopStubHits = const [];
 
   /// Total unimplemented-op invocations since the last [clearStubStats].
-  int get stubHitTotal => stubHitCounts.values.fold(0, (a, b) => a + b);
+  int get stubHitTotal {
+    if (_stubHitTotal == 0 && stubHitCounts.isNotEmpty) {
+      _stubHitTotal = stubHitCounts.values.fold(0, (a, b) => a + b);
+    }
+    return _stubHitTotal;
+  }
 
   /// Top unimplemented ops by hit count, hottest first.
   List<({int id, String name, int hits})> topStubHits([int limit = 10]) {
-    final rows = stubHitCounts.entries
-        .map((e) => (id: e.key, name: getKernelName(e.key), hits: e.value))
-        .toList()
-      ..sort((a, b) => b.hits.compareTo(a.hits));
-    return rows.length <= limit ? rows : rows.sublist(0, limit);
+    if (_stubStatsDirty || (_cachedTopStubHits.isEmpty && stubHitCounts.isNotEmpty)) {
+      _cachedTopStubHits = stubHitCounts.entries
+          .map((e) => (id: e.key, name: getKernelName(e.key), hits: e.value))
+          .toList()
+        ..sort((a, b) => b.hits.compareTo(a.hits));
+      _stubStatsDirty = false;
+    }
+    return _cachedTopStubHits.length <= limit
+        ? _cachedTopStubHits
+        : _cachedTopStubHits.sublist(0, limit);
   }
 
   /// Resets stub-hit statistics, e.g. when starting a new game session.
-  void clearStubStats() => stubHitCounts.clear();
+  void clearStubStats() {
+    stubHitCounts.clear();
+    _stubHitTotal = 0;
+    _cachedTopStubHits = const [];
+    _stubStatsDirty = false;
+  }
 
   /// When true after a kernel call, the VM rewinds `callk` and yields so a
   /// modal kernel (MenuSelect) can resume on the next tick.
@@ -328,10 +347,14 @@ class SciKernel {
       // for a single boolean check on the hot path.
       if (entry.isStub) {
         stubHitCounts.update(kernelId, (c) => c + 1, ifAbsent: () => 1);
+        _stubHitTotal++;
+        _stubStatsDirty = true;
       }
       result = entry.function(vm, argc, argv);
     } else {
       stubHitCounts.update(kernelId, (c) => c + 1, ifAbsent: () => 1);
+      _stubHitTotal++;
+      _stubStatsDirty = true;
       if (verboseLogging) {
         debugPrint(
           '[SciKernel] Unimplemented kernel 0x${kernelId.toRadixString(16)} '
@@ -358,11 +381,57 @@ class SciKernel {
     return result;
   }
 
-  void dispose() {
-    for (final img in _celImages.values) {
-      img.dispose();
+  /// Number of GPU cel textures currently held in [_celImages].
+  int get cachedCelImageCount => _celImages.length;
+
+  /// Evicts and disposes cached cel textures.
+  ///
+  /// If [clearAll] is true, all textures are disposed and cleared immediately.
+  /// Otherwise, textures not currently referenced by [currentSprites] are disposed
+  /// if [_celImages.length] exceeds [maxCapacity].
+  void pruneCelCache({bool clearAll = false, int maxCapacity = 0}) {
+    if (clearAll) {
+      for (final img in _celImages.values) {
+        try {
+          if (!img.debugDisposed) {
+            img.dispose();
+          }
+        } catch (_) {}
+      }
+      _celImages.clear();
+      return;
     }
-    _celImages.clear();
+
+    if (_celImages.length <= maxCapacity && maxCapacity > 0) {
+      return;
+    }
+
+    final activeKeys = <String>{};
+    for (final s in currentSprites) {
+      activeKeys.add('${s.viewNumber}_${s.loopNumber}_${s.celNumber}');
+    }
+
+    final keysToRemove = <String>[];
+    for (final key in _celImages.keys) {
+      if (!activeKeys.contains(key)) {
+        keysToRemove.add(key);
+      }
+    }
+
+    for (final key in keysToRemove) {
+      final img = _celImages.remove(key);
+      if (img != null) {
+        try {
+          if (!img.debugDisposed) {
+            img.dispose();
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  void dispose() {
+    pruneCelCache(clearAll: true);
     _viewCache.clear();
   }
 
@@ -439,7 +508,19 @@ class SciKernel {
   }
 
   void cacheCelImage(int viewId, int loopNo, int celNo, ui.Image img) {
-    _celImages['${viewId}_${loopNo}_$celNo'] = img;
+    final key = '${viewId}_${loopNo}_$celNo';
+    final old = _celImages[key];
+    if (old != null && old != img) {
+      try {
+        if (!old.debugDisposed) {
+          old.dispose();
+        }
+      } catch (_) {}
+    }
+    _celImages[key] = img;
+    if (_celImages.length >= 128) {
+      pruneCelCache(maxCapacity: 64);
+    }
   }
 
   int onControl(int screenMask, int left, int top, int right, int bottom) {
@@ -824,6 +905,7 @@ class SciKernel {
     picNotValid = 1;
     // Display paints into the visual screen. A new picture replaces that screen.
     windowManager.clearPicDisplays();
+    pruneCelCache();
     onWindowsChanged?.call();
     onDrawPic?.call(picNum, showStyle);
     return const SciReg.fromInt(0);
@@ -1868,10 +1950,10 @@ class SciKernel {
           menuBar.moveHighlight(1);
           return null;
         case 0x4B00: // left
-          if (openId > 1) menuBar.openMenu(openId - 1);
+          menuBar.openMenu(openId > 1 ? openId - 1 : menuBar.menus.length);
           return null;
         case 0x4D00: // right
-          if (openId < menuBar.menus.length) menuBar.openMenu(openId + 1);
+          menuBar.openMenu(openId < menuBar.menus.length ? openId + 1 : 1);
           return null;
       }
       return null;
@@ -2078,7 +2160,10 @@ class SciKernel {
     final unknownReg = vm.segManager.allocString(unknownWord);
     try {
       vm.sendSelector(theGame, selectors.wordFail, [unknownReg, strReg]);
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      vm.segManager.freeHunk(unknownReg);
+    }
   }
 
   void _invokeSyntaxFail(SciVM vm, SciReg strReg) {

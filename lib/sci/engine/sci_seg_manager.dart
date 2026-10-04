@@ -289,9 +289,6 @@ class SciSegManager {
     if (addr.segment == cloneSegmentId) {
       return clones[addr.offset];
     }
-    if (addr.segment == hunkSegmentId) {
-      return clones[addr.offset];
-    }
     final script = loadedScripts[addr.segment];
     if (script != null) {
       return script.getObject(addr.offset);
@@ -579,6 +576,7 @@ class SciSegManager {
     for (final seg in doomed) {
       if (referenced.contains(seg)) continue;
       loadedScripts.remove(seg);
+      classAddresses.removeWhere((_, reg) => reg.segment == seg);
       freed++;
     }
     // Keep the flag only while unreclaimed (still-referenced) scripts remain.
@@ -921,6 +919,12 @@ class SciSegManager {
   Uint8List? getHunk(SciReg addr) {
     if (addr.segment != hunkSegmentId) return null;
     return hunkBuffers[addr.offset];
+  }
+
+  /// Frees a dynamically allocated hunk buffer at [addr].
+  bool freeHunk(SciReg addr) {
+    if (addr.segment != hunkSegmentId) return false;
+    return hunkBuffers.remove(addr.offset) != null;
   }
 
   /// Writes a 16-bit word value at [ptr] + [wordOffset] (words).
