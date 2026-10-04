@@ -365,11 +365,14 @@ class SciKernel {
     }
 
     final name = entry?.name ?? 'unknown';
-    final traceAlways = _alwaysTraceKernelIds.contains(kernelId) &&
-        !(kernelId == 0x30 && result.toUint16() == 0);
+    final isStub = entry == null || entry.isStub;
+    final traceAlways = isStub ||
+        (_alwaysTraceKernelIds.contains(kernelId) &&
+            !(kernelId == 0x30 && result.toUint16() == 0));
     if (captureDebugLogs || traceAlways) {
+      final stubSuffix = isStub ? ' [STUB]' : '';
       final logLine =
-          '0x${kernelId.toRadixString(16).padLeft(2, "0")} ($name) '
+          '0x${kernelId.toRadixString(16).padLeft(2, "0")} ($name)$stubSuffix '
           'args=[${argv.take(argc).map((a) => a.toString()).join(", ")}] -> ${result.toString()}';
       if (recentCallLogs.length >= _logCap) {
         recentCallLogs.removeFirst();
@@ -674,7 +677,7 @@ class SciKernel {
     _register(0x55, 'DoAvoider', _kStub);
 
     // 0x56..0x67: Debugging & System
-    _register(0x56, 'SetJump', _kStub);
+    _register(0x56, 'SetJump', _kSetJump);
     _register(0x57, 'SetDebug', _kStub);
     _register(0x58, 'InspectObj', _kStub);
     _register(0x59, 'ShowSends', _kStub);
@@ -3203,6 +3206,67 @@ class SciKernel {
     if (handleMoveCount) {
       mover.setProp(vm.segManager, selectors.bMovCnt, SciReg.fromInt(moverMoveCnt));
     }
+    return vm.acc;
+  }
+
+  SciReg _kSetJump(SciVM vm, int argc, List<SciReg> argv) {
+    if (argc < 4) return vm.acc;
+    final mover = vm.segManager.getObject(argv[0]);
+    if (mover == null) return vm.acc;
+
+    var dx = argv[1].toSint16();
+    final dy = argv[2].toSint16();
+    final gy = argv[3].toSint16();
+
+    int c;
+    int tmp;
+    var vx = 0;
+    var vy = 0;
+
+    final dxWasNegative = dx < 0;
+    dx = dx.abs();
+
+    if (dx == 0) {
+      c = 1;
+    } else {
+      if (dx + dy < 0) {
+        c = (2 * dy.abs()) ~/ dx;
+      } else {
+        c = (dx * 3 ~/ 2 - dy) ~/ dx;
+        if (c < 1) c = 1;
+      }
+    }
+
+    tmp = c * dx + dy;
+    if (tmp > 0 && dx != 0 && gy >= 0) {
+      final val = gy / (2.0 * tmp);
+      if (val > 0) {
+        vx = (dx * sqrt(val)).toInt();
+      } else {
+        vx = 0;
+      }
+    } else {
+      vx = 0;
+    }
+
+    if (dxWasNegative) {
+      vx = -vx;
+    }
+
+    if (dy < 0 && vx == 0) {
+      final val = gy * (2 * dy).abs();
+      vy = (val > 0 ? sqrt(val).toInt() : 0) + 1;
+    } else {
+      vy = c * vx;
+    }
+
+    vy = -vy.abs();
+
+    final xStepSel = selectors.xStep;
+    final yStepSel = selectors.yStep;
+    if (xStepSel >= 0) mover.setProp(vm.segManager, xStepSel, SciReg.fromInt(vx));
+    if (yStepSel >= 0) mover.setProp(vm.segManager, yStepSel, SciReg.fromInt(vy));
+
     return vm.acc;
   }
 

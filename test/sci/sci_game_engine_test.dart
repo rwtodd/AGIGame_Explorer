@@ -84,9 +84,13 @@ void main() {
       expect(state['flagsSet'], isA<List>());
       expect(state['windows'], isA<List>());
       expect(state['bootPath'], isA<String>());
+      expect(state['stubHits'], isA<Map>());
+      expect(state['stubHits']['total'], isA<int>());
+      expect(state['stubHits']['byOpcode'], isA<Map>());
 
       final jsonStr = engine.exportStateJson();
       expect(jsonStr, contains('"engine": "SCI0"'));
+      expect(jsonStr, contains('"stubHits":'));
 
       engine.dispose();
     });

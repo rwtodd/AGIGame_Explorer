@@ -974,6 +974,13 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
       },
       'nodesCount': segManager.nodes.length,
       'clonesCount': segManager.clones.length,
+      'stubHits': {
+        'total': kernel.stubHitTotal,
+        'byOpcode': {
+          for (final hit in kernel.topStubHits(kernel.stubHitCounts.length))
+            '0x${hit.id.toRadixString(16).padLeft(2, '0')} (${hit.name})': hit.hits,
+        },
+      },
       'recentKernelLogs': kernel.recentCallLogs.toList(),
       'parser': {
         'lastInput': kernel.lastParsedRaw,
