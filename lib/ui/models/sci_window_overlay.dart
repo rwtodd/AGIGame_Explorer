@@ -30,6 +30,7 @@ class SciTextControl extends SciControlItem {
   final int? colorBack;
   final SierraFont? font;
   final TextAlign align;
+  final bool isSingleLine;
 
   const SciTextControl({
     required super.rect,
@@ -38,6 +39,7 @@ class SciTextControl extends SciControlItem {
     this.colorBack,
     this.font,
     this.align = TextAlign.left,
+    this.isSingleLine = false,
   });
 
   /// Word wraps [text] against [maxWidth] using Sierra font metrics.
@@ -199,8 +201,16 @@ class SciTextControl extends SciControlItem {
     }
 
     if (effectiveFont != null) {
-      final wrapWidth = rect.width >= 16 ? rect.width.toInt() : 192;
-      final lines = wrapText(text, effectiveFont, wrapWidth);
+      final List<String> lines;
+      if (isSingleLine) {
+        // In single-line mode (e.g. status bar, menu items), do not wrap text or split
+        // on \n (0x0A), because games like King's Quest IV use character code 10 (0x0A)
+        // as a custom font glyph (the Roman numeral 'IV' glyph).
+        lines = [text.replaceAll('\r', '')];
+      } else {
+        final wrapWidth = rect.width >= 16 ? rect.width.toInt() : 192;
+        lines = wrapText(text, effectiveFont, wrapWidth);
+      }
       final picture = pictureFor(
         font: effectiveFont,
         lines: lines,
@@ -216,7 +226,7 @@ class SciTextControl extends SciControlItem {
       // Fallback text rendering if no font resource is attached
       final textPainter = TextPainter(
         text: TextSpan(
-          text: text,
+          text: isSingleLine ? text.replaceAll('\r', '').replaceAll('\n', ' ') : text,
           style: TextStyle(
             color: EgaColors.palette[fg.clamp(0, 15)],
             fontSize: 9,
@@ -225,6 +235,7 @@ class SciTextControl extends SciControlItem {
         ),
         textAlign: align,
         textDirection: TextDirection.ltr,
+        maxLines: isSingleLine ? 1 : null,
       )..layout(maxWidth: rect.width > 0 ? rect.width : 192);
 
       textPainter.paint(canvas, drawPos);
@@ -710,6 +721,8 @@ class SciWindowOverlay {
     }
 
     final origin = rect.topLeft + contentOffset;
+    canvas.save();
+    canvas.clipRect(rect);
     for (final control in controls) {
       control.paint(
         canvas,
@@ -719,5 +732,6 @@ class SciWindowOverlay {
         defaultColorBack: colorBack,
       );
     }
+    canvas.restore();
   }
 }

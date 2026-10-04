@@ -2,9 +2,14 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
+import 'package:flutter_agigame/sci/font/sci_font_parser.dart';
+import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
+import 'package:flutter_agigame/sci/engine/sci_menu_bar.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/script/sci_script_parser.dart';
+import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 
 void main() {
   group('King\'s Quest IV (Early SCI0) Boot Test', () {
@@ -93,6 +98,63 @@ void main() {
       expect(engine.isRunning, isTrue);
       expect(engine.vm.stepCounter, greaterThan(0));
       engine.dispose();
+    });
+
+    test('KQ4 font 0 defines Roman numeral IV as glyph 10 (0x0A)', () {
+      if (!kq4Dir.existsSync()) {
+        markTestSkipped('KQ4 reference tree missing');
+        return;
+      }
+      final volumeMgr = SciVolumeManager.fromDirectory(kq4Dir.path);
+      final fontBytes = volumeMgr.getResource(SciResourceType.font, 0);
+      final font = SciFontParser.parse(fontBytes, fontNumber: 0);
+
+      final glyph10 = font.getGlyph(10);
+      expect(glyph10, isNotNull, reason: 'Font 0 must contain glyph 10 for KQ4');
+      expect(glyph10!.width, 14);
+      expect(glyph10.height, 8);
+
+      // Verify the status line format string with glyph 10 fits on a single 320px line
+      const statusStr = 'Score: 0 of 230   KQ\x0a  The Perils of Rosella';
+      var textWidth = 0;
+      for (var i = 0; i < statusStr.length; i++) {
+        textWidth += font.getCharWidth(statusStr.codeUnitAt(i));
+      }
+      expect(textWidth, lessThanOrEqualTo(320));
+      expect(textWidth, greaterThan(280));
+    });
+
+    test('SciMenuBar.toOverlay produces a single-line status overlay that retains glyph 10 without wrapping', () {
+      if (!kq4Dir.existsSync()) {
+        markTestSkipped('KQ4 reference tree missing');
+        return;
+      }
+      final volumeMgr = SciVolumeManager.fromDirectory(kq4Dir.path);
+      final fontBytes = volumeMgr.getResource(SciResourceType.font, 0);
+      final font = SciFontParser.parse(fontBytes, fontNumber: 0);
+
+      final bar = SciMenuBar();
+      bar.statusText = 'Score: 0 of 230   KQ\x0a  The Perils of Rosella';
+      bar.statusActive = true;
+
+      final overlay = bar.toOverlay(font: font);
+      expect(overlay, isNotNull);
+      expect(overlay!.rect, equals(const Rect.fromLTWH(0, 0, 320, 10)));
+
+      final textControls = overlay.controls.whereType<SciTextControl>().toList();
+      expect(textControls, hasLength(1));
+
+      final ctrl = textControls.first;
+      expect(ctrl.isSingleLine, isTrue);
+      expect(ctrl.rect.width, equals(320));
+      expect(ctrl.text, equals('Score: 0 of 230   KQ\x0a  The Perils of Rosella'));
+
+      // Verify painting does not throw and stays within status bar height
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      overlay.paint(canvas);
+      final pic = recorder.endRecording();
+      expect(pic, isNotNull);
     });
   });
 }

@@ -222,10 +222,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (event.logicalKey == LogicalKeyboardKey.escape) {
       return 27;
     }
+    if (event.logicalKey == LogicalKeyboardKey.backspace) {
+      return 8;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.tab) {
+      return 9;
+    }
     if (event.character != null && event.character!.isNotEmpty) {
       return event.character!.codeUnitAt(0);
     }
-    return 13;
+    if (event.logicalKey.keyLabel.length == 1) {
+      return event.logicalKey.keyLabel.toLowerCase().codeUnitAt(0);
+    }
+    return 0;
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -450,9 +459,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     }
 
+    if (event.logicalKey == LogicalKeyboardKey.shiftLeft ||
+        event.logicalKey == LogicalKeyboardKey.shiftRight ||
+        event.logicalKey == LogicalKeyboardKey.controlLeft ||
+        event.logicalKey == LogicalKeyboardKey.controlRight ||
+        event.logicalKey == LogicalKeyboardKey.altLeft ||
+        event.logicalKey == LogicalKeyboardKey.altRight ||
+        event.logicalKey == LogicalKeyboardKey.metaLeft ||
+        event.logicalKey == LogicalKeyboardKey.metaRight) {
+      return KeyEventResult.handled;
+    }
+
     final rawKey = _getKeyCode(event);
     final isShift = HardwareKeyboard.instance.isShiftPressed;
-    final isCtrl = HardwareKeyboard.instance.isControlPressed;
+    final isCtrl = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
     final isAlt = HardwareKeyboard.instance.isAltPressed;
     final ascii = (event.character != null && event.character!.isNotEmpty)
         ? event.character!.codeUnitAt(0)
@@ -460,13 +481,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     // --- SCI0 Modal Keyboard & Window Handling ---
     if (_sciEngine != null) {
-      if (event.logicalKey == LogicalKeyboardKey.tab &&
-          !isSciWindowOpen &&
-          _session.isInputEnabled &&
-          _currentInputText.isEmpty) {
-        // No SCI script maps TAB; route it through the game's own inventory
-        // Said handler, exactly as if "inventory" had been typed.
-        _sciEngine!.submitCommand('inventory');
+      if (event.logicalKey == LogicalKeyboardKey.tab) {
+        if (!isSciWindowOpen &&
+            _session.isInputEnabled &&
+            _currentInputText.isEmpty) {
+          // No SCI script maps TAB; route it through the game's own inventory
+          // Said handler, exactly as if "inventory" had been typed.
+          _sciEngine!.submitCommand('inventory');
+        }
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.enter ||
@@ -520,16 +542,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         _session.handleKeyPress(0x5000, ascii: 0);
         return KeyEventResult.handled;
       }
-      if (event.logicalKey == LogicalKeyboardKey.f5) {
-        _session.handleKeyPress(0x3F00, ascii: 0);
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.f7) {
-        _session.handleKeyPress(0x4100, ascii: 0);
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.f9) {
-        _session.handleKeyPress(0x4300, ascii: 0);
+      final fKeyMap = <LogicalKeyboardKey, int>{
+        LogicalKeyboardKey.f1: 0x3B00,
+        LogicalKeyboardKey.f2: 0x3C00,
+        LogicalKeyboardKey.f3: 0x3D00,
+        LogicalKeyboardKey.f4: 0x3E00,
+        LogicalKeyboardKey.f5: 0x3F00,
+        LogicalKeyboardKey.f6: 0x4000,
+        LogicalKeyboardKey.f7: 0x4100,
+        LogicalKeyboardKey.f8: 0x4200,
+        LogicalKeyboardKey.f9: 0x4300,
+        LogicalKeyboardKey.f10: 0x4400,
+      };
+      final fCode = fKeyMap[event.logicalKey];
+      if (fCode != null) {
+        _session.handleKeyPress(fCode, ascii: 0, shift: isShift, ctrl: isCtrl, alt: isAlt);
         return KeyEventResult.handled;
       }
 

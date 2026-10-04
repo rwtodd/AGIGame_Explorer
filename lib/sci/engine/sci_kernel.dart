@@ -1858,16 +1858,32 @@ class SciKernel {
       final attr = argv[i].toUint16();
       final value = argv[i + 1];
       switch (attr) {
-        case 30: // enabled
+        case 112: // SCI_MENU_ATTRIBUTE_ENABLED (0x70)
+        case 30: // enabled fallback
           item.enabled = value.toSint16() != 0;
           break;
         case 31: // checked
           item.checked = value.toSint16() != 0;
           break;
-        case 32: // text
-          item.label = value.isPointer
+        case 110: // SCI_MENU_ATTRIBUTE_TEXT (0x6e)
+        case 32: // text fallback
+          final newText = value.isPointer
               ? vm.segManager.getString(value)
               : value.toUint16().toString();
+          item.label = newText;
+          if (SciMenuBar.isSeparatorLabel(newText)) {
+            item.isSeparator = true;
+          }
+          break;
+        case 111: // SCI_MENU_ATTRIBUTE_KEYPRESS (0x6f)
+          item.keyPress = value.toUint16();
+          item.keyModifier = 0;
+          break;
+        case 113: // SCI_MENU_ATTRIBUTE_TAG (0x71)
+          item.tag = value.toUint16();
+          break;
+        case 109: // SCI_MENU_ATTRIBUTE_SAID (0x6d)
+          item.said = value;
           break;
       }
     }
@@ -1881,10 +1897,17 @@ class SciKernel {
     final item = menuBar.itemAt(packed >> 8, packed & 0xFF);
     if (item == null) return const SciReg.fromInt(0);
     switch (argv[1].toUint16()) {
+      case 112:
       case 30:
         return SciReg.fromInt(item.enabled ? 1 : 0);
       case 31:
         return SciReg.fromInt(item.checked ? 1 : 0);
+      case 111:
+        return SciReg.fromInt(item.keyPress);
+      case 113:
+        return SciReg.fromInt(item.tag);
+      case 109:
+        return item.said ?? const SciReg.fromInt(0);
       default:
         return const SciReg.fromInt(0);
     }
@@ -1895,23 +1918,51 @@ class SciKernel {
       return const SciReg.fromInt(0);
     }
     final font = getFont(0);
+    final claimedSel = selectors.claimed >= 0
+        ? selectors.claimed
+        : (selectors.findSelector('claimed') ?? -1);
     if (menuBar.openMenuId == null) {
       final ev = vm.segManager.getObject(argv[0]);
       final type = ev?.getProp(vm.segManager, selectors.type).toUint16() ?? 0;
       final msg = ev?.getProp(vm.segManager, selectors.message).toUint16() ?? 0;
+      final mod = ev?.getProp(vm.segManager, selectors.modifiers).toUint16() ?? 0;
       final x = ev?.getProp(vm.segManager, selectors.x).toSint16() ?? 0;
       final y = ev?.getProp(vm.segManager, selectors.y).toSint16() ?? 0;
+
       var menuId = 0;
       if (type == SciEventType.mousePress) {
-        menuId = menuBar.menuIdAt(x, y, font);
+        if (y < 10) {
+          menuId = menuBar.menuIdAt(x, y, font);
+          if (menuId == 0 && menuBar.menus.isNotEmpty) {
+            menuId = 1;
+          }
+        }
       } else if (type == SciEventType.keyDown && (msg == 27 || msg == 0x1b)) {
         menuId = 1;
       }
       noteMenuEvent(
           'MenuSelect fresh type=$type msg=$msg x=$x y=$y -> menu $menuId');
-      if (menuId == 0) return const SciReg.fromInt(0);
-      menuBar.openMenu(menuId);
-      onWindowsChanged?.call();
+
+      if (menuId != 0) {
+        if (claimedSel >= 0) {
+          ev?.setProp(vm.segManager, claimedSel, const SciReg.fromInt(1));
+        }
+        menuBar.openMenu(menuId);
+        onWindowsChanged?.call();
+      } else if (type == SciEventType.keyDown) {
+        final match = menuBar.findItemMatchingKey(msg, mod);
+        if (match != null) {
+          if (claimedSel >= 0) {
+            ev?.setProp(vm.segManager, claimedSel, const SciReg.fromInt(1));
+          }
+          noteMenuEvent(
+              'MenuSelect hotkey matched msg=0x${msg.toRadixString(16)} mod=$mod -> menu ${match.$1} item ${match.$2}');
+          return SciReg.fromInt((match.$1 << 8) | match.$2);
+        }
+        return const SciReg.fromInt(0);
+      } else {
+        return const SciReg.fromInt(0);
+      }
     }
 
     final result = _menuSelectConsumeQueue(font);
@@ -1919,8 +1970,13 @@ class SciKernel {
       noteMenuEvent('MenuSelect done open=${menuBar.openMenuId} -> $result');
       menuBar.closeMenu();
       onWindowsChanged?.call();
+      if (claimedSel >= 0 && argc >= 1) {
+        final ev = vm.segManager.getObject(argv[0]);
+        ev?.setProp(vm.segManager, claimedSel, const SciReg.fromInt(1));
+      }
       return SciReg.fromInt(result);
     }
+
     suspendCallk = true;
     vm.yieldRequested = true;
     onWindowsChanged?.call();
@@ -1958,6 +2014,11 @@ class SciKernel {
         case 0x4D00: // right
           menuBar.openMenu(openId < menuBar.menus.length ? openId + 1 : 1);
           return null;
+        default:
+          final match = menuBar.findItemMatchingKey(ev.message, ev.modifiers);
+          if (match != null) {
+            return (match.$1 << 8) | match.$2;
+          }
       }
       return null;
     }

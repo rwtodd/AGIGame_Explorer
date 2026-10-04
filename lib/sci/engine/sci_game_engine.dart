@@ -641,7 +641,7 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     bool alt = false,
   }) {
     if (rawKeyCode == null) return;
-    final modifiers = (shift ? 1 : 0) | (ctrl ? 2 : 0) | (alt ? 4 : 0);
+    final modifiers = (shift ? 3 : 0) | (ctrl ? 4 : 0) | (alt ? 8 : 0);
     kernel.postKeyEvent(ascii != 0 ? ascii : rawKeyCode, modifiers: modifiers);
     // User.doit / Dialog.doit only run when the VM is pumped. Do it now so a
     // typed character opens GetInput and paints in this call, not 1–4 s later.
