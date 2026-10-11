@@ -4,6 +4,9 @@ reference_docs
 reference_games/
 reference_games
 
+# Bundled third-party binaries (fetched at build time, not committed)
+third_party/
+
 # Miscellaneous
 *.class
 *.log

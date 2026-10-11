@@ -3,7 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 
-/// Pluggable AI semantic matcher hook (for Gemini natural language intent matching).
+/// Pluggable AI semantic matcher hook (for local-embedding natural language intent matching).
 typedef SciSaidAiHook = bool Function(
   SciSaidSpec spec,
   String rawInput,

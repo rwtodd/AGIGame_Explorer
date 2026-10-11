@@ -3,25 +3,38 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
-import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 
 class _MockHttpClient implements HttpClient {
   int statusCode = 200;
-  String responseBody = '';
   String? lastWrittenBody;
   Uri? lastRequestedUri;
 
-  String? batchEmbedResponse;
-  String? embedContentResponse;
+  /// Vector served per request input text; missing texts yield no entry.
+  final Map<String, List<double>> vectorsByText = {};
 
   @override
   Future<HttpClientRequest> postUrl(Uri url) async {
     lastRequestedUri = url;
-    final body = url.toString().contains('batchEmbedContents')
-        ? (batchEmbedResponse ?? responseBody)
-        : (embedContentResponse ?? responseBody);
-    return _MockHttpClientRequest(this, body);
+    return _MockHttpClientRequest(this);
+  }
+
+  String buildResponseBody() {
+    var inputs = <String>[];
+    try {
+      final sent = jsonDecode(lastWrittenBody ?? '') as Map<String, dynamic>?;
+      final raw = sent?['input'] as List?;
+      if (raw != null) inputs = raw.map((e) => e.toString()).toList();
+    } catch (_) {}
+    final data = <Map<String, dynamic>>[];
+    for (var i = 0; i < inputs.length; i++) {
+      final vec = vectorsByText[inputs[i]];
+      if (vec != null) {
+        data.add({'object': 'embedding', 'index': i, 'embedding': vec});
+      }
+    }
+    return jsonEncode({'object': 'list', 'data': data});
   }
 
   @override
@@ -30,12 +43,11 @@ class _MockHttpClient implements HttpClient {
 
 class _MockHttpClientRequest implements HttpClientRequest {
   final _MockHttpClient client;
-  final String bodyToSend;
 
   @override
   final HttpHeaders headers = _MockHttpHeaders();
 
-  _MockHttpClientRequest(this.client, this.bodyToSend);
+  _MockHttpClientRequest(this.client);
 
   @override
   void write(Object? obj) {
@@ -44,7 +56,7 @@ class _MockHttpClientRequest implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
-    return _MockHttpClientResponse(client.statusCode, bodyToSend);
+    return _MockHttpClientResponse(client.statusCode, client.buildResponseBody());
   }
 
   @override
@@ -96,13 +108,13 @@ class _MockHttpClientResponse extends Stream<List<int>> implements HttpClientRes
 }
 
 void main() {
-  group('GeminiCommandTranslator', () {
+  group('LocalCommandTranslator', () {
     late _MockHttpClient mockClient;
-    late GeminiCommandTranslator translator;
+    late LocalCommandTranslator translator;
 
     setUp(() {
       mockClient = _MockHttpClient();
-      translator = GeminiCommandTranslator(httpClient: mockClient);
+      translator = LocalCommandTranslator(httpClient: mockClient);
     });
 
     ExtractedSaidCommand makeCmd(String phrase, [List<List<String>>? synonyms]) {
@@ -117,20 +129,12 @@ void main() {
 
     test('translates natural language matching valid room command', () async {
       mockClient.statusCode = 200;
-      // Candidates: 'look screen', 'take card', 'push button'
-      mockClient.batchEmbedResponse = jsonEncode({
-        'embeddings': [
-          {'values': [1.0, 0.0, 0.0]}, // look screen
-          {'values': [0.0, 1.0, 0.0]}, // take card
-          {'values': [0.0, 0.0, 1.0]}, // push button
-        ]
-      });
-
-      // User query: examine glowing monitor display -> aligned with look screen
-      mockClient.embedContentResponse = jsonEncode({
-        'embedding': {
-          'values': [0.95, 0.05, 0.0]
-        }
+      mockClient.vectorsByText.addAll({
+        'look screen': [1.0, 0.0, 0.0],
+        'take card': [0.0, 1.0, 0.0],
+        'push button': [0.0, 0.0, 1.0],
+        // User query: examine glowing monitor display -> aligned with look screen
+        'examine the glowing monitor display': [0.95, 0.05, 0.0],
       });
 
       final result = await translator.translate(
@@ -140,7 +144,6 @@ void main() {
           makeCmd('take card'),
           makeCmd('push button'),
         ],
-        apiKey: 'test-api-key',
         roomNumber: 2,
       );
 
@@ -149,23 +152,16 @@ void main() {
       expect(result.originalInput, equals('examine the glowing monitor display'));
       expect(result.isRoomCommandMatch, isTrue);
       expect(result.similarityScore, greaterThan(0.90));
-      expect(mockClient.lastRequestedUri.toString(), contains('key=test-api-key'));
+      expect(mockClient.lastRequestedUri.toString(), contains('/v1/embeddings'));
     });
 
     test('returns null when no candidate meets similarity threshold', () async {
       mockClient.statusCode = 200;
-      mockClient.batchEmbedResponse = jsonEncode({
-        'embeddings': [
-          {'values': [1.0, 0.0, 0.0]},
-          {'values': [0.0, 1.0, 0.0]},
-        ]
-      });
-
-      // Orthogonal input: "talk to the alien"
-      mockClient.embedContentResponse = jsonEncode({
-        'embedding': {
-          'values': [0.0, 0.0, 1.0]
-        }
+      mockClient.vectorsByText.addAll({
+        'look screen': [1.0, 0.0, 0.0],
+        'take card': [0.0, 1.0, 0.0],
+        // Orthogonal input: "talk to the alien"
+        'talk to the alien': [0.0, 0.0, 1.0],
       });
 
       final result = await translator.translate(
@@ -174,7 +170,6 @@ void main() {
           makeCmd('look screen'),
           makeCmd('take card'),
         ],
-        apiKey: 'test-api-key',
         threshold: 0.75,
         roomNumber: 2,
       );
@@ -184,34 +179,25 @@ void main() {
 
     test('caches repeated candidate embeddings in memory', () async {
       mockClient.statusCode = 200;
-      mockClient.batchEmbedResponse = jsonEncode({
-        'embeddings': [
-          {'values': [1.0, 0.0]}
-        ]
-      });
-      mockClient.embedContentResponse = jsonEncode({
-        'embedding': {
-          'values': [0.99, 0.01]
-        }
+      mockClient.vectorsByText.addAll({
+        'take card': [1.0, 0.0],
+        'grab keycard': [0.99, 0.01],
       });
 
       final r1 = await translator.translate(
         rawInput: 'grab keycard',
         commands: [makeCmd('take card')],
-        apiKey: 'test-api-key',
         roomNumber: 5,
       );
       expect(r1, isNotNull);
       expect(r1!.translatedCommand, equals('take card'));
 
       // Empty out responses to ensure cache is used
-      mockClient.batchEmbedResponse = jsonEncode({'embeddings': []});
-      mockClient.embedContentResponse = jsonEncode({'embedding': {'values': []}});
+      mockClient.vectorsByText.clear();
 
       final r2 = await translator.translate(
         rawInput: 'grab keycard',
         commands: [makeCmd('take card')],
-        apiKey: 'test-api-key',
         roomNumber: 5,
       );
       expect(r2, isNotNull);
@@ -220,14 +206,12 @@ void main() {
 
     test('deduplicateDictionary embeds multi-word groups and clusters synonyms', () async {
       mockClient.statusCode = 200;
-      mockClient.batchEmbedResponse = jsonEncode({
-        'embeddings': [
-          {'values': [1.0, 0.0]}, // look
-          {'values': [0.95, 0.31]}, // see (sim >= 0.70 to look)
-          {'values': [0.92, 0.39]}, // examine (sim >= 0.70 to look)
-          {'values': [0.0, 1.0]}, // wizard
-          {'values': [1.0, 0.0]}, // ogre (orthogonal to wizard)
-        ]
+      mockClient.vectorsByText.addAll({
+        'look': [1.0, 0.0],
+        'see': [0.95, 0.31],
+        'examine': [0.92, 0.39],
+        'wizard': [0.0, 1.0],
+        'ogre': [1.0, 0.0], // orthogonal to wizard
       });
 
       final dict = AgiDictionary();
@@ -240,10 +224,7 @@ void main() {
 
       dict.addWord('key', 99); // single-word group, should not require embedding
 
-      await translator.deduplicateDictionary(
-        dict,
-        apiKey: 'test-key',
-      );
+      await translator.deduplicateDictionary(dict);
 
       expect(dict.isDeduplicated, isTrue);
       // Group 2 preserves preferred words 'look' and 'examine', collapsing 'see'
@@ -256,15 +237,12 @@ void main() {
 
     test('deduplicateDictionary does not freeze vocab when embeddings fail', () async {
       mockClient.statusCode = 500;
-      mockClient.batchEmbedResponse = jsonEncode({
-        'error': {'message': 'unavailable'},
-      });
 
       final dict = AgiDictionary();
       dict.addWord('look', 2);
       dict.addWord('see', 2);
 
-      await translator.deduplicateDictionary(dict, apiKey: 'test-key');
+      await translator.deduplicateDictionary(dict);
       expect(dict.isDeduplicated, isFalse);
     });
 
@@ -272,18 +250,11 @@ void main() {
       mockClient.statusCode = 200;
       // Command: canonical 'look wizard', with slots: ['look'], ['wizard', 'ogre']
       // Generated phrases: 'look wizard', 'look ogre'
-      mockClient.batchEmbedResponse = jsonEncode({
-        'embeddings': [
-          {'values': [1.0, 0.0]}, // look wizard
-          {'values': [0.0, 1.0]}, // look ogre
-        ]
-      });
-
-      // User types: "look at the ogre" -> aligns with 'look ogre'
-      mockClient.embedContentResponse = jsonEncode({
-        'embedding': {
-          'values': [0.05, 0.95] // close to look ogre
-        }
+      mockClient.vectorsByText.addAll({
+        'look wizard': [1.0, 0.0],
+        'look ogre': [0.0, 1.0],
+        // User types: "look at the ogre" -> aligns with 'look ogre'
+        'look at the ogre': [0.05, 0.95],
       });
 
       final cmd = makeCmd('look wizard', [
@@ -294,7 +265,6 @@ void main() {
       final result = await translator.translate(
         rawInput: 'look at the ogre',
         commands: [cmd],
-        apiKey: 'test-key',
         threshold: 0.75,
       );
 
@@ -306,20 +276,13 @@ void main() {
 
     test('testConnection returns true for 200 OK and false for error', () async {
       mockClient.statusCode = 200;
-      mockClient.embedContentResponse = jsonEncode({
-        'embedding': {
-          'values': [0.1, 0.2, 0.3]
-        }
-      });
+      mockClient.vectorsByText['ping'] = [0.1, 0.2, 0.3];
 
-      final okResult = await translator.testConnection(apiKey: 'good-key');
+      final okResult = await translator.testConnection();
       expect(okResult.success, isTrue);
 
-      mockClient.statusCode = 403;
-      mockClient.embedContentResponse = jsonEncode({
-        'error': {'message': 'Invalid API Key'}
-      });
-      final failResult = await translator.testConnection(apiKey: 'bad-key');
+      mockClient.statusCode = 500;
+      final failResult = await translator.testConnection();
       expect(failResult.success, isFalse);
     });
   });

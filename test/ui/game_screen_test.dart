@@ -620,7 +620,7 @@ void main() {
       // Verify AI options panel is open
       expect(find.text('AI COMMAND PARSER'), findsOneWidget);
       expect(find.text('AI NATURAL LANGUAGE ASSIST'), findsOneWidget);
-      expect(find.text('Enable Gemini AI Assist'), findsOneWidget);
+      expect(find.text('Enable Local AI Assist'), findsOneWidget);
       expect(find.text('TEST'), findsOneWidget);
 
       // Toggle AI Assist switch ON
@@ -630,13 +630,13 @@ void main() {
 
       expect(engine.isAiEnabled, isTrue);
 
-      // Enter API key
-      final apiKeyField = find.byType(TextField);
-      expect(apiKeyField, findsOneWidget);
-      await tester.enterText(apiKeyField, 'my-test-key-999');
+      // Enter local server endpoint
+      final endpointField = find.byType(TextField);
+      expect(endpointField, findsOneWidget);
+      await tester.enterText(endpointField, 'http://127.0.0.1:8099');
       await tester.pumpAndSettle();
 
-      expect(engine.aiApiKey, 'my-test-key-999');
+      expect(engine.sidecarManager.port, 8099);
 
       // Toggle AI Assist switch OFF
       await tester.tap(aiSwitch);

@@ -5,16 +5,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/ai/ai_vocab_cache.dart';
-import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
+import 'fake_local_sidecar.dart';
 import 'package:path/path.dart' as p;
 
 class _MockHttpClient implements HttpClient {
   int postCount = 0;
 
+  /// Posts carrying real texts (excludes the `ping` health check).
+  int embedPostCount = 0;
+
+  String? lastWrittenBody;
+
+  /// Vector served per request input text.
+  final Map<String, List<double>> vectorsByText = {
+    'look': [1.0, 0.0],
+    'examine': [0.95, 0.31],
+    'ping': [0.5, 0.5],
+  };
+
   @override
   Future<HttpClientRequest> postUrl(Uri url) async {
     postCount++;
-    return _MockRequest();
+    return _MockRequest(this);
   }
 
   @override
@@ -22,15 +35,30 @@ class _MockHttpClient implements HttpClient {
 }
 
 class _MockRequest implements HttpClientRequest {
+  final _MockHttpClient client;
+
+  _MockRequest(this.client);
+
   @override
   final HttpHeaders headers = _MockHttpHeaders();
 
   @override
-  void write(Object? obj) {}
+  void write(Object? obj) {
+    client.lastWrittenBody = obj?.toString();
+  }
 
   @override
   Future<HttpClientResponse> close() async {
-    return _MockResponse();
+    var inputs = <String>[];
+    try {
+      final sent = jsonDecode(client.lastWrittenBody ?? '') as Map<String, dynamic>?;
+      final raw = sent?['input'] as List?;
+      if (raw != null) inputs = raw.map((e) => e.toString()).toList();
+    } catch (_) {}
+    if (inputs.length != 1 || inputs.first != 'ping') {
+      client.embedPostCount++;
+    }
+    return _MockResponse(inputs.map((t) => client.vectorsByText[t] ?? [0.0, 1.0]).toList());
   }
 
   @override
@@ -46,6 +74,10 @@ class _MockHttpHeaders implements HttpHeaders {
 }
 
 class _MockResponse extends Stream<List<int>> implements HttpClientResponse {
+  final List<List<double>> vectors;
+
+  _MockResponse(this.vectors);
+
   @override
   final int statusCode = 200;
 
@@ -59,9 +91,10 @@ class _MockResponse extends Stream<List<int>> implements HttpClientResponse {
     final stream = Stream.value(
       utf8.encode(
         jsonEncode({
-          'embeddings': [
-            {'values': [1.0, 0.0]},
-            {'values': [0.95, 0.31]},
+          'object': 'list',
+          'data': [
+            for (var i = 0; i < vectors.length; i++)
+              {'object': 'embedding', 'index': i, 'embedding': vectors[i]}
           ]
         }),
       ),
@@ -159,9 +192,9 @@ void main() {
       expect(freshDict.isDeduplicated, isTrue);
       expect(freshDict.idToDeduplicatedWords(2), equals(['look']));
 
-      // Must have migrated to ai_cache/gemini-embedding-001/vocab.json
+      // Must have migrated to ai_cache/embeddinggemma-2-text/vocab.json
       final migratedFile = File(
-        p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'vocab.json'),
+        p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'vocab.json'),
       );
       expect(migratedFile.existsSync(), isTrue);
     });
@@ -179,7 +212,7 @@ void main() {
 
     test('AgiGameEngine prewarmAi uses existing cache file with zero HTTP requests', () async {
       final mockClient = _MockHttpClient();
-      final translator = GeminiCommandTranslator(httpClient: mockClient);
+      final translator = LocalCommandTranslator(httpClient: mockClient);
 
       final dict = AgiDictionary();
       dict.addWord('look', 2);
@@ -199,9 +232,9 @@ void main() {
       newDict.addWord('examine', 2);
 
       final engine = AgiGameEngine(dictionary: newDict);
-      engine.geminiTranslator = translator;
+      engine.commandTranslator = translator;
       engine.gameDirectory = tempDir;
-      engine.aiApiKey = 'test-key';
+      engine.sidecarManager = FakeSidecarManager();
       engine.isAiEnabled = true;
 
       // Wait for prewarm
@@ -209,27 +242,28 @@ void main() {
 
       expect(newDict.isDeduplicated, isTrue);
       expect(newDict.idToDeduplicatedWords(2), equals(['look']));
-      // No HTTP requests should have been made because the cache was on disk
-      expect(mockClient.postCount, equals(0));
+      // No embedding requests should have been made because the cache was on
+      // disk (only the sidecar health ping is expected).
+      expect(mockClient.embedPostCount, equals(0));
     });
 
     test('AgiGameEngine prewarmAi deduplicates and saves cache when no cache exists', () async {
       final mockClient = _MockHttpClient();
-      final translator = GeminiCommandTranslator(httpClient: mockClient);
+      final translator = LocalCommandTranslator(httpClient: mockClient);
 
       final dict = AgiDictionary();
       dict.addWord('look', 2);
       dict.addWord('examine', 2);
 
       final engine = AgiGameEngine(dictionary: dict);
-      engine.geminiTranslator = translator;
+      engine.commandTranslator = translator;
       engine.gameDirectory = tempDir;
-      engine.aiApiKey = 'test-key';
+      engine.sidecarManager = FakeSidecarManager();
       engine.isAiEnabled = true;
 
       // Verify no cache file before prewarm
       final cacheFile = File(
-        p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'vocab.json'),
+        p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'vocab.json'),
       );
       expect(cacheFile.existsSync(), isFalse);
 

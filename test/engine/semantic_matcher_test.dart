@@ -46,15 +46,12 @@ class _CountingRequest implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
-    final body = url.path.contains('batchEmbedContents')
-        ? jsonEncode({
-            'embeddings': [
-              {'values': queryVector},
-            ],
-          })
-        : jsonEncode({
-            'embedding': {'values': queryVector},
-          });
+    final body = jsonEncode({
+      'object': 'list',
+      'data': [
+        {'object': 'embedding', 'index': 0, 'embedding': queryVector},
+      ],
+    });
     return _CountingResponse(body);
   }
 
@@ -160,7 +157,6 @@ void main() {
       final result = await matcher.findBestMatch(
         userQuery: 'examine table',
         candidates: candidates,
-        apiKey: 'dummy-key',
         threshold: 0.75,
       );
 
@@ -191,7 +187,6 @@ void main() {
       final result = await matcher.findBestMatch(
         userQuery: 'sing a song',
         candidates: candidates,
-        apiKey: 'dummy-key',
         threshold: 0.75,
       );
 
@@ -217,7 +212,6 @@ void main() {
       final looseMatch = await matcher.findBestMatch(
         userQuery: 'gaze outside',
         candidates: candidates,
-        apiKey: 'dummy-key',
         threshold: 0.75,
       );
       expect(looseMatch.hasMatch, isTrue);
@@ -226,7 +220,6 @@ void main() {
       final strictMatch = await matcher.findBestMatch(
         userQuery: 'gaze outside',
         candidates: candidates,
-        apiKey: 'dummy-key',
         threshold: 0.85,
       );
       expect(strictMatch.hasMatch, isFalse);
@@ -253,7 +246,6 @@ void main() {
           CandidateSentence(id: '1', textToEmbed: 'look desk', targetCommand: 'look desk'),
           CandidateSentence(id: '2', textToEmbed: 'open door', targetCommand: 'open door'),
         ],
-        apiKey: 'dummy-key',
       );
 
       expect(result.hasMatch, isTrue);
@@ -270,7 +262,6 @@ void main() {
         candidates: [
           const CandidateSentence(id: '1', textToEmbed: 'look', targetCommand: 'look'),
         ],
-        apiKey: 'dummy-key',
       );
       expect(result1.isNone, isTrue);
       expect(result1.score, equals(0.0));
@@ -278,7 +269,6 @@ void main() {
       final result2 = await matcher.findBestMatch(
         userQuery: 'look',
         candidates: [],
-        apiKey: 'dummy-key',
       );
       expect(result2.isNone, isTrue);
       expect(result2.score, equals(0.0));

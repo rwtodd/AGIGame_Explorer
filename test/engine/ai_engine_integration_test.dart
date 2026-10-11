@@ -7,7 +7,8 @@ import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
-import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
+import 'fake_local_sidecar.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 
 class _MockResourceLoader implements AgiResourceLoader {
@@ -33,27 +34,35 @@ class _MockResourceLoader implements AgiResourceLoader {
 
 class _MockHttpClient implements HttpClient {
   int statusCode = 200;
-  String? batchEmbedResponse;
-  String? embedContentResponse;
+
+  /// Forced vectors by exact input text; per-test override.
+  /// (Length-1 batches are indistinguishable from queries on the wire,
+  /// so forcing is keyed by text, never by input count.)
+  final Map<String, List<double>> forcedVectors = {};
 
   @override
   Future<HttpClientRequest> postUrl(Uri url) async {
-    final body = url.toString().contains('batchEmbedContents')
-        ? (batchEmbedResponse ??
-            jsonEncode({
-              'embeddings': [
-                {
-                  'values': [1.0, 0.0]
-                }
-              ]
-            }))
-        : (embedContentResponse ??
-            jsonEncode({
-              'embedding': {
-                'values': [0.98, 0.02]
-              }
-            }));
-    return _MockHttpClientRequest(this, body);
+    return _MockHttpClientRequest(this);
+  }
+
+  List<double> _vectorFor(String text) {
+    if (text.toLowerCase().contains('cat')) return [0.0, 1.0];
+    return [1.0, 0.0];
+  }
+
+  String buildResponseBody(String? writtenBody) {
+    var inputs = <String>[];
+    try {
+      final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
+      final raw = parsed['input'] as List?;
+      if (raw != null) inputs = raw.map((e) => e.toString()).toList();
+    } catch (_) {}
+    final data = <Map<String, dynamic>>[];
+    for (var i = 0; i < inputs.length; i++) {
+      final vec = forcedVectors[inputs[i]] ?? _vectorFor(inputs[i]);
+      data.add({'object': 'embedding', 'index': i, 'embedding': vec});
+    }
+    return jsonEncode({'object': 'list', 'data': data});
   }
 
   @override
@@ -62,12 +71,11 @@ class _MockHttpClient implements HttpClient {
 
 class _MockHttpClientRequest implements HttpClientRequest {
   final _MockHttpClient client;
-  final String bodyToSend;
   String? writtenBody;
   @override
   final HttpHeaders headers = _MockHttpHeaders();
 
-  _MockHttpClientRequest(this.client, this.bodyToSend);
+  _MockHttpClientRequest(this.client);
 
   @override
   void write(Object? obj) {
@@ -76,40 +84,7 @@ class _MockHttpClientRequest implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
-    String responseBody = bodyToSend;
-    if (writtenBody != null && writtenBody!.contains('"requests":')) {
-      try {
-        final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
-        final reqList = parsed['requests'] as List?;
-        if (reqList != null && client.batchEmbedResponse == null) {
-          final embs = <Map<String, dynamic>>[];
-          for (final req in reqList) {
-            final text = req['content']?['parts']?[0]?['text']?.toString().toLowerCase() ?? '';
-            if (text.contains('cat')) {
-              embs.add({'values': [0.0, 1.0]});
-            } else {
-              embs.add({'values': [1.0, 0.0]});
-            }
-          }
-          responseBody = jsonEncode({'embeddings': embs});
-        }
-      } catch (_) {}
-    } else if (writtenBody != null && client.embedContentResponse == null) {
-      try {
-        final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
-        final text = parsed['content']?['parts']?[0]?['text']?.toString().toLowerCase() ?? '';
-        if (text.contains('cat')) {
-          responseBody = jsonEncode({
-            'embedding': {'values': [0.0, 1.0]}
-          });
-        } else {
-          responseBody = jsonEncode({
-            'embedding': {'values': [1.0, 0.0]}
-          });
-        }
-      } catch (_) {}
-    }
-    return _MockHttpClientResponse(client.statusCode, responseBody);
+    return _MockHttpClientResponse(client.statusCode, client.buildResponseBody(writtenBody));
   }
 
   @override
@@ -197,14 +172,14 @@ void main() {
         resourceLoader: mockLoader,
       );
 
-      engine.geminiTranslator = GeminiCommandTranslator(httpClient: mockClient);
+      engine.commandTranslator = LocalCommandTranslator(httpClient: mockClient);
+      engine.sidecarManager = FakeSidecarManager();
       engine.memory.setVar(0, 2); // %v0: current_room = 2
     });
 
     test('natural input is translated via AI and matches said() test in AGI script', () async {
       // Configure AI assist
       engine.isAiEnabled = true;
-      engine.aiApiKey = 'mock-api-key';
 
       // Submit natural language input
       await engine.submitCommand('can you please examine the terminal monitor');
@@ -226,15 +201,10 @@ void main() {
 
     test('unrelated input below threshold triggers fallback to raw tokenization', () async {
       engine.isAiEnabled = true;
-      engine.aiApiKey = 'mock-api-key';
       engine.aiSimilarityThreshold = 0.75;
 
       // Query vector orthogonal to room commands
-      mockClient.embedContentResponse = jsonEncode({
-        'embedding': {
-          'values': [0.0, 1.0]
-        }
-      });
+      mockClient.forcedVectors['sing song'] = [0.0, 1.0];
 
       // Submit input that won't match room commands above threshold
       await engine.submitCommand('sing song');
@@ -276,7 +246,6 @@ void main() {
       expect(engine.loadedLogicNumbers, contains(104));
 
       engine.isAiEnabled = true;
-      engine.aiApiKey = 'mock-api-key';
 
       // Submit command targeted at overlay script
       await engine.submitCommand('look cat');
@@ -289,7 +258,6 @@ void main() {
 
     test('command starting with colon passes directly to Sierra parser, bypassing AI', () async {
       engine.isAiEnabled = true;
-      engine.aiApiKey = 'mock-api-key';
 
       // Submit input with leading colon (e.g. ":look screen" or ": get clam")
       await engine.submitCommand(':look screen');
@@ -305,7 +273,6 @@ void main() {
 
     test('command starting with colon and space strips whitespace before raw parsing', () async {
       engine.isAiEnabled = true;
-      engine.aiApiKey = 'mock-api-key';
 
       await engine.submitCommand(':   look screen  ');
 

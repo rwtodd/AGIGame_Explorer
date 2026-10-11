@@ -8,24 +8,20 @@ import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/ai/ai_disk_cache.dart';
-import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
+import 'fake_local_sidecar.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:path/path.dart' as p;
 
 class _MockHttpClient implements HttpClient {
   int postCount = 0;
-  int batchEmbedCount = 0;
-  int embedContentCount = 0;
+
+  /// Posts carrying real texts (excludes the `ping` readiness probe).
+  int embedTrafficCount = 0;
 
   @override
   Future<HttpClientRequest> postUrl(Uri url) async {
     postCount++;
-    final isBatch = url.toString().contains('batchEmbedContents');
-    if (isBatch) {
-      batchEmbedCount++;
-    } else {
-      embedContentCount++;
-    }
     return _MockHttpClientRequest(this);
   }
 
@@ -49,26 +45,22 @@ class _MockHttpClientRequest implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
-    String responseBody = jsonEncode({
-      'embedding': {
-        'values': [0.95, 0.31]
-      }
-    });
-
-    if (writtenBody != null && writtenBody!.contains('"requests":')) {
-      try {
-        final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
-        final reqList = parsed['requests'] as List?;
-        if (reqList != null) {
-          responseBody = jsonEncode({
-            'embeddings': [
-              for (var i = 0; i < reqList.length; i++)
-                {'values': [0.95, 0.31]}
-            ]
-          });
-        }
-      } catch (_) {}
+    var inputs = <String>['ping'];
+    try {
+      final Map<String, dynamic> parsed = jsonDecode(writtenBody!);
+      final raw = parsed['input'] as List?;
+      if (raw != null) inputs = raw.map((e) => e.toString()).toList();
+    } catch (_) {}
+    if (inputs.length != 1 || inputs.first != 'ping') {
+      client.embedTrafficCount++;
     }
+    final responseBody = jsonEncode({
+      'object': 'list',
+      'data': [
+        for (var i = 0; i < inputs.length; i++)
+          {'object': 'embedding', 'index': i, 'embedding': [0.95, 0.31]}
+      ]
+    });
 
     return _MockHttpClientResponse(200, responseBody);
   }
@@ -153,12 +145,12 @@ void main() {
 
     test('sanitizeModelName strips prefix and cleans illegal characters', () {
       expect(
-        AiDiskCache.sanitizeModelName('models/gemini-embedding-001'),
-        equals('gemini-embedding-001'),
+        AiDiskCache.sanitizeModelName('models/embeddinggemma-2-text'),
+        equals('embeddinggemma-2-text'),
       );
       expect(
-        AiDiskCache.sanitizeModelName('gemini-embedding-001'),
-        equals('gemini-embedding-001'),
+        AiDiskCache.sanitizeModelName('embeddinggemma-2-text'),
+        equals('embeddinggemma-2-text'),
       );
       expect(
         AiDiskCache.sanitizeModelName('custom:model/v1'),
@@ -176,7 +168,7 @@ void main() {
 
       final file = await AiDiskCache.saveVocab(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         dictionary: dict,
       );
 
@@ -184,7 +176,7 @@ void main() {
       expect(file!.existsSync(), isTrue);
       expect(
         file.path,
-        equals(p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'vocab.json')),
+        equals(p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'vocab.json')),
       );
 
       final freshDict = AgiDictionary();
@@ -193,7 +185,7 @@ void main() {
 
       final loaded = await AiDiskCache.tryLoadVocab(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         dictionary: freshDict,
       );
 
@@ -217,7 +209,7 @@ void main() {
 
       final loaded = await AiDiskCache.tryLoadVocab(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         dictionary: dict,
       );
 
@@ -227,7 +219,7 @@ void main() {
 
       // Migrated file should exist
       final migratedFile = File(
-        p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'vocab.json'),
+        p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'vocab.json'),
       );
       expect(migratedFile.existsSync(), isTrue);
     });
@@ -273,7 +265,7 @@ void main() {
       // Save initial logic 0 candidates
       final file1 = await AiDiskCache.saveLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 0,
         embeddings: {'look screen': vec1},
       );
@@ -291,7 +283,7 @@ void main() {
       // Save additional logic 0 candidates (should merge)
       await AiDiskCache.saveLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 0,
         embeddings: {'take key': vec2},
       );
@@ -299,7 +291,7 @@ void main() {
       // Load back
       final loaded = await AiDiskCache.loadLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 0,
       );
 
@@ -314,7 +306,7 @@ void main() {
 
       await AiDiskCache.saveLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 5,
         embeddings: {'test action': vec},
       );
@@ -322,7 +314,7 @@ void main() {
       // Model A has it
       final loadedA = await AiDiskCache.loadLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 5,
       );
       expect(loadedA, isNotNull);
@@ -406,13 +398,13 @@ void main() {
       final vec = Float32List.fromList([0.95, 0.31]);
       await AiDiskCache.saveLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 0,
         embeddings: {'look screen': vec},
       );
       await AiDiskCache.saveLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 2,
         embeddings: {'open door': vec},
       );
@@ -425,22 +417,23 @@ void main() {
       dict.isDeduplicated = true;
       mockLoader.dictionary = dict;
 
-      final translator = GeminiCommandTranslator(httpClient: mockClient);
+      final translator = LocalCommandTranslator(httpClient: mockClient);
       final engine = AgiGameEngine(
         dictionary: dict,
         resourceLoader: mockLoader,
       );
-      engine.geminiTranslator = translator;
+      engine.commandTranslator = translator;
       engine.gameDirectory = tempDir;
-      engine.aiApiKey = 'test-key';
+      engine.sidecarManager = FakeSidecarManager();
       engine.isAiEnabled = true;
       engine.memory.setVar(0, 2); // Current room = 2
 
       // Prewarm active room candidates
       await engine.prewarmCurrentRoomCandidates();
 
-      // Zero HTTP requests should have been made!
-      expect(mockClient.postCount, equals(0));
+      // No embedding traffic should have occurred (only the sidecar
+      // readiness ping is expected).
+      expect(mockClient.embedTrafficCount, equals(0));
 
       // EmbeddingService should now have candidates in memory
       expect(translator.embeddingService.getCached('look screen'), isNotNull);
@@ -483,31 +476,31 @@ Uint8List makeSaidScript(List<int> words) {
       dict.isDeduplicated = true;
       mockLoader.dictionary = dict;
 
-      final translator = GeminiCommandTranslator(httpClient: mockClient);
+      final translator = LocalCommandTranslator(httpClient: mockClient);
       final engine = AgiGameEngine(
         dictionary: dict,
         resourceLoader: mockLoader,
       );
-      engine.geminiTranslator = translator;
+      engine.commandTranslator = translator;
       engine.gameDirectory = tempDir;
-      engine.aiApiKey = 'test-key';
+      engine.sidecarManager = FakeSidecarManager();
       engine.memory.setVar(0, 2);
       engine.isAiEnabled = true;
 
       // Verify no cache on disk before prewarm
       final logic0File = File(
-        p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'logic_0.json.gz'),
+        p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'logic_0.json.gz'),
       );
       final logic2File = File(
-        p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'logic_2.json.gz'),
+        p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'logic_2.json.gz'),
       );
       expect(logic0File.existsSync(), isFalse);
       expect(logic2File.existsSync(), isFalse);
 
       await engine.prewarmAi();
 
-      // Batch embed was called
-      expect(mockClient.batchEmbedCount, greaterThan(0));
+      // Embedding traffic occurred (candidates embedded and persisted)
+      expect(mockClient.embedTrafficCount, greaterThan(0));
 
       // Files now exist on disk
       expect(logic0File.existsSync(), isTrue);
@@ -515,7 +508,7 @@ Uint8List makeSaidScript(List<int> words) {
 
       final logic0Loaded = await AiDiskCache.loadLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 0,
       );
       expect(logic0Loaded, isNotNull);
@@ -549,14 +542,14 @@ Uint8List makeSaidScript(List<int> words) {
       dict.isDeduplicated = true;
       mockLoader.dictionary = dict;
 
-      final translator = GeminiCommandTranslator(httpClient: mockClient);
+      final translator = LocalCommandTranslator(httpClient: mockClient);
       final engine = AgiGameEngine(
         dictionary: dict,
         resourceLoader: mockLoader,
       );
-      engine.geminiTranslator = translator;
+      engine.commandTranslator = translator;
       engine.gameDirectory = tempDir;
-      engine.aiApiKey = 'test-key';
+      engine.sidecarManager = FakeSidecarManager();
       engine.isAiEnabled = true;
 
       await engine.prewarmAi();
@@ -571,7 +564,7 @@ Uint8List makeSaidScript(List<int> words) {
       // Verify all 3 cache files exist
       for (final id in [0, 1, 2]) {
         final f = File(
-          p.join(tempDir.path, 'ai_cache', 'gemini-embedding-001', 'logic_$id.json.gz'),
+          p.join(tempDir.path, 'ai_cache', 'embeddinggemma-2-text', 'logic_$id.json.gz'),
         );
         expect(f.existsSync(), isTrue);
       }
@@ -592,7 +585,7 @@ Uint8List makeSaidScript(List<int> words) {
       dict.isDeduplicated = true;
       await AiDiskCache.saveVocab(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         dictionary: dict,
       );
 
@@ -611,14 +604,14 @@ Uint8List makeSaidScript(List<int> words) {
         messages: const [],
       );
 
-      final translator = GeminiCommandTranslator(httpClient: mockClient);
+      final translator = LocalCommandTranslator(httpClient: mockClient);
       final engine = AgiGameEngine(
         dictionary: freshDict,
         resourceLoader: mockLoader,
       );
-      engine.geminiTranslator = translator;
+      engine.commandTranslator = translator;
       engine.gameDirectory = tempDir;
-      engine.aiApiKey = 'test-key';
+      engine.sidecarManager = FakeSidecarManager();
       engine.isAiEnabled = true;
       engine.memory.setVar(0, 0); // room 0
 
@@ -631,7 +624,7 @@ Uint8List makeSaidScript(List<int> words) {
       // Verify logic_0 candidates were loaded into memory
       final cached0 = await AiDiskCache.loadLogicCandidates(
         directory: tempDir,
-        model: 'gemini-embedding-001',
+        model: 'embeddinggemma-2-text',
         scriptNumber: 0,
       );
       expect(cached0, isNotNull);

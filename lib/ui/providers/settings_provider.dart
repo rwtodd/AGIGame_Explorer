@@ -184,15 +184,15 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
   /// Updates AI command assistance settings.
   void updateAiSettings({
     bool? enabled,
-    String? apiKey,
     String? model,
+    String? endpoint,
     double? similarityThreshold,
   }) {
     state = state.copyWith(
       ai: state.ai.copyWith(
         enabled: enabled,
-        apiKey: apiKey,
         model: model,
+        endpoint: endpoint,
         similarityThreshold: similarityThreshold,
       ),
     );

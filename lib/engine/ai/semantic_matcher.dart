@@ -171,19 +171,17 @@ class SemanticMatcher {
 
   /// Finds the candidate sentence that best matches [userQuery].
   ///
-  /// Embeds the query and candidates with `SEMANTIC_SIMILARITY`, then scores
-  /// local cosine similarity. Returns [SemanticMatchResult.none] below
-  /// [threshold]. [fromCache] is true when both the query and the winner
-  /// were already in the embedding cache before this call.
+  /// Embeds the query and candidates with the local embedding provider,
+  /// then scores local cosine similarity. Returns [SemanticMatchResult.none]
+  /// below [threshold]. [fromCache] is true when both the query and the
+  /// winner were already in the embedding cache before this call.
   Future<SemanticMatchResult> findBestMatch({
     required String userQuery,
     required List<CandidateSentence> candidates,
-    required String apiKey,
     double threshold = defaultThreshold,
-    String model = EmbeddingService.defaultModel,
   }) async {
     final cleanQuery = userQuery.trim();
-    if (cleanQuery.isEmpty || candidates.isEmpty || apiKey.trim().isEmpty) {
+    if (cleanQuery.isEmpty || candidates.isEmpty) {
       return const SemanticMatchResult.none(score: 0.0);
     }
 
@@ -199,16 +197,8 @@ class SemanticMatcher {
     // Both entry points are cache-aware, so fully-cached submits still make
     // zero network calls.
     final fetched = await Future.wait([
-      embeddingService.batchEmbedDocuments(
-        candidateTexts,
-        apiKey: apiKey,
-        model: model,
-      ),
-      embeddingService.embedQuery(
-        cleanQuery,
-        apiKey: apiKey,
-        model: model,
-      ),
+      embeddingService.batchEmbedDocuments(candidateTexts),
+      embeddingService.embedQuery(cleanQuery),
     ]);
     final docVectors = fetched[0] as Map<String, Float32List>;
     final queryVector = fetched[1] as Float32List?;

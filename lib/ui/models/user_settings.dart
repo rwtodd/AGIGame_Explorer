@@ -168,45 +168,50 @@ class AgiAudioSettings {
 /// User preferences for AI natural language command parsing.
 class AgiAiSettings {
   final bool enabled;
-  final String apiKey;
   final String model;
+
+  /// Local sidecar endpoint (e.g. `http://127.0.0.1:8080`).
+  final String endpoint;
+
   final double similarityThreshold;
 
   const AgiAiSettings({
     this.enabled = false,
-    this.apiKey = '',
-    this.model = 'gemini-embedding-001',
+    this.model = 'embeddinggemma-2-text',
+    this.endpoint = 'http://127.0.0.1:8080',
     this.similarityThreshold = 0.75,
   });
 
   AgiAiSettings copyWith({
     bool? enabled,
-    String? apiKey,
     String? model,
+    String? endpoint,
     double? similarityThreshold,
   }) {
     return AgiAiSettings(
       enabled: enabled ?? this.enabled,
-      apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
+      endpoint: endpoint ?? this.endpoint,
       similarityThreshold: similarityThreshold ?? this.similarityThreshold,
     );
   }
 
   Map<String, dynamic> toJson() => {
         'enabled': enabled,
-        'apiKey': apiKey,
         'model': model,
+        'endpoint': endpoint,
         'similarityThreshold': similarityThreshold,
       };
 
   factory AgiAiSettings.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AgiAiSettings();
 
-    final rawModel = json['model'] as String? ?? 'gemini-embedding-001';
-    // Auto-migrate retired/legacy models to active gemini-embedding-001
+    final rawModel = json['model'] as String? ?? 'embeddinggemma-2-text';
+    // Auto-migrate retired cloud models to the local EmbeddingGemma 2 encoder.
+    // (Stored API keys are dropped: local embeddings need no key.)
     final sanitizedModel = switch (rawModel) {
       'text-embedding-004' ||
+      'gemini-embedding-001' ||
       'gemini-3.5-flash-lite' ||
       'gemini-3.6-flash' ||
       'gemini-3.7-flash' ||
@@ -214,14 +219,14 @@ class AgiAiSettings {
       'gemini-2.0-flash' ||
       'gemini-2.5-flash' ||
       'gemini-1.5-flash' =>
-        'gemini-embedding-001',
+        'embeddinggemma-2-text',
       _ => rawModel,
     };
 
     return AgiAiSettings(
       enabled: json['enabled'] as bool? ?? false,
-      apiKey: json['apiKey'] as String? ?? '',
       model: sanitizedModel,
+      endpoint: json['endpoint'] as String? ?? 'http://127.0.0.1:8080',
       similarityThreshold:
           (json['similarityThreshold'] as num?)?.toDouble() ?? 0.75,
     );

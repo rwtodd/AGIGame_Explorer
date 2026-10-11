@@ -5,7 +5,7 @@ import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
-import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
@@ -47,17 +47,16 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
   late TabController _tabController;
   AgiSoundPlayer? _previewPlayer;
   bool _isPlayingPreview = false;
-  late TextEditingController _apiKeyController;
-  bool _obscureApiKey = true;
-  bool _isTestingApiKey = false;
-  String? _apiKeyTestResult;
-  bool _apiKeyTestSuccess = false;
+  late TextEditingController _endpointController;
+  bool _isTestingServer = false;
+  String? _serverTestResult;
+  bool _serverTestSuccess = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _apiKeyController = TextEditingController();
+    _endpointController = TextEditingController();
     _previewPlayer = AgiSoundPlayer();
     _previewPlayer!.onFinished = () {
       if (mounted) {
@@ -70,7 +69,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
 
   @override
   void dispose() {
-    _apiKeyController.dispose();
+    _endpointController.dispose();
     _previewPlayer?.stop();
     _previewPlayer?.dispose();
     _tabController.dispose();
@@ -226,7 +225,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Graphics, Sound, Shaders, and Gemini AI Command Translation',
+                  'Graphics, Sound, Shaders, and Local AI Command Translation',
                   style: TextStyle(
                     fontSize: 11,
                     color: AgiTheme.egaMuted,
@@ -272,21 +271,16 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
   // ===========================================================================
 
   Widget _buildAiTab(AgiAiSettings ai, SettingsNotifier notifier) {
-    if (_apiKeyController.text.isEmpty && ai.apiKey.isNotEmpty) {
-      _apiKeyController.text = ai.apiKey;
+    if (_endpointController.text.isEmpty && ai.endpoint.isNotEmpty) {
+      _endpointController.text = ai.endpoint;
     }
 
-    final selectedModel = const [
-      'gemini-embedding-001',
-      'gemini-embedding-2',
-    ].contains(ai.model)
-        ? ai.model
-        : 'gemini-embedding-001';
+    final selectedModel = ai.model.isNotEmpty ? ai.model : 'embeddinggemma-2-text';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildSectionHeader('GEMINI AI COMMAND PARSER'),
+        _buildSectionHeader('LOCAL AI COMMAND PARSER'),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(12),
@@ -302,7 +296,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
                     Text(
-                      'Enable Gemini AI Command Translation',
+                      'Enable Local AI Command Translation',
                       style: TextStyle(
                         fontFamily: 'Courier',
                         fontWeight: FontWeight.bold,
@@ -312,7 +306,7 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Translates natural/conversational English into valid Sierra AGI commands in real time using embeddings.',
+                      'Translates conversational English into valid Sierra AGI commands using on-device embeddings. No account, no API key.',
                       style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted),
                     ),
                   ],
@@ -332,23 +326,22 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
           ),
         ),
         const SizedBox(height: 16),
-        _buildSectionHeader('GOOGLE AI STUDIO API KEY (100% FREE)'),
+        _buildSectionHeader('LOCAL AI SERVER (AUTO-MANAGED)'),
         const SizedBox(height: 8),
         const Text(
-          'Get a free Gemini API key at https://aistudio.google.com/ with your Google account. Zero cost, no credit card required.',
+          'The app runs a local embedding server automatically (downloading the model once). Advanced users may point it at their own server.',
           style: TextStyle(fontSize: 11, color: AgiTheme.egaMuted, height: 1.4),
         ),
         const SizedBox(height: 10),
         TextField(
-          controller: _apiKeyController,
-          obscureText: _obscureApiKey,
+          controller: _endpointController,
           style: const TextStyle(
             fontFamily: 'Courier',
             fontSize: 12,
             color: AgiTheme.egaWhite,
           ),
           decoration: InputDecoration(
-            hintText: 'Enter AI Studio API Key (AIzaSy...)',
+            hintText: 'http://127.0.0.1:8080',
             hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
             filled: true,
             fillColor: const Color(0xFF0F172A),
@@ -365,19 +358,12 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
               borderRadius: BorderRadius.circular(4),
               borderSide: const BorderSide(color: AgiTheme.egaCyan),
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscureApiKey ? Icons.visibility : Icons.visibility_off,
-                color: AgiTheme.egaMuted,
-                size: 18,
-              ),
-              onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
-            ),
           ),
           onChanged: (val) {
-            notifier.updateAiSettings(apiKey: val.trim());
+            notifier.updateAiSettings(endpoint: val.trim());
             if (widget.engine != null) {
-              widget.engine!.aiApiKey = val.trim();
+              widget.engine!.sidecarManager.port =
+                  Uri.tryParse(val.trim())?.port ?? widget.engine!.sidecarManager.port;
             }
           },
         ),
@@ -403,12 +389,8 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
               ),
               items: const [
                 DropdownMenuItem(
-                  value: 'gemini-embedding-001',
-                  child: Text('gemini-embedding-001 (Recommended, Text)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-embedding-2',
-                  child: Text('gemini-embedding-2 (Latest, Multimodal)'),
+                  value: 'embeddinggemma-2-text',
+                  child: Text('embeddinggemma-2-text (Local, On-Device)'),
                 ),
               ],
               onChanged: (val) {
@@ -455,39 +437,29 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
         Row(
           children: [
             ElevatedButton.icon(
-              onPressed: _isTestingApiKey
+              onPressed: _isTestingServer
                   ? null
                   : () async {
-                      final key = _apiKeyController.text.trim();
-                      if (key.isEmpty) {
-                        setState(() {
-                          _apiKeyTestResult = 'Please enter an API key first.';
-                          _apiKeyTestSuccess = false;
-                        });
-                        return;
-                      }
                       setState(() {
-                        _isTestingApiKey = true;
-                        _apiKeyTestResult = null;
+                        _isTestingServer = true;
+                        _serverTestResult = null;
                       });
 
-                      final translator = widget.engine?.geminiTranslator ?? GeminiCommandTranslator();
-                      final result = await translator.testConnection(
-                        apiKey: key,
-                        model: selectedModel,
-                      );
+                      final translator =
+                          widget.engine?.commandTranslator ?? LocalCommandTranslator();
+                      final result = await translator.testConnection();
 
                       if (mounted) {
                         setState(() {
-                          _isTestingApiKey = false;
-                          _apiKeyTestSuccess = result.success;
-                          _apiKeyTestResult = result.success
+                          _isTestingServer = false;
+                          _serverTestSuccess = result.success;
+                          _serverTestResult = result.success
                               ? '✓ Connected successfully to $selectedModel!'
                               : '✗ Failed: ${result.message}';
                         });
                       }
                     },
-              icon: _isTestingApiKey
+              icon: _isTestingServer
                   ? const SizedBox(
                       width: 14,
                       height: 14,
@@ -513,15 +485,15 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
               ),
             ),
             const SizedBox(width: 12),
-            if (_apiKeyTestResult != null)
+            if (_serverTestResult != null)
               Expanded(
                 child: Text(
-                  _apiKeyTestResult!,
+                  _serverTestResult!,
                   style: TextStyle(
                     fontFamily: 'Courier',
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: _apiKeyTestSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+                    color: _serverTestSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
                   ),
                 ),
               ),

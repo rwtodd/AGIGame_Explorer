@@ -28,8 +28,8 @@ class AiDiskCache {
   /// Sanitizes a model identifier into a clean filesystem folder name.
   ///
   /// Examples:
-  /// - `'gemini-embedding-001'` -> `'gemini-embedding-001'`
-  /// - `'models/gemini-embedding-001'` -> `'gemini-embedding-001'`
+  /// - `'embeddinggemma-2-text'` -> `'embeddinggemma-2-text'`
+  /// - `'models/embeddinggemma-2-text'` -> `'embeddinggemma-2-text'`
   static String sanitizeModelName(String model) {
     var name = model.trim();
     if (name.startsWith('models/')) {

@@ -27,7 +27,8 @@ import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
 import 'package:flutter_agigame/engine/ai/ai_disk_cache.dart';
 import 'package:flutter_agigame/engine/ai/embedding_service.dart';
-import 'package:flutter_agigame/engine/ai/gemini_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
+import 'package:flutter_agigame/engine/ai/local_sidecar_manager.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_matcher.dart';
 import 'package:flutter_agigame/engine/parser/agi_text_parser.dart';
@@ -328,7 +329,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
 
   bool _isAiEnabled = false;
 
-  /// Whether AI command translation via Gemini is enabled.
+  /// Whether local-AI command translation is enabled.
   bool get isAiEnabled => _isAiEnabled;
 
   set isAiEnabled(bool val) {
@@ -350,10 +351,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// Asynchronously pre-warms AI vocabulary and active room candidates in the background.
   ///
   /// 1. Tries to load `ai_vocab_cache.json` from [gameDirectory].
-  /// 2. If no cache exists, performs one-time deduplication with Google GenAI and persists to disk.
+  /// 2. If no cache exists, performs one-time deduplication with local embeddings and persists to disk.
   /// 3. Pre-warms the active room's candidate embeddings into memory.
   Future<void> prewarmAi() {
-    if (!isAiEnabled || aiApiKey.isEmpty) return Future.value();
+    if (!isAiEnabled) return Future.value();
     if (_prewarmFuture != null) return _prewarmFuture!;
     _prewarmFuture = _doPrewarmAi().whenComplete(() {
       _prewarmFuture = null;
@@ -362,16 +363,17 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   Future<void> _doPrewarmAi() async {
+    if (!await ensureLocalAi()) return;
     await ensureVocabReady();
     await prewarmCurrentRoomCandidates();
   }
 
   Future<void>? _vocabFuture;
 
-  /// Ensures vocabulary is loaded from disk or deduplicated via GenAI
+  /// Ensures vocabulary is loaded from disk or deduplicated via local embeddings
   /// before candidate phrase generation begins.
   Future<void> ensureVocabReady() {
-    if (!isAiEnabled || aiApiKey.isEmpty) return Future.value();
+    if (!isAiEnabled) return Future.value();
     final dict = dictionary;
     if (dict == null || dict.isDeduplicated) return Future.value();
 
@@ -400,7 +402,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       }
     }
 
-    if (!dict.isDeduplicated && aiApiKey.isNotEmpty) {
+    if (!dict.isDeduplicated) {
       _isAiIndexing = true;
       notifyListeners();
       try {
@@ -421,10 +423,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
           } catch (_) {}
         }
 
-        await geminiTranslator.deduplicateDictionary(
+        await commandTranslator.deduplicateDictionary(
           dict,
-          apiKey: aiApiKey,
-          model: aiModel,
           relevantWordIds: relevantWordIds,
         );
         _saidExtractor.clearCache();
@@ -450,10 +450,10 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// Pre-warms active room candidate sentence embeddings in the background.
   ///
   /// Checks `<gameDirectory>/ai_cache/<model>/logic_<id>.json.gz` on disk first (< 1 ms, 0 API calls).
-  /// If missing from disk, extracts candidate sentences, embeds them via GenAI,
+  /// If missing from disk, extracts candidate sentences, embeds them locally,
   /// and persists them to `logic_<id>.json.gz`.
   Future<void> prewarmCurrentRoomCandidates() async {
-    if (!isAiEnabled || aiApiKey.isEmpty) return;
+    if (!isAiEnabled) return;
 
     // Ensure vocabulary is loaded from disk or deduplicated before extracting room candidates
     final dict = dictionary;
@@ -509,7 +509,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
           scriptNumber: scriptId,
         );
         if (diskEmbeddings != null && diskEmbeddings.isNotEmpty) {
-          geminiTranslator.embeddingService.storeAllInCache(diskEmbeddings);
+          commandTranslator.embeddingService.storeAllInCache(diskEmbeddings);
           _markScriptCached(scriptId, diskEmbeddings.keys);
           continue;
         }
@@ -542,10 +542,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         continue;
       }
 
-      final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
+      final embeddedMap = await commandTranslator.embeddingService.batchEmbedDocuments(
         candidateTexts.toList(),
-        apiKey: aiApiKey,
-        model: aiModel,
       );
 
       if (!_allCandidatesEmbedded(candidateTexts, embeddedMap)) {
@@ -573,7 +571,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }) async {
     final gameDir = gameDirectory;
     final loader = resourceLoader;
-    if (gameDir == null || loader == null || aiApiKey.isEmpty) return;
+    if (gameDir == null || loader == null) return;
     _hookEmbeddingEviction();
 
     final dict = dictionary ?? AgiDictionary();
@@ -594,7 +592,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         scriptNumber: scriptId,
       );
       if (diskEmbeddings != null && diskEmbeddings.isNotEmpty) {
-        geminiTranslator.embeddingService.storeAllInCache(diskEmbeddings);
+        commandTranslator.embeddingService.storeAllInCache(diskEmbeddings);
         _markScriptCached(scriptId, diskEmbeddings.keys);
         continue;
       }
@@ -621,10 +619,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         continue;
       }
 
-      final embeddedMap = await geminiTranslator.embeddingService.batchEmbedDocuments(
+      final embeddedMap = await commandTranslator.embeddingService.batchEmbedDocuments(
         candidateTexts.toList(),
-        apiKey: aiApiKey,
-        model: aiModel,
       );
 
       if (!_allCandidatesEmbedded(candidateTexts, embeddedMap)) {
@@ -645,7 +641,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   void clearAiCache() {
     _cachedLogicScriptNumbers.clear();
     _cachedPhraseToScript.clear();
-    geminiTranslator.clearCache();
+    commandTranslator.clearCache();
     _saidExtractor.clearCache();
   }
 
@@ -664,7 +660,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   void _hookEmbeddingEviction() {
-    geminiTranslator.embeddingService.onEvict = (key) {
+    commandTranslator.embeddingService.onEvict = (key) {
       final script = _cachedPhraseToScript.remove(key);
       if (script != null) {
         _cachedLogicScriptNumbers.remove(script);
@@ -680,19 +676,8 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     _cachedLogicScriptNumbers.add(scriptId);
   }
 
-  /// Google AI Studio API key for Gemini command translation.
-  String _aiApiKey = '';
-  String get aiApiKey => _aiApiKey;
-  set aiApiKey(String val) {
-    if (_aiApiKey == val) return;
-    _aiApiKey = val;
-    if (_isAiEnabled && val.isNotEmpty) {
-      prewarmAi();
-    }
-  }
-
-  /// Gemini / Embedding model name (default: 'gemini-embedding-001').
-  String _aiModel = GeminiCommandTranslator.defaultModel;
+  /// Local embedding model name (default: 'embeddinggemma-2-text').
+  String _aiModel = LocalCommandTranslator.defaultModel;
   String get aiModel => _aiModel;
   set aiModel(String val) {
     if (_aiModel == val) return;
@@ -706,8 +691,61 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// Cosine similarity threshold for embedding matching (default: 0.75).
   double aiSimilarityThreshold = 0.75;
 
-  /// Gemini translator instance (can be overridden for testing).
-  GeminiCommandTranslator geminiTranslator = GeminiCommandTranslator();
+  /// Local command translator instance (can be overridden for testing).
+  LocalCommandTranslator commandTranslator = LocalCommandTranslator();
+
+  /// App-managed `llama-server` sidecar lifecycle (can be overridden for testing).
+  LocalSidecarManager sidecarManager = LocalSidecarManager();
+
+  /// One-time model download progress (0.0–1.0, or null when unknown/idle).
+  final ValueNotifier<double?> aiDownloadProgress = ValueNotifier(null);
+
+  /// Human-readable local-AI setup status for settings UI.
+  final ValueNotifier<String> aiStatusMessage = ValueNotifier('');
+
+  bool _localAiReady = false;
+
+  /// Whether the local embedding server has been verified reachable.
+  bool get isLocalAiReady => _localAiReady;
+
+  /// Ensures the local embedding sidecar is running and verified.
+  ///
+  /// Adopts a compatible already-running server when one exists; otherwise
+  /// spawns the bundled sidecar (downloading weights on first use).
+  /// Returns `false` when no embeddings can be produced (callers fall back
+  /// to native parsing).
+  Future<bool> ensureLocalAi() async {
+    if (_localAiReady) return true;
+    try {
+      final uri = await sidecarManager.ensureRunning(
+        onDownloadProgress: (p) => aiDownloadProgress.value = p,
+        onStatus: (s) => aiStatusMessage.value = s,
+      );
+      commandTranslator.embeddingService.updateEndpoint(uri);
+      // Strict 768-dim compatibility is enforced by the sidecar manager when
+      // adopting a server; here any live embedder readies the AI path.
+      final health = await commandTranslator.testConnection();
+      _localAiReady = health.success && (health.dimensions ?? 0) > 0;
+      if (!_localAiReady) {
+        aiStatusMessage.value =
+            'Local AI server responded unexpectedly (${health.message}).';
+      } else {
+        aiStatusMessage.value = '';
+        aiDownloadProgress.value = null;
+      }
+    } catch (e) {
+      debugPrint('[AgiGameEngine] Local AI unavailable: $e');
+      aiStatusMessage.value = 'Local AI unavailable: $e';
+      _localAiReady = false;
+    }
+    return _localAiReady;
+  }
+
+  /// Shuts down the sidecar when (and only when) this engine spawned it.
+  Future<void> shutdownLocalAi() {
+    _localAiReady = false;
+    return sidecarManager.shutdown();
+  }
 
   final AgiSaidExtractor _saidExtractor = AgiSaidExtractor();
   AiTranslationResult? _lastAiTranslation;
@@ -1084,7 +1122,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       updateStatusLine(force: true);
 
       ego.updateCachedView(getView(ego.view));
-      if (isAiEnabled && aiApiKey.isNotEmpty) {
+      if (isAiEnabled) {
         prewarmAi();
       }
       notifyListeners();
@@ -1423,7 +1461,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     memory.resetFlag(4);
   }
 
-  /// Submits player text command, optionally translating via Gemini AI if enabled.
+  /// Submits player text command, optionally translating via local AI if enabled.
   /// If [input] begins with a colon (':'), AI translation is bypassed and the remainder
   /// of the command is submitted directly to the classic Sierra parser.
   @override
@@ -1435,7 +1473,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     final actualInput = isExplicitRaw ? cleanInput.substring(1).trim() : cleanInput;
     if (actualInput.isEmpty) return null;
 
-    if (!isExplicitRaw && isAiEnabled && aiApiKey.isNotEmpty) {
+    if (!isExplicitRaw && isAiEnabled) {
       return _submitCommandWithAi(actualInput);
     } else {
       if (isExplicitRaw) {
@@ -1492,8 +1530,19 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   }
 
   Future<void> _submitCommandWithAi(String cleanInput) async {
+    // Without a live local embedder, fall back to native parsing.
+    if (!await ensureLocalAi()) {
+      _lastAiTranslation = null;
+      if (_isRunning) {
+        _bufferedCommands.add(cleanInput);
+      } else {
+        _applyCommand(cleanInput);
+      }
+      notifyListeners();
+      return;
+    }
     final dict = dictionary ?? AgiDictionary();
-    if (!dict.isDeduplicated && aiApiKey.isNotEmpty) {
+    if (!dict.isDeduplicated) {
       await prewarmAi();
     } else {
       await prewarmCurrentRoomCandidates();
@@ -1503,11 +1552,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     final scriptIds = <int>{0, currentRoom, ..._loadedLogicNumbers};
     final extracted = await _saidCommandsFor(scriptIds, currentRoom, dict);
 
-    final result = await geminiTranslator.translate(
+    final result = await commandTranslator.translate(
       rawInput: cleanInput,
       commands: extracted,
-      apiKey: aiApiKey,
-      model: aiModel,
       threshold: aiSimilarityThreshold,
       roomNumber: currentRoom,
     );
@@ -3850,6 +3897,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     _cachedLogicScriptNumbers.clear();
     _cachedPhraseToScript.clear();
     _saidExtractor.clearCache();
+    // Stop the sidecar only when this engine spawned it; adopted
+    // user-owned servers are left running.
+    unawaited(sidecarManager.shutdown());
     super.dispose();
   }
 }

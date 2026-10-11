@@ -116,156 +116,114 @@ void main() {
       expect(normalized.every((v) => v == 0.0), isTrue);
     });
 
-    test('embedQuery sends SEMANTIC_SIMILARITY and caches result', () async {
+    test('embedQuery posts OpenAI-compatible input and caches result', () async {
       mockClient.statusCode = 200;
       mockClient.responseBody = jsonEncode({
-        'embedding': {
-          'values': [0.1, 0.2, 0.3, 0.4]
-        }
+        'object': 'list',
+        'data': [
+          {
+            'object': 'embedding',
+            'index': 0,
+            'embedding': [0.1, 0.2, 0.3, 0.4]
+          }
+        ]
       });
 
-      final vector = await service.embedQuery(
-        'search the computer desk',
-        apiKey: 'test-api-key',
-      );
+      final vector = await service.embedQuery('search the computer desk');
 
       expect(vector, isNotNull);
       expect(vector!.length, equals(4));
       expect(mockClient.postCount, equals(1));
-      expect(mockClient.lastRequestedUri.toString(), contains('gemini-embedding-001:embedContent'));
-      expect(mockClient.lastRequestedUri.toString(), contains('key=test-api-key'));
+      expect(mockClient.lastRequestedUri.toString(), contains('/v1/embeddings'));
 
       final sentJson = jsonDecode(mockClient.lastWrittenBody!);
-      expect(sentJson['taskType'], equals('SEMANTIC_SIMILARITY'));
-      expect(sentJson['content']['parts'][0]['text'], equals('search the computer desk'));
+      expect(sentJson['input'], equals(['search the computer desk']));
 
       // Second call should return cached vector without an extra HTTP post
-      final vector2 = await service.embedQuery(
-        'search the computer desk',
-        apiKey: 'test-api-key',
-      );
+      final vector2 = await service.embedQuery('search the computer desk');
 
       expect(vector2, equals(vector));
       expect(mockClient.postCount, equals(1)); // No additional network request
     });
 
-    test('batchEmbedDocuments sends SEMANTIC_SIMILARITY and caches candidate vectors', () async {
+    test('batchEmbedDocuments embeds missing texts and caches candidate vectors', () async {
       mockClient.statusCode = 200;
       mockClient.responseBody = jsonEncode({
-        'embeddings': [
-          {
-            'values': [1.0, 0.0, 0.0]
-          },
-          {
-            'values': [0.0, 1.0, 0.0]
-          }
+        'object': 'list',
+        'data': [
+          {'object': 'embedding', 'index': 0, 'embedding': [1.0, 0.0, 0.0]},
+          {'object': 'embedding', 'index': 1, 'embedding': [0.0, 1.0, 0.0]}
         ]
       });
 
-      final results = await service.batchEmbedDocuments(
-        ['look screen', 'take key'],
-        apiKey: 'test-api-key',
-      );
+      final results = await service.batchEmbedDocuments(['look screen', 'take key']);
 
       expect(results.length, equals(2));
       expect(results['look screen'], isNotNull);
       expect(results['take key'], isNotNull);
       expect(mockClient.postCount, equals(1));
-      expect(mockClient.lastRequestedUri.toString(), contains('gemini-embedding-001:batchEmbedContents'));
+      expect(mockClient.lastRequestedUri.toString(), contains('/v1/embeddings'));
 
       final sentJson = jsonDecode(mockClient.lastWrittenBody!);
-      expect(sentJson['requests'], hasLength(2));
-      expect(sentJson['requests'][0]['taskType'], equals('SEMANTIC_SIMILARITY'));
-      expect(sentJson['requests'][0]['content']['parts'][0]['text'], equals('look screen'));
+      expect(sentJson['input'], equals(['look screen', 'take key']));
 
       // Re-running with existing plus one new candidate should only request the missing one
       mockClient.responseBody = jsonEncode({
-        'embeddings': [
-          {
-            'values': [0.0, 0.0, 1.0]
-          }
+        'object': 'list',
+        'data': [
+          {'object': 'embedding', 'index': 0, 'embedding': [0.0, 0.0, 1.0]}
         ]
       });
 
       final results2 = await service.batchEmbedDocuments(
         ['look screen', 'take key', 'open door'],
-        apiKey: 'test-api-key',
       );
 
       expect(results2.length, equals(3));
       expect(mockClient.postCount, equals(2));
 
       final secondSentJson = jsonDecode(mockClient.lastWrittenBody!);
-      expect(secondSentJson['requests'], hasLength(1));
-      expect(secondSentJson['requests'][0]['content']['parts'][0]['text'], equals('open door'));
+      expect(secondSentJson['input'], equals(['open door']));
     });
 
     test('testConnection returns success on valid response', () async {
       mockClient.statusCode = 200;
       mockClient.responseBody = jsonEncode({
-        'embedding': {
-          'values': [0.1, 0.2, 0.3]
-        }
+        'object': 'list',
+        'data': [
+          {'object': 'embedding', 'index': 0, 'embedding': [0.1, 0.2, 0.3]}
+        ]
       });
 
-      final result = await service.testConnection(apiKey: 'valid-key');
+      final result = await service.testConnection();
       expect(result.success, isTrue);
       expect(result.statusCode, equals(200));
-      expect(result.message, contains('Connected successfully'));
-
-      final sentJson = jsonDecode(mockClient.lastWrittenBody!);
-      expect(sentJson['taskType'], equals('SEMANTIC_SIMILARITY'));
+      expect(result.dimensions, equals(3));
+      expect(result.message, contains('Connected'));
     });
 
-    test('testConnection fails when API returns error', () async {
-      mockClient.statusCode = 403;
+    test('testConnection fails when server returns error', () async {
+      mockClient.statusCode = 500;
       mockClient.responseBody = jsonEncode({
-        'error': {'message': 'API key not valid'}
+        'error': {'message': 'model loading'}
       });
 
-      final result = await service.testConnection(apiKey: 'invalid-key');
+      final result = await service.testConnection();
       expect(result.success, isFalse);
     });
 
-    test('batchEmbedDocuments retries upon receiving HTTP 429 with retryDelay', () async {
-      mockClient.responseGenerator = (callIndex) {
-        if (callIndex == 1) {
-          return _MockHttpClientResponse(
-            429,
-            jsonEncode({
-              'error': {
-                'code': 429,
-                'message': 'Quota exceeded',
-                'details': [
-                  {
-                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
-                    'retryDelay': '0s',
-                  }
-                ]
-              }
-            }),
-          );
-        } else {
-          return _MockHttpClientResponse(
-            200,
-            jsonEncode({
-              'embeddings': [
-                {
-                  'values': [0.5, 0.5]
-                }
-              ]
-            }),
-          );
-        }
-      };
+    test('embed failures yield nulls without caching', () async {
+      mockClient.statusCode = 500;
+      mockClient.responseBody = jsonEncode({
+        'error': {'message': 'unavailable'}
+      });
 
-      final results = await service.batchEmbedDocuments(
-        ['retry test phrase'],
-        apiKey: 'test-api-key',
-      );
+      final query = await service.embedQuery('unreachable phrase');
+      expect(query, isNull);
+      expect(service.getCached('unreachable phrase'), isNull);
 
-      expect(results, contains('retry test phrase'));
-      expect(mockClient.postCount, equals(2));
+      final batch = await service.batchEmbedDocuments(['a', 'b']);
+      expect(batch, isEmpty);
     });
 
     test('storeInCache LRU-evicts the least recently used key and notifies onEvict', () {

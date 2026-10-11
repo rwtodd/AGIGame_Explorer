@@ -105,8 +105,8 @@ void main() {
       await tester.tap(find.text('AI Command Parser'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Enable Gemini AI Command Translation'), findsOneWidget);
-      expect(find.text('GOOGLE AI STUDIO API KEY (100% FREE)'), findsOneWidget);
+      expect(find.text('Enable Local AI Command Translation'), findsOneWidget);
+      expect(find.text('LOCAL AI SERVER (AUTO-MANAGED)'), findsOneWidget);
       expect(find.text('TEST CONNECTION'), findsOneWidget);
 
       // Toggle AI assist switch on
@@ -115,12 +115,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(container.read(settingsProvider).ai.enabled, isTrue);
 
-      // Enter API key
-      final keyField = find.byType(TextField);
-      expect(keyField, findsOneWidget);
-      await tester.enterText(keyField, 'test-key-12345');
+      // Enter local server endpoint
+      final endpointField = find.byType(TextField);
+      expect(endpointField, findsOneWidget);
+      await tester.enterText(endpointField, 'http://127.0.0.1:8099');
       await tester.pumpAndSettle();
-      expect(container.read(settingsProvider).ai.apiKey, equals('test-key-12345'));
+      expect(container.read(settingsProvider).ai.endpoint, equals('http://127.0.0.1:8099'));
     });
 
     testWidgets('LauncherScreen displays A/V configure button and opens AvSettingsDialog',

@@ -2,22 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/domain/dictionary.dart';
+import 'package:flutter_agigame/engine/ai/embedding_provider.dart';
 import 'package:flutter_agigame/engine/ai/embedding_service.dart';
 import 'package:flutter_agigame/engine/ai/semantic_matcher.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
-
-/// Result of testing connectivity to the Gemini / Google GenAI Embedding API.
-class ConnectionTestResult {
-  final bool success;
-  final String message;
-  final int? statusCode;
-
-  const ConnectionTestResult({
-    required this.success,
-    required this.message,
-    this.statusCode,
-  });
-}
 
 /// Result of an AI command translation or semantic match attempt.
 class AiTranslationResult {
@@ -50,40 +38,38 @@ class AiTranslationResult {
 }
 
 /// Service that translates natural language player inputs into Sierra AGI commands
-/// using Google's embedding models (`text-embedding-004` / `gemini-embedding-001`)
+/// using a local embedding model (EmbeddingGemma 2 text encoder via `llama-server`)
 /// and local vector cosine similarity matching.
-class GeminiCommandTranslator {
-  static const String defaultModel = 'gemini-embedding-001';
+class LocalCommandTranslator {
+  static const String defaultModel = EmbeddingService.defaultModel;
 
-  final HttpClient _httpClient;
   final Duration timeout;
   late final EmbeddingService embeddingService;
   late final SemanticMatcher semanticMatcher;
 
-  GeminiCommandTranslator({
+  LocalCommandTranslator({
+    EmbeddingProvider? provider,
     HttpClient? httpClient,
+    Uri? endpoint,
     this.timeout = const Duration(milliseconds: 10000),
     EmbeddingService? embeddingService,
     SemanticMatcher? semanticMatcher,
-  }) : _httpClient = httpClient ?? HttpClient() {
+  }) {
     this.embeddingService = embeddingService ??
         EmbeddingService(
-          httpClient: _httpClient,
-          timeout: timeout,
+          provider: provider ??
+              LocalEmbeddingProvider(
+                httpClient: httpClient,
+                endpoint: endpoint,
+              ),
         );
     this.semanticMatcher = semanticMatcher ??
         SemanticMatcher(embeddingService: this.embeddingService);
   }
 
-  /// Tests connectivity and API key validity with a lightweight embedding request.
-  Future<ConnectionTestResult> testConnection({
-    required String apiKey,
-    String model = defaultModel,
-  }) async {
-    return embeddingService.testConnection(
-      apiKey: apiKey,
-      model: model,
-    );
+  /// Tests connectivity to the local embedding server.
+  Future<ConnectionTestResult> testConnection() {
+    return embeddingService.testConnection();
   }
 
   /// One-time semantic deduplication of multi-word synonym groups in [dictionary].
@@ -93,8 +79,6 @@ class GeminiCommandTranslator {
   /// and saves the deduplicated lists into [dictionary.setDeduplicatedWords].
   Future<void> deduplicateDictionary(
     AgiDictionary dictionary, {
-    required String apiKey,
-    String model = defaultModel,
     double clusterThreshold = SemanticMatcher.defaultClusterThreshold,
     Set<int>? relevantWordIds,
   }) async {
@@ -124,13 +108,9 @@ class GeminiCommandTranslator {
       dictionary.isDeduplicated = true;
       return;
     }
-    if (apiKey.trim().isEmpty) return;
 
     final vectors = await embeddingService.batchEmbedDocuments(
       wordsToEmbed.toList(),
-      apiKey: apiKey,
-      model: model,
-      taskType: EmbeddingService.defaultTaskType,
     );
     if (vectors.isEmpty) return;
 
@@ -156,13 +136,11 @@ class GeminiCommandTranslator {
   Future<AiTranslationResult?> translate({
     required String rawInput,
     required List<ExtractedSaidCommand> commands,
-    required String apiKey,
-    String model = defaultModel,
     double threshold = SemanticMatcher.defaultThreshold,
     int? roomNumber,
   }) async {
     final clean = rawInput.trim();
-    if (clean.isEmpty || apiKey.trim().isEmpty || commands.isEmpty) return null;
+    if (clean.isEmpty || commands.isEmpty) return null;
 
     final candidates = <CandidateSentence>[];
     for (var cmdIndex = 0; cmdIndex < commands.length; cmdIndex++) {
@@ -184,9 +162,7 @@ class GeminiCommandTranslator {
     final matchResult = await semanticMatcher.findBestMatch(
       userQuery: clean,
       candidates: candidates,
-      apiKey: apiKey,
       threshold: threshold,
-      model: model,
     );
 
     if (matchResult.hasMatch) {

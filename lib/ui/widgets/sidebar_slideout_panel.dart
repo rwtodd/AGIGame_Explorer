@@ -72,16 +72,15 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
 
   SierraGameSession? get _effectiveSession => widget.session ?? widget.engine;
 
-  final TextEditingController _apiKeyController = TextEditingController();
-  bool _obscureApiKey = true;
-  bool _isTestingApiKey = false;
-  String? _apiKeyTestResult;
-  bool _apiKeyTestSuccess = false;
+  final TextEditingController _endpointController = TextEditingController();
+  bool _isTestingServer = false;
+  String? _serverTestResult;
+  bool _serverTestSuccess = false;
 
   @override
   void initState() {
     super.initState();
-    _apiKeyController.text = widget.engine?.aiApiKey ?? '';
+    _endpointController.text = widget.engine?.sidecarManager.endpoint.toString() ?? '';
 
     // Initialize preview player for synthesizer testing
     _previewPlayer = AgiSoundPlayer();
@@ -98,7 +97,7 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   @override
   void dispose() {
     _previewPlayer?.dispose();
-    _apiKeyController.dispose();
+    _endpointController.dispose();
     super.dispose();
   }
 
@@ -1045,11 +1044,11 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       }
     }();
 
-    final apiKey = () {
+    final endpoint = () {
       try {
-        return ref.watch(settingsProvider).ai.apiKey;
+        return ref.watch(settingsProvider).ai.endpoint;
       } catch (_) {
-        return widget.engine!.aiApiKey;
+        return widget.engine!.sidecarManager.endpoint.toString();
       }
     }();
 
@@ -1069,16 +1068,11 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
       }
     }();
 
-    if (_apiKeyController.text.isEmpty && apiKey.isNotEmpty) {
-      _apiKeyController.text = apiKey;
+    if (_endpointController.text.isEmpty && endpoint.isNotEmpty) {
+      _endpointController.text = endpoint;
     }
 
-    final selectedModel = const [
-      'gemini-embedding-001',
-      'gemini-embedding-2',
-    ].contains(model)
-        ? model
-        : 'gemini-embedding-001';
+    final selectedModel = model.isNotEmpty ? model : 'embeddinggemma-2-text';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1086,8 +1080,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
         _buildSectionTitle('AI NATURAL LANGUAGE ASSIST'),
         const SizedBox(height: 8),
         _buildSwitchTile(
-          title: 'Enable Gemini AI Assist',
-          subtitle: 'Translates natural English into AGI commands in real-time',
+          title: 'Enable Local AI Assist',
+          subtitle: 'Local embeddings translate English into AGI commands (no API key)',
           value: isEnabled,
           icon: Icons.auto_awesome,
           onChanged: (val) {
@@ -1099,18 +1093,17 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           },
         ),
         const SizedBox(height: 14),
-        _buildSectionTitle('API KEY (GOOGLE AI STUDIO)'),
+        _buildSectionTitle('LOCAL AI SERVER (AUTO-MANAGED)'),
         const SizedBox(height: 8),
         TextField(
-          controller: _apiKeyController,
-          obscureText: _obscureApiKey,
+          controller: _endpointController,
           style: const TextStyle(
             fontFamily: 'Courier',
             fontSize: 12,
             color: AgiTheme.egaWhite,
           ),
           decoration: InputDecoration(
-            hintText: 'Enter Gemini API Key (AIzaSy...)',
+            hintText: 'http://127.0.0.1:8080',
             hintStyle: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11),
             filled: true,
             fillColor: const Color(0xFF131D31),
@@ -1123,63 +1116,41 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               borderRadius: BorderRadius.circular(4),
               borderSide: const BorderSide(color: AgiTheme.egaCyan),
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscureApiKey ? Icons.visibility : Icons.visibility_off,
-                size: 16,
-                color: AgiTheme.egaMuted,
-              ),
-              onPressed: () {
-                setState(() {
-                  _obscureApiKey = !_obscureApiKey;
-                });
-              },
-            ),
           ),
           onChanged: (val) {
             try {
-              ref.read(settingsProvider.notifier).updateAiSettings(apiKey: val.trim());
+              ref.read(settingsProvider.notifier).updateAiSettings(endpoint: val.trim());
             } catch (_) {}
-            widget.engine!.aiApiKey = val.trim();
+            widget.engine!.sidecarManager.port =
+                Uri.tryParse(val.trim())?.port ?? widget.engine!.sidecarManager.port;
           },
         ),
         const SizedBox(height: 8),
         Row(
           children: [
             ElevatedButton.icon(
-              onPressed: _isTestingApiKey
+              onPressed: _isTestingServer
                   ? null
                   : () async {
-                      final key = _apiKeyController.text.trim();
-                      if (key.isEmpty) {
-                        setState(() {
-                          _apiKeyTestResult = 'Please enter an API key first.';
-                          _apiKeyTestSuccess = false;
-                        });
-                        return;
-                      }
                       setState(() {
-                        _isTestingApiKey = true;
-                        _apiKeyTestResult = null;
+                        _isTestingServer = true;
+                        _serverTestResult = null;
                       });
 
-                      final translator = widget.engine!.geminiTranslator;
-                      final result = await translator.testConnection(
-                        apiKey: key,
-                        model: selectedModel,
-                      );
+                      final translator = widget.engine!.commandTranslator;
+                      final result = await translator.testConnection();
 
                       if (mounted) {
                         setState(() {
-                          _isTestingApiKey = false;
-                          _apiKeyTestSuccess = result.success;
-                          _apiKeyTestResult = result.success
+                          _isTestingServer = false;
+                          _serverTestSuccess = result.success;
+                          _serverTestResult = result.success
                               ? '✓ Connected successfully!'
                               : '✗ Failed: ${result.message}';
                         });
                       }
                     },
-              icon: _isTestingApiKey
+              icon: _isTestingServer
                   ? const SizedBox(
                       width: 12,
                       height: 12,
@@ -1205,15 +1176,15 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               ),
             ),
             const SizedBox(width: 8),
-            if (_apiKeyTestResult != null)
+            if (_serverTestResult != null)
               Expanded(
                 child: Text(
-                  _apiKeyTestResult!,
+                  _serverTestResult!,
                   style: TextStyle(
                     fontFamily: 'Courier',
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
-                    color: _apiKeyTestSuccess ? AgiTheme.egaGreen : AgiTheme.egaRed,
+                    color: _serverTestSuccess ? AgiTheme.egaGreen : AgiTheme.egaRed,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -1243,12 +1214,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               ),
               items: const [
                 DropdownMenuItem(
-                  value: 'gemini-embedding-001',
-                  child: Text('gemini-embedding-001 (Recommended)'),
-                ),
-                DropdownMenuItem(
-                  value: 'gemini-embedding-2',
-                  child: Text('gemini-embedding-2 (Latest)'),
+                  value: 'embeddinggemma-2-text',
+                  child: Text('embeddinggemma-2-text (Local)'),
                 ),
               ],
               onChanged: (val) {
@@ -1292,10 +1259,10 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
         _buildSectionTitle('ABOUT AI MATCHING'),
         const SizedBox(height: 6),
         const Text(
-          '• Uses Google text embeddings and local cosine similarity to match natural sentences directly to valid room actions.\n'
+          '• Uses on-device EmbeddingGemma 2 text embeddings and local cosine similarity to match natural sentences directly to valid room actions.\n'
           '• Fast & deterministic: Candidate embeddings are cached per room, requiring only ~50ms per command.\n'
           '• Below threshold, falls back to native Sierra vocabulary parsing.\n'
-          '• Uses your personal free Google AI Studio key with zero token fees.',
+          '• Fully offline after a one-time model download: no account, no API key, no fees.',
           style: TextStyle(
             fontSize: 11,
             color: AgiTheme.egaMuted,

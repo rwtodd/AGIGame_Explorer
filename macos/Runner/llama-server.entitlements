@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Helper-tool entitlements for the bundled llama-server sidecar binary.
+	     The main app (app-sandbox) may only execute helpers that live inside
+	     its bundle and carry the inherit entitlement. Apply with:
+	       codesign -s "<identity>" --entitlements macos/Runner/llama-server.entitlements \
+	         MyApp.app/Contents/Resources/llama-server
+	     See tool/fetch_llama_server.dart and doc/local_ai_setup.md. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.inherit</key>
+	<true/>
+</dict>
+</plist>

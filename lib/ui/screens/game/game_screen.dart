@@ -115,7 +115,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       if (initSettings != null) {
         agi.setSoundMode(initSettings.audio.soundMode);
         agi.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
-        agi.aiApiKey = initSettings.ai.apiKey;
         agi.aiModel = initSettings.ai.model;
         agi.aiSimilarityThreshold = initSettings.ai.similarityThreshold;
         agi.isAiEnabled = initSettings.ai.enabled;
@@ -652,7 +651,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (_agiEngine != null) {
       try {
         final settings = ref.watch(settingsProvider);
-        _agiEngine!.aiApiKey = settings.ai.apiKey;
         _agiEngine!.aiModel = settings.ai.model;
         _agiEngine!.aiSimilarityThreshold = settings.ai.similarityThreshold;
         _agiEngine!.isAiEnabled = settings.ai.enabled;
