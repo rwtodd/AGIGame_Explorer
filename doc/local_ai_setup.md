@@ -81,12 +81,11 @@ Then enable AI Assist in the app: with a server already on 8080 it will be
 adopted (`ownsServer == false`), and shutting the app down leaves it running.
 
 **Version requirement (verified Oct 2026):** the server binary must know the
-`gemma-embedding2` architecture. The Homebrew build installed on this machine
-(`llama.cpp 7880`) predates it and fails with
-`unknown model architecture: 'gemma-embedding2'` — use a newer llama.cpp
-(`brew upgrade llama.cpp`, or `brew install --HEAD llama.cpp` to build master
-immediately at the cost of a ~10–20 min compile, or `tool/fetch_llama_server.dart`,
-then re-test).
+`gemma-embedding2` architecture (llama.cpp ≥ b11454). Older builds — including
+Homebrew 0.6.0 (build 11429) — fail with
+`unknown model architecture: 'gemma-embedding2'`; Homebrew 0.7.0
+(build 11669) was verified working end-to-end (model loads, `/v1/embeddings`
+serves 768-dim vectors).
 The weights URL above was verified live (`embeddinggemma-2-Q8_0.gguf`,
 ~310 MB).
 
