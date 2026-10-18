@@ -152,6 +152,7 @@ void main() {
         supportDir: Directory('${tempDir.path}/support'),
         binaryPathOverride: fakeBinary.path,
         weightsPathOverride: fakeWeights.path,
+        systemSearchPaths: const [],
       );
     }
 
@@ -218,6 +219,26 @@ void main() {
       expect(manager.ownsServer, isTrue);
     });
 
+    test('missing override falls through to PATH hit', () async {
+      final http = _ProbeHttpClient([null, 768]);
+      final runner = _FakeRunner();
+      final manager = LocalSidecarManager(
+        httpClient: http,
+        processRunner: runner,
+        supportDir: Directory('${tempDir.path}/support'),
+        binaryPathOverride: '${tempDir.path}/does-not-exist',
+        weightsPathOverride: fakeWeights.path,
+        locateOnPath: (_) async => fakeBinary.path,
+        systemSearchPaths: const [],
+      );
+
+      final uri = await manager.ensureRunning();
+
+      expect(runner.startedExe, equals(fakeBinary.path));
+      expect(manager.ownsServer, isTrue);
+      expect(uri.port, equals(LocalSidecarDefaults.defaultPort));
+    });
+
     test('throws SidecarUnavailable when no binary can be resolved', () async {
       final http = _ProbeHttpClient([null]);
       final runner = _FakeRunner();
@@ -228,11 +249,18 @@ void main() {
         binaryPathOverride: '${tempDir.path}/does-not-exist',
         weightsPathOverride: fakeWeights.path,
         locateOnPath: (_) async => null,
+        systemSearchPaths: const [],
       );
 
       await expectLater(
         manager.ensureRunning(),
-        throwsA(isA<SidecarUnavailable>()),
+        throwsA(
+          isA<SidecarUnavailable>().having(
+            (e) => e.message,
+            'message',
+            contains('does-not-exist'),
+          ),
+        ),
       );
       expect(runner.startedExe, isNull);
     });

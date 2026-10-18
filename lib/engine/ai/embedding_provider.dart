@@ -125,8 +125,10 @@ class LocalEmbeddingProvider implements EmbeddingProvider {
           results[index] = vec;
         }
       }
-    } catch (e, stack) {
-      debugPrint('[LocalEmbeddingProvider] embed chunk exception: $e\n$stack');
+    } catch (e) {
+      // Single line, no stack: a dead server would otherwise flood the log
+      // with one full trace per request.
+      debugPrint('[LocalEmbeddingProvider] embed chunk failed: $e');
     }
     return results;
   }

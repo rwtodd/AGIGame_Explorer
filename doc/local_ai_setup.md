@@ -61,7 +61,12 @@ dart tool/fetch_llama_server.dart            # -> third_party/llama-server/
   codesign -s "<identity>" --entitlements macos/Runner/llama-server.entitlements \
     MyApp.app/Contents/Resources/llama-server
   ```
-  (`com.apple.security.inherit` lets the sandboxed app execute its own helper.)
+  (`com.apple.security.inherit` lets the sandboxed app execute its own helper.
+  Verified Oct 2026: under ad-hoc signing the helper must carry *only*
+  `inherit` — adding `com.apple.security.app-sandbox` gets it killed at launch
+  (`Trace/BPT trap: 5`). Inherit-alone launches both directly and under a
+  sandboxed parent. Distribution beyond local testing needs a real signing
+  identity, via `--sign`.)
 - **Windows:** place `third_party/llama-server/windows-x64/llama-server.exe`
   next to the built app `.exe`.
 - **Dev fallback:** with no bundled binary, the app uses `llama-server` from

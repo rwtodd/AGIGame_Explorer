@@ -454,6 +454,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// and persists them to `logic_<id>.json.gz`.
   Future<void> prewarmCurrentRoomCandidates() async {
     if (!isAiEnabled) return;
+    // Never emit embedding traffic without a verified live server
+    // (room loads call this directly, bypassing prewarmAi).
+    if (!await ensureLocalAi()) return;
 
     // Ensure vocabulary is loaded from disk or deduplicated before extracting room candidates
     final dict = dictionary;
@@ -572,6 +575,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
     final gameDir = gameDirectory;
     final loader = resourceLoader;
     if (gameDir == null || loader == null) return;
+    if (!await ensureLocalAi()) return;
     _hookEmbeddingEviction();
 
     final dict = dictionary ?? AgiDictionary();
@@ -714,8 +718,18 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   /// spawns the bundled sidecar (downloading weights on first use).
   /// Returns `false` when no embeddings can be produced (callers fall back
   /// to native parsing).
-  Future<bool> ensureLocalAi() async {
-    if (_localAiReady) return true;
+  Future<bool>? _ensureLocalAiFuture;
+
+  Future<bool> ensureLocalAi() {
+    if (_localAiReady) return Future.value(true);
+    // Single-flight: concurrent room loads must not spawn duplicate servers.
+    _ensureLocalAiFuture ??= _doEnsureLocalAi().whenComplete(() {
+      _ensureLocalAiFuture = null;
+    });
+    return _ensureLocalAiFuture!;
+  }
+
+  Future<bool> _doEnsureLocalAi() async {
     try {
       final uri = await sidecarManager.ensureRunning(
         onDownloadProgress: (p) => aiDownloadProgress.value = p,

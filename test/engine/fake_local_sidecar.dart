@@ -13,3 +13,18 @@ class FakeSidecarManager extends LocalSidecarManager {
   }) async =>
       endpoint;
 }
+
+/// Test double for [LocalSidecarManager]: always fails, simulating a
+/// missing or broken server binary. Engine AI flows must degrade to
+/// zero HTTP traffic (native-parser fallback) instead of throwing.
+class FailingSidecarManager extends LocalSidecarManager {
+  FailingSidecarManager() : super();
+
+  @override
+  Future<Uri> ensureRunning({
+    void Function(double? progress)? onDownloadProgress,
+    void Function(String status)? onStatus,
+  }) async {
+    throw SidecarUnavailable('no server (test double)');
+  }
+}

@@ -633,5 +633,33 @@ Uint8List makeSaidScript(List<int> words) {
       expect(cached0.keys.contains('examine screen'), isFalse);
       expect(cached0.keys.contains('peer screen'), isFalse);
     });
+
+    test('prewarm emits zero HTTP traffic when the sidecar is unavailable', () async {
+      final dict = AgiDictionary();
+      dict.addWord('look', 2);
+      dict.addWord('screen', 3);
+      mockLoader.dictionary = dict;
+
+      final translator = LocalCommandTranslator(httpClient: mockClient);
+      final engine = AgiGameEngine(
+        dictionary: dict,
+        resourceLoader: mockLoader,
+      );
+      engine.commandTranslator = translator;
+      engine.gameDirectory = tempDir;
+      engine.sidecarManager = FailingSidecarManager();
+      engine.isAiEnabled = true;
+
+      // Direct room-prewarm path (as triggered by loadLogic) must degrade
+      // quietly instead of spamming failed embedding requests.
+      await engine.prewarmCurrentRoomCandidates();
+      await engine.prewarmAi();
+      expect(mockClient.postCount, equals(0));
+      expect(engine.isLocalAiReady, isFalse);
+
+      // Command submission falls back to native parsing.
+      await engine.submitCommand('sing song');
+      expect(engine.lastAiTranslation, isNull);
+    });
   });
 }

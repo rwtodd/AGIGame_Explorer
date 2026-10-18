@@ -1,45 +1,46 @@
-/// Fetches `llama-server` binaries for bundling with the app.
+/// Provides a releasable `llama-server` binary for bundling with the app.
 ///
-/// The local-AI sidecar is executed from inside the app bundle (macOS) or
-/// from beside the app executable (Windows); under the macOS app sandbox a
-/// runtime download cannot be executed, so the binary must be bundled at
-/// build time. Weights are NOT bundled here — the app downloads the GGUF
-/// on first use (see [LocalSidecarManager]).
+/// Strategy:
+/// - Default: download a pinned upstream release asset with `--pin bNNNN`.
+///   Release archives are self-contained (dylibs/DLLs included with working
+///   relative rpaths), which is what makes them safe to bundle — unlike a
+///   Homebrew install, whose absolute `/opt/homebrew/opt/...` dylib links
+///   would break on machines without Homebrew.
+/// - `--local`: reuse a Homebrew `llama-server` whose build is new enough to
+///   know the `gemma-embedding2` architecture (>= [_minBuild]). For local
+///   smoke-testing only, never for release bundling.
 ///
 /// Usage:
 /// ```sh
-/// dart tool/fetch_llama_server.dart                 # latest release, all platforms
-/// dart tool/fetch_llama_server.dart --pin bXXXX     # pinned release
-/// dart tool/fetch_llama_server.dart --macos         # macOS arm64 only
-/// dart tool/fetch_llama_server.dart --windows       # Windows x64 only
+/// dart tool/fetch_llama_server.dart --pin b11712        # all platforms
+/// dart tool/fetch_llama_server.dart --pin b11712 --macos
+/// dart tool/fetch_llama_server.dart --local             # dev shortcut
 /// ```
 ///
 /// Output: `third_party/llama-server/<platform>/llama-server[.exe]`
-/// (gitignored). macOS packaging copies it into
-/// `MyApp.app/Contents/Resources/` and re-signs it with
-/// `macos/Runner/llama-server.entitlements`; Windows packaging places
-/// `llama-server.exe` next to the built `.exe`. See `doc/local_ai_setup.md`.
+/// (gitignored). See `tool/bundle_llama_server.dart` and
+/// `doc/local_ai_setup.md`.
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
-const String _releasesApi =
-    'https://api.github.com/ggerganov/llama.cpp/releases/latest';
+/// First llama.cpp build containing `gemma-embedding2` support (PR #30054).
+const int _minBuild = 11454;
 
-String _assetFor(String tag, String target) {
-  final base = target.startsWith('windows')
-      ? 'llama-$tag-bin-win-cpu-x64.zip'
-      : 'llama-$tag-bin-macos-arm64.zip';
-  return base;
-}
+const List<String> _homebrewCandidates = [
+  '/opt/homebrew/bin/llama-server',
+  '/usr/local/bin/llama-server',
+];
 
 Future<void> main(List<String> args) async {
   String? pin;
+  var local = false;
   final filters = <String>{};
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--pin' && i + 1 < args.length) {
       pin = args[++i];
+    } else if (args[i] == '--local') {
+      local = true;
     } else if (args[i].startsWith('--')) {
       filters.add(args[i].substring(2));
     }
@@ -53,76 +54,122 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  final tag = pin ?? await _latestTag();
-  stdout.writeln('Using llama.cpp release $tag');
-
   final outRoot = Directory('third_party/llama-server');
+  for (final target in selected) {
+    final binaryName = target.startsWith('windows') ? 'llama-server.exe' : 'llama-server';
+    // Keep the archive's full layout (bin/ + lib/*.dylib): the server binary
+    // is useless without its sibling dynamic libraries.
+    final outDir = Directory('${outRoot.path}/$target')..createSync(recursive: true);
+    final dest = '${outDir.path}/$binaryName';
+
+    if (local) {
+      if (target.startsWith('windows')) {
+        stderr.writeln('--local is macOS/Homebrew only; pass --pin bNNNN for Windows.');
+        exitCode = 2;
+        return;
+      }
+      final found = await _localBinaryAtLeast(_minBuild);
+      if (found == null) {
+        stderr.writeln('No Homebrew llama-server >= b$_minBuild; pass --pin bNNNN.');
+        exitCode = 2;
+        return;
+      }
+      // Dev shortcut only: copies the binary without its /opt/homebrew
+      // dylibs, so the result runs on THIS machine, not in a release bundle.
+      await File(found).copy(dest);
+      await Process.run('chmod', ['+x', dest]);
+      stdout.writeln('Reused local $found -> $dest (dev only, not for release)');
+      continue;
+    }
+
+    if (pin == null) {
+      stderr.writeln('Pass --pin bNNNN (or --local for a dev shortcut on macOS).');
+      exitCode = 2;
+      return;
+    }
+    await _downloadReleaseAsset(pin, target, binaryName, outDir.path, dest);
+  }
+}
+
+/// Returns a local binary path whose build is >= [minBuild], or `null`.
+Future<String?> _localBinaryAtLeast(int minBuild) async {
+  for (final path in _homebrewCandidates) {
+    if (!File(path).existsSync()) continue;
+    final build = await _binaryBuild(path);
+    if (build != null && build >= minBuild) return path;
+    stdout.writeln('Skipping $path (build ${build ?? 'unknown'} < b$minBuild).');
+  }
+  return null;
+}
+
+/// Parses `build NNNNN` from `llama-server --version`.
+Future<int?> _binaryBuild(String path) async {
+  try {
+    final result = await Process.run(path, ['--version']);
+    final out = '${result.stdout}${result.stderr}';
+    final match = RegExp(r'build (\d+)').firstMatch(out);
+    return match == null ? null : int.tryParse(match.group(1)!);
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _downloadReleaseAsset(
+  String tag,
+  String target,
+  String binaryName,
+  String outDirPath,
+  String dest,
+) async {
+  final asset = target.startsWith('windows')
+      ? 'llama-$tag-bin-win-cpu-x64.zip'
+      : 'llama-$tag-bin-macos-arm64.tar.gz';
+  final url = Uri.parse(
+    'https://github.com/ggml-org/llama.cpp/releases/download/$tag/$asset',
+  );
   final tmpRoot = await Directory.systemTemp.createTemp('llama_server_fetch_');
   try {
-    for (final target in selected) {
-      final asset = _assetFor(tag, target);
-      final url = Uri.parse(
-        'https://github.com/ggerganov/llama.cpp/releases/download/$tag/$asset',
-      );
-      final outDir = Directory('${outRoot.path}/$target')..createSync(recursive: true);
-      final zipFile = File('${tmpRoot.path}/$asset');
-      stdout.writeln('Downloading $url …');
-      await _download(url, zipFile);
-      stdout.writeln('Extracting to ${outDir.path} …');
-      final unzip = await Process.run('unzip', ['-o', zipFile.path, '-d', tmpRoot.path]);
-      if (unzip.exitCode != 0) {
-        throw StateError('unzip failed: ${unzip.stderr}');
+    final archive = File('${tmpRoot.path}/$asset');
+    stdout.writeln('Downloading $url …');
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(url);
+      request.followRedirects = true;
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        throw StateError('Download failed: HTTP ${response.statusCode} for $url');
       }
-      final binaryName = target.startsWith('windows') ? 'llama-server.exe' : 'llama-server';
-      final found = tmpRoot
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((f) => f.path.endsWith('/$binaryName'))
-          .toList();
-      if (found.isEmpty) throw StateError('$binaryName not found in $asset');
-      await found.first.copy('${outDir.path}/$binaryName');
-      if (!target.startsWith('windows')) {
-        await Process.run('chmod', ['+x', '${outDir.path}/$binaryName']);
-      }
-      stdout.writeln('Ready: ${outDir.path}/$binaryName');
+      await response.pipe(archive.openWrite());
+    } finally {
+      client.close();
     }
+    stdout.writeln('Extracting $asset …');
+    final extract = target.startsWith('windows')
+        ? await Process.run('unzip', ['-o', archive.path, '-d', tmpRoot.path])
+        : await Process.run('tar', ['-xzf', archive.path, '-C', tmpRoot.path]);
+    if (extract.exitCode != 0) throw StateError('extract failed: ${extract.stderr}');
+    final found = tmpRoot
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('/$binaryName'))
+        .toList();
+    if (found.isEmpty) throw StateError('$binaryName not found in $asset');
+    // Copy the binary plus every sibling dylib/DLL next to it, preserving
+    // the archive's relative layout so @rpath / DLL search keeps working.
+    final binDir = found.first.parent;
+    for (final file in binDir.listSync(recursive: true).whereType<File>()) {
+      final relative = file.path.substring(binDir.path.length + 1);
+      final target_ = File('$outDirPath/$relative');
+      await target_.parent.create(recursive: true);
+      await file.copy(target_.path);
+    }
+    if (!target.startsWith('windows')) {
+      await Process.run('chmod', ['+x', dest]);
+    }
+    stdout.writeln('Ready: $outDirPath/ ($binaryName + sibling libs)');
   } finally {
     try {
       tmpRoot.deleteSync(recursive: true);
     } catch (_) {}
-  }
-}
-
-Future<String> _latestTag() async {
-  final client = HttpClient();
-  try {
-    final request = await client.getUrl(Uri.parse(_releasesApi));
-    request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
-    final response = await request.close();
-    if (response.statusCode != 200) {
-      throw StateError('GitHub API failed: HTTP ${response.statusCode}');
-    }
-    final body = await response.transform(utf8.decoder).join();
-    final tag = (jsonDecode(body) as Map<String, dynamic>)['tag_name'] as String?;
-    if (tag == null || tag.isEmpty) throw StateError('No tag_name in release response');
-    return tag;
-  } finally {
-    client.close();
-  }
-}
-
-Future<void> _download(Uri url, File dest) async {
-  final client = HttpClient();
-  try {
-    final request = await client.getUrl(url);
-    request.followRedirects = true;
-    final response = await request.close();
-    if (response.statusCode != 200) {
-      throw StateError('Download failed: HTTP ${response.statusCode} for $url');
-    }
-    final sink = dest.openWrite();
-    await response.pipe(sink);
-  } finally {
-    client.close();
   }
 }

@@ -85,6 +85,10 @@ class LocalSidecarManager {
   /// PATH lookup for the server binary; injectable for hermetic tests.
   final Future<String?> Function(String name) locateOnPath;
 
+  /// Well-known install prefixes searched after bundle locations.
+  /// Injectable (default `[]` on Windows) so tests stay hermetic.
+  final List<String> systemSearchPaths;
+
   SidecarProcess? _ownedProcess;
   bool _ownsServer = false;
 
@@ -96,10 +100,18 @@ class LocalSidecarManager {
     this.weightsPathOverride,
     this.port = LocalSidecarDefaults.defaultPort,
     Future<String?> Function(String name)? locateOnPath,
+    List<String>? systemSearchPaths,
   })  : _httpClient = httpClient ?? HttpClient(),
         _processRunner = processRunner ?? IoSidecarProcessRunner(),
         supportDir = supportDir ?? defaultSupportDir(),
-        locateOnPath = locateOnPath ?? _defaultLocateOnPath;
+        locateOnPath = locateOnPath ?? _defaultLocateOnPath,
+        systemSearchPaths = systemSearchPaths ??
+            (Platform.isWindows
+                ? const []
+                : const [
+                    '/opt/homebrew/bin/llama-server',
+                    '/usr/local/bin/llama-server',
+                  ]);
 
   static Future<String?> _defaultLocateOnPath(String name) async {
     try {
@@ -164,11 +176,14 @@ class LocalSidecarManager {
 
     // 2. Resolve the server binary.
     onStatus?.call('Locating local AI server…');
-    final binary = await _resolveBinary();
+    final attempted = <String>[];
+    final binary = await _resolveBinary(attempted);
     if (binary == null) {
       throw SidecarUnavailable(
-        'llama-server not found. Install llama.cpp (https://github.com/ggerganov/llama.cpp/releases) '
-        'or place llama-server next to the app.',
+        'llama-server not found (checked: ${attempted.join(', ')}). '
+        'Install llama.cpp (https://github.com/ggerganov/llama.cpp/releases), '
+        'place llama-server next to the app, or start your own server — '
+        'a compatible server on the endpoint is adopted automatically.',
       );
     }
 
@@ -277,17 +292,24 @@ class LocalSidecarManager {
     return false;
   }
 
-  Future<String?> _resolveBinary() async {
-    if (binaryPathOverride != null && File(binaryPathOverride!).existsSync()) {
-      return binaryPathOverride;
+  Future<String?> _resolveBinary(List<String> attempted) async {
+    if (binaryPathOverride != null) {
+      attempted.add('override $binaryPathOverride');
+      if (File(binaryPathOverride!).existsSync()) return binaryPathOverride;
     }
     for (final candidate in _bundledCandidates()) {
+      attempted.add(candidate);
       if (File(candidate).existsSync()) return candidate;
     }
-    return _findOnPath(Platform.isWindows ? 'llama-server.exe' : 'llama-server');
+    final name = Platform.isWindows ? 'llama-server.exe' : 'llama-server';
+    final onPath = await _findOnPath(name);
+    attempted.add('PATH lookup ($name): ${onPath ?? 'not found'}');
+    return onPath;
   }
 
-  /// Bundled-server locations: beside/inside the app bundle per platform.
+  /// Server binary locations: beside/inside the app bundle per platform,
+  /// then well-known install prefixes (the app's PATH often lacks them,
+  /// e.g. GUI launches without Homebrew on PATH).
   List<String> _bundledCandidates() {
     final candidates = <String>[];
     try {
@@ -304,6 +326,7 @@ class LocalSidecarManager {
         candidates.add('$dir/llama-server');
       }
     } catch (_) {}
+    candidates.addAll(systemSearchPaths);
     return candidates;
   }
 
