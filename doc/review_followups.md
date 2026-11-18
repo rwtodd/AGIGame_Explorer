@@ -123,7 +123,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
 
 ## P1 — next
 
-- [ ] **8. [BUG/S] Decompressors silently return short data.**
+- [x] **8. [BUG/S] Decompressors silently return short data.** *(2026-11-19: AGI EOF size check + prefix-chain caps, SCI LZW terminator exemption removed (all 763 PQ2 resources still pass), Huffman numNodes==0 throws; truncation + width-growth tests.)*
   Early EOF (code 257) returns a truncated buffer with no size check in
   `lib/core/utils/lzw_decompression.dart:54` (final check at `:115`
   bypassed) and silently zero-pads in
@@ -137,7 +137,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
   dictionary-growth / code-width-boundary cases — AGI LZW currently has
   one literal-only test, `test/core/lzw_test.dart:7`.)
 
-- [ ] **9. [BUG/S] GameScreen callbacks outlive the State.**
+- [x] **9. [BUG/S] GameScreen callbacks outlive the State.** *(2026-11-19: dispose clears all three session callbacks; initState closures guard on `mounted`; regression test with externally owned session.)*
   `onSave`/`onRestore`/`onRestartGameRequested` capture this State's
   `context` at `lib/ui/screens/game/game_screen.dart:138` and are never
   cleared in `dispose()` (`:152`); with an externally owned session
@@ -147,7 +147,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
   Verify: widget test that disposes the screen, then triggers each
   callback, and observes no throw.
 
-- [ ] **10. [BUG/M] Saves are non-atomic and unversioned (both engines).**
+- [x] **10. [BUG/M] Saves are non-atomic and unversioned (both engines).** *(2026-11-19: tmp-file + rename writes, slot range 1..12 validated, save-version major checked in both fromJson (missing version still accepted for legacy saves), AGI fromJson casts made num-defensive; SCI kernel save/restore/check callbacks convert failures to a clean false instead of throwing into the VM. Descoped by lead decision: no game-identity field (no stable id exists; saves live under a per-game saveDirectory) and no transactional mid-restore rollback — parse+validate completes before any engine mutation, but a throw during room reload inside restore can still leave partially applied state. The capture/callStack parentheticals below remain open.)*
   `writeAsStringSync` writes directly onto `slot_N.sav`
   (`lib/engine/state/game_state_serializer.dart:135`,
   `lib/sci/engine/sci_game_state_serializer.dart:140`), so a crash
@@ -167,7 +167,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
   serialized `callStack` is never rebuilt on restore — either restore
   frames or drop the field and document scan-boundary-only saves.)
 
-- [ ] **11. [BUG/M] SCI hunk allocator wraps at 64 KiB.**
+- [x] **11. [BUG/M] SCI hunk allocator wraps at 64 KiB.** *(2026-11-19: coalescing free-range first-fit allocator, bump only within 64 KiB else `SciException`, `rebuildHunkFreeList` after snapshot restore; offset-pool exhaustion returns -1 → newList/newNode return nullReg, cloneObject throws, instead of aliasing offset 1. Allocator tests incl. 65,535-node exhaustion.)*
   `allocHunk` (`lib/sci/engine/sci_seg_manager.dart:912`) advances
   `nextHunkOffset` monotonically and `freeHunk` never reclaims it, but
   `SciReg.pointer` (`lib/sci/engine/sci_types.dart:37`) masks offsets
