@@ -1,5 +1,22 @@
 # Sierra AGI Game Engine & Workbench (Flutter / Dart)
 
+## 0. Two-Tier Working Model (Delegation)
+
+This project is deliberately run as a two-model team:
+
+- **The lead session plans, decides, and reviews.** Planning, design decisions, decomposition, synthesis, and final review of any delegated output are the lead's job, done inline. The lead does not check off work on a child's self-reported success: it reviews the diff and independently re-runs the item's verification (see §3).
+- **Bounded execution steps are delegated to Ember subagents.** A custom agent type named `ember-worker` is defined in `.agents/agents/ember-worker.md` and is pinned to `muse-ember-1.0`. Use `subagent_type: "ember-worker"` when you spawn.
+
+Delegate when a step is bounded, independently verifiable, and fully specifiable in one self-contained brief (objective, exact files/scope, constraints, required result shape — children share nothing from this session): searching/reading/summarizing named files, inventories, extraction/tabulation, running `dart analyze` and scoped tests and reporting output faithfully, and small precisely described edits together with their tests (e.g. one ranked item from `doc/review_followups.md`).
+
+Do NOT delegate: the plan itself or any design decision, judging between alternatives the evidence does not settle, final review/integration, anything irreversible (delegate the inventory of what would be affected, never the act, unless the user approved it), or work whose difficulty is holding whole-project context.
+
+Batch independent subtasks in parallel and keep each small — one concern, a bounded set of files. After spawning, wait for and read the results; verify proportionately (spot-check edits against the files, rerun the test/validator a child reports).
+
+**Workflow fallback (if children are not landing on Ember):** definition-carried model selection has been unreliable on some Muse Code builds for workflow children. If there is reason to believe workflow children are running on the lead model instead of Ember (check the `/subagents` and `/workflows` usage views), pin the model per child call: every child invocation must carry both `agentType: "ember-worker"` and `model: "muse-ember-1.0"`. Tell the user you have done this and why.
+
+---
+
 ## 1. Reference Implementations & Documentation
 
 Reference engines, specifications, and test game data are kept in the primary repository and external workspace directories on the host machine. **Even when operating in an isolated git worktree**, agents can and should directly inspect these absolute paths:
@@ -16,7 +33,7 @@ Reference engines, specifications, and test game data are kept in the primary re
 - **Reference Game Assets (for testing)**: `/Users/rtodd/src/flutter_agigame/reference_games/` (gitignored)
   - **AGI:** `black-cauldron/`, `kings-quest-1-agi/`, `kings-quest-2/`, `kings-quest-3/`, `kings-quest-4-agi/`, `police-quest-1/`, `space-quest-1/`, `space-quest-2/`
   - **SCI0 late (16-color, FileIO-shifted kernel):** `police-quest-2/` (first playable target), `lsl-2/`, `lsl-3/` (speed test is room 290), `space-quest-3/`, `codename-iceman/`, `colonels-bequest/`, `conquests-of-camelot/`
-  - **SCI0 early:** `kings-quest-4-sci/` (unshifted kernel IDs / pic-port; not the AGI original)
+  - **SCI0 early:** `kings-quest-4-sci/` (old script header, doubled selector stride, pic-port; kernel IDs are the SAME as late SCI0 — verified by boot trace 2026-11-19, see `test/sci/sci_kq4_boot_test.dart`; not the AGI original)
   - **SCI01 / SCI1-EGA:** `quest-for-glory-1/`, `quest-for-glory-2/` (LZW1, `paletteOffset`; Stage 17)
 
 ---
