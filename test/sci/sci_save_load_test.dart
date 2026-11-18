@@ -146,6 +146,15 @@ void main() {
       expect(recheckedHunk, isNotNull);
       expect(recheckedHunk![0], 0xAA);
       expect(recheckedHunk[1], 0xBB);
+
+      // Globals must alias script 0's locals (lag/sag vs lal/sal share storage).
+      final s0Seg = engine.segManager.scriptToSegment[0];
+      expect(s0Seg, isNotNull);
+      final s0 = engine.segManager.loadedScripts[s0Seg!];
+      expect(s0, isNotNull);
+      expect(identical(engine.segManager.globals, s0!.locals), isTrue);
+      s0.locals[15] = SciReg.fromInt(77);
+      expect(engine.segManager.globals[15].toUint16(), 77);
     });
 
     test('SciGameStateSerializer manages slots on disk', () {

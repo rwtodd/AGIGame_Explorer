@@ -603,15 +603,21 @@ class SciGameStateSnapshot {
     }
 
     // 3. Restore globals
-    engine.segManager.globals = List<SciReg>.from(globals);
+    // Invariant (see instantiateScript): segManager.globals IS script 0's
+    // locals list (identical object). Restore in place and re-assert the alias
+    // so lag/sag writes stay visible to lal/sal and vice versa.
     final s0Seg = engine.segManager.scriptToSegment[0];
-    if (s0Seg != null) {
-      final s0 = engine.segManager.loadedScripts[s0Seg];
-      if (s0 != null) {
-        for (var i = 0; i < engine.segManager.globals.length && i < s0.locals.length; i++) {
-          s0.locals[i] = engine.segManager.globals[i];
-        }
+    final s0 = s0Seg != null ? engine.segManager.loadedScripts[s0Seg] : null;
+    if (s0 != null) {
+      while (s0.locals.length < globals.length) {
+        s0.locals.add(SciReg.nullReg);
       }
+      for (var i = 0; i < globals.length; i++) {
+        s0.locals[i] = globals[i];
+      }
+      engine.segManager.globals = s0.locals;
+    } else {
+      engine.segManager.globals = List<SciReg>.from(globals);
     }
 
     // 4. Restore clones
