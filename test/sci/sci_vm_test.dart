@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/sci/sci_exceptions.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_opcodes.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
@@ -72,6 +73,33 @@ void main() {
       expect(callkInstr.name, 'callk');
       expect(callkInstr.operands, [8, 4]);
       expect(callkInstr.length, 3);
+    });
+
+    test('truncated word operand throws SciException', () {
+      // ldi word mode (ext 0x34, opcode 0x1A) needs a 2-byte word operand;
+      // only one operand byte is present.
+      final code = Uint8List.fromList([0x34, 0x34]);
+      expect(
+        () => decodeInstruction(code, 0),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('truncated byte operand throws SciException', () {
+      // ldi byte mode (ext 0x35) with no operand byte at all.
+      final code = Uint8List.fromList([0x35]);
+      expect(
+        () => decodeInstruction(code, 0),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('pc at or past end throws SciException', () {
+      final code = Uint8List.fromList([0x02]); // valid 'add'
+      expect(decodeInstruction(code, 0).opcode, 1);
+      expect(() => decodeInstruction(code, 1), throwsA(isA<SciException>()));
+      expect(() => decodeInstruction(code, 5), throwsA(isA<SciException>()));
+      expect(() => decodeInstruction(code, -1), throwsA(isA<SciException>()));
     });
   });
 

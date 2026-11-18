@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_canvas.dart';
+import 'package:flutter_agigame/sci/sci_exceptions.dart';
 
 /// A discrete drawing operation decoded from an SCI0 PICTURE vector stream.
 class SciPicDrawingStep implements PicStepInfo {
@@ -65,7 +66,26 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
     int patternTexture = 0;
     final coords = [0, 0];
 
+    int nextByte(String what) {
+      if (curPos >= rawData.length) {
+        throw SciCorruptResourceException(
+          'Truncated picture stream: missing $what at offset $curPos',
+        );
+      }
+      return rawData[curPos++];
+    }
+
+    void requireBytes(int count, String what) {
+      if (curPos + count > rawData.length) {
+        throw SciCorruptResourceException(
+          'Truncated picture stream: need $count bytes for $what at offset '
+          '$curPos, only ${rawData.length - curPos} remaining',
+        );
+      }
+    }
+
     void getAbsCoords(List<int> out, {bool mirror = true}) {
+      requireBytes(3, 'absolute coordinates');
       final p = rawData[curPos++];
       out[0] = rawData[curPos++] + ((p & 0xF0) << 4);
       out[1] = rawData[curPos++] + ((p & 0x0F) << 8);
@@ -73,7 +93,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
     }
 
     void getRelCoords(List<int> out) {
-      final p = rawData[curPos++];
+      final p = nextByte('relative coordinates');
       if ((p & 0x80) != 0) {
         out[0] -= ((p >> 4) & 7) * (mirrored ? -1 : 1);
       } else {
@@ -87,6 +107,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
     }
 
     void getRelCoordsMed(List<int> out) {
+      requireBytes(2, 'medium relative coordinates');
       final py = rawData[curPos++];
       if ((py & 0x80) != 0) {
         out[1] -= (py & 0x7F);
@@ -103,7 +124,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
 
     void getPatternTexture() {
       if ((patternCode & 0x20) != 0) {
-        patternTexture = (rawData[curPos++] >> 1) & 0x7F;
+        patternTexture = (nextByte('pattern texture') >> 1) & 0x7F;
       }
     }
 
@@ -111,7 +132,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
       final op = rawData[curPos++];
       switch (op) {
         case 0xF0:
-          final rawColor = rawData[curPos++];
+          final rawColor = nextByte('visual color');
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xF0,
@@ -133,7 +154,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
           ));
           break;
         case 0xF2:
-          final pri = rawData[curPos++] & 0x0F;
+          final pri = nextByte('priority color') & 0x0F;
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xF2,
@@ -247,7 +268,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
           }
           break;
         case 0xF9:
-          final code = rawData[curPos++];
+          final code = nextByte('pattern code');
           patternCode = code;
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
@@ -275,7 +296,7 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
           }
           break;
         case 0xFB:
-          final ctl = rawData[curPos++] & 0x0F;
+          final ctl = nextByte('control color') & 0x0F;
           steps.add(SciPicDrawingStep(
             stepIndex: stepCounter++,
             opcode: 0xFB,
@@ -324,13 +345,13 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
           }
           break;
         case 0xFE:
-          final subOp = rawData[curPos++];
+          final subOp = nextByte('FE sub-opcode');
           switch (subOp) {
             case 0:
               final entries = <int, int>{};
               while (curPos < rawData.length && rawData[curPos] < 0xF0) {
-                final pix = rawData[curPos++];
-                final val = rawData[curPos++];
+                final pix = nextByte('palette entry index');
+                final val = nextByte('palette entry value');
                 entries[pix] = val;
               }
               steps.add(SciPicDrawingStep(
@@ -348,7 +369,8 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
               ));
               break;
             case 1:
-              final pIdx = rawData[curPos++];
+              final pIdx = nextByte('palette index');
+              requireBytes(40, 'palette block');
               final pBytes = (pIdx < 4 && curPos + 40 <= rawData.length)
                   ? Uint8List.fromList(rawData.sublist(curPos, curPos + 40))
                   : null;
@@ -366,10 +388,12 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
               ));
               break;
             case 2:
+              requireBytes(41, 'palette block');
               curPos += 41;
               break;
             case 3:
             case 5:
+              requireBytes(1, 'palette parameter');
               curPos++;
               break;
             case 4:
@@ -377,8 +401,10 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
               break;
             case 7:
               getAbsCoords(coords, mirror: false);
+              requireBytes(2, 'embedded view size');
               final size = rawData[curPos] | (rawData[curPos + 1] << 8);
               curPos += 2;
+              requireBytes(size, 'embedded view data');
               final headerPos = curPos;
               final vx = coords[0];
               final vy = coords[1];
@@ -392,8 +418,13 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
               ));
               break;
             case 8:
+              requireBytes(14, 'priority bands');
               curPos += 14;
               break;
+            default:
+              throw SciCorruptResourceException(
+                'Invalid picture FE sub-opcode 0x${subOp.toRadixString(16).padLeft(2, '0').toUpperCase()} at offset ${curPos - 1}',
+              );
           }
           break;
         case 0xFF:
@@ -405,6 +436,10 @@ class SciPicStepInterpreter implements SierraPicStepInterpreter {
             action: (_) {},
           ));
           break;
+        default:
+          throw SciCorruptResourceException(
+            'Invalid picture opcode 0x${op.toRadixString(16).padLeft(2, '0').toUpperCase()} at offset ${curPos - 1}',
+          );
       }
       if (op == 0xFF) break;
     }

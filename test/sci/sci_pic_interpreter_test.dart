@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
+import 'package:flutter_agigame/sci/sci_exceptions.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 
 void main() {
@@ -174,6 +175,86 @@ void main() {
       ]);
       final pic = SciPicInterpreter.interpret(data, portTop: 0);
       expect(pic.visualAtPixel(10, 10), 1);
+    });
+  });
+
+  group('SciPicInterpreter truncation tests', () {
+    test('missing color byte after 0xF0 throws SciException', () {
+      expect(
+        () => SciPicInterpreter.interpret(Uint8List.fromList([0xF0])),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('truncated abs coords after 0xF6 throws SciException', () {
+      expect(
+        () => SciPicInterpreter.interpret(Uint8List.fromList([0xF6, 0x00])),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('unknown low opcode 0x21 throws SciException', () {
+      expect(
+        () => SciPicInterpreter.interpret(Uint8List.fromList([0x21])),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('truncated FE 07 size throws SciException', () {
+      // Coords are complete, only one of the two size bytes is present.
+      final data = Uint8List.fromList([0xFE, 0x07, 0x00, 10, 10, 0x09]);
+      expect(
+        () => SciPicInterpreter.interpret(data),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('FE 01 palette skip past end throws SciException', () {
+      // pIdx 4 selects the skip branch; 40 bytes are required but absent.
+      final data = Uint8List.fromList([0xFE, 0x01, 4]);
+      expect(
+        () => SciPicInterpreter.interpret(data),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('FE 02 41-byte skip past end throws SciException', () {
+      final data = Uint8List.fromList([0xFE, 0x02]);
+      expect(
+        () => SciPicInterpreter.interpret(data),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('FE 07 size skip past end throws SciException', () {
+      // Size declares 9 bytes but only 1 byte of view data follows.
+      final data = Uint8List.fromList([
+        0xFE, 0x07,
+        0x00, 10, 10,
+        0x09, 0x00,
+        0x11,
+      ]);
+      expect(
+        () => SciPicInterpreter.interpret(data),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('unknown FE sub-opcode 0x09 throws SciCorruptResourceException', () {
+      final data = Uint8List.fromList([0xFE, 0x09, 0xFF]);
+      expect(
+        () => SciPicInterpreter.interpret(data),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
+    });
+
+    test('truncated FE 08 priority bands throw SciCorruptResourceException', () {
+      // FE 08 requires 14 priority-band bytes; only 3 are present.
+      final data = Uint8List.fromList([0xFE, 0x08, 1, 2, 3]);
+      expect(
+        () => SciPicInterpreter.interpret(data),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
     });
   });
 }

@@ -2,8 +2,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
+import 'package:flutter_agigame/sci/sci_exceptions.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_step_interpreter.dart';
+
+import '../support/reference_games.dart';
 
 void main() {
   group('SciPicStepInterpreter Synthetic Tests', () {
@@ -46,6 +49,7 @@ void main() {
 
   group('SciPicStepInterpreter Real Game Parity Tests', () {
     test('renderUpToStep(totalSteps) pixel-matches SciPicInterpreter on PQ2 Pic 1 and Pic 2', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vm = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
 
       for (final picNum in [1, 2]) {
@@ -98,6 +102,45 @@ void main() {
       final stepped = SciPicStepInterpreter(data, portTop: 0)
           .renderUpToStep(1000);
       expect(stepped.visualPixels, equals(full.visualPixels));
+    });
+  });
+
+  group('SciPicStepInterpreter truncation tests', () {
+    test('missing color byte after 0xF0 throws SciException', () {
+      expect(
+        () => SciPicStepInterpreter(Uint8List.fromList([0xF0])),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('truncated abs coords after 0xF6 throws SciException', () {
+      expect(
+        () => SciPicStepInterpreter(Uint8List.fromList([0xF6, 0x00])),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('unknown low opcode 0x21 throws SciException', () {
+      expect(
+        () => SciPicStepInterpreter(Uint8List.fromList([0x21])),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('truncated FE 07 size throws SciException', () {
+      final data = Uint8List.fromList([0xFE, 0x07, 0x00, 10, 10, 0x09]);
+      expect(
+        () => SciPicStepInterpreter(data),
+        throwsA(isA<SciException>()),
+      );
+    });
+
+    test('unknown FE sub-opcode 0x09 throws SciCorruptResourceException', () {
+      final data = Uint8List.fromList([0xFE, 0x09, 0xFF]);
+      expect(
+        () => SciPicStepInterpreter(data),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
     });
   });
 }

@@ -2,6 +2,8 @@
 
 import 'dart:typed_data';
 
+import '../sci_exceptions.dart';
+
 /// Operand types used in the SCI PMachine base opcode format table.
 enum SciOperandType {
   none,
@@ -211,8 +213,35 @@ const List<List<SciOperandType>> sciBaseOpcodeFormats = [
 
 /// Decodes the PMachine instruction at [pc] in [code].
 SciInstruction decodeInstruction(Uint8List code, int pc) {
+  if (pc < 0 || pc >= code.length) {
+    throw SciException(
+      'Truncated instruction at pc $pc: no opcode byte (code length ${code.length})',
+    );
+  }
+
   var offset = pc;
-  final extOpcode = code[offset++];
+
+  int readByte() {
+    if (offset >= code.length) {
+      throw SciException(
+        'Truncated instruction at pc $pc: missing byte operand',
+      );
+    }
+    return code[offset++];
+  }
+
+  int readWord() {
+    if (offset + 1 >= code.length) {
+      throw SciException(
+        'Truncated instruction at pc $pc: missing word operand',
+      );
+    }
+    final w = code[offset] | (code[offset + 1] << 8);
+    offset += 2;
+    return w;
+  }
+
+  final extOpcode = readByte();
   final opcode = extOpcode >> 1;
   final widthBit = extOpcode & 1;
 
@@ -228,45 +257,39 @@ SciInstruction decodeInstruction(Uint8List code, int pc) {
 
       switch (fmt) {
         case SciOperandType.byte:
-          operands.add(code[offset++]);
+          operands.add(readByte());
           break;
 
         case SciOperandType.sbyte:
-          final b = code[offset++];
+          final b = readByte();
           operands.add(b >= 0x80 ? b - 0x100 : b);
           break;
 
         case SciOperandType.word:
-          final w = code[offset] | (code[offset + 1] << 8);
-          offset += 2;
-          operands.add(w);
+          operands.add(readWord());
           break;
 
         case SciOperandType.sword:
-          final w = code[offset] | (code[offset + 1] << 8);
-          offset += 2;
+          final w = readWord();
           operands.add(w >= 0x8000 ? w - 0x10000 : w);
           break;
 
         case SciOperandType.variable:
         case SciOperandType.offset:
           if (widthBit != 0) {
-            operands.add(code[offset++]);
+            operands.add(readByte());
           } else {
-            final w = code[offset] | (code[offset + 1] << 8);
-            offset += 2;
-            operands.add(w);
+            operands.add(readWord());
           }
           break;
 
         case SciOperandType.svariable:
         case SciOperandType.srelative:
           if (widthBit != 0) {
-            final b = code[offset++];
+            final b = readByte();
             operands.add(b >= 0x80 ? b - 0x100 : b);
           } else {
-            final w = code[offset] | (code[offset + 1] << 8);
-            offset += 2;
+            final w = readWord();
             operands.add(w >= 0x8000 ? w - 0x10000 : w);
           }
           break;

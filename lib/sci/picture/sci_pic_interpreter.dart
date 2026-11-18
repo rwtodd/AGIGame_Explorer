@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_canvas.dart';
+import 'package:flutter_agigame/sci/sci_exceptions.dart';
 
 /// Vector bytecode interpreter for Sierra SCI0 and SCI1-EGA PICTURE resources.
 class SciPicInterpreter {
@@ -35,7 +36,26 @@ class SciPicInterpreter {
 
     int getPaletteEntry(int colorIndex) => canvas.getPaletteEntry(colorIndex);
 
+    int nextByte(String what) {
+      if (curPos >= data.length) {
+        throw SciCorruptResourceException(
+          'Truncated picture stream: missing $what at offset $curPos',
+        );
+      }
+      return data[curPos++];
+    }
+
+    void requireBytes(int count, String what) {
+      if (curPos + count > data.length) {
+        throw SciCorruptResourceException(
+          'Truncated picture stream: need $count bytes for $what at offset '
+          '$curPos, only ${data.length - curPos} remaining',
+        );
+      }
+    }
+
     void getAbsCoords(List<int> out, {bool mirror = true}) {
+      requireBytes(3, 'absolute coordinates');
       final p = data[curPos++];
       out[0] = data[curPos++] + ((p & 0xF0) << 4);
       out[1] = data[curPos++] + ((p & 0x0F) << 8);
@@ -43,7 +63,7 @@ class SciPicInterpreter {
     }
 
     void getRelCoords(List<int> out) {
-      final p = data[curPos++];
+      final p = nextByte('relative coordinates');
       if ((p & 0x80) != 0) {
         out[0] -= ((p >> 4) & 7) * (mirrored ? -1 : 1);
       } else {
@@ -57,6 +77,7 @@ class SciPicInterpreter {
     }
 
     void getRelCoordsMed(List<int> out) {
+      requireBytes(2, 'medium relative coordinates');
       final py = data[curPos++];
       if ((py & 0x80) != 0) {
         out[1] -= (py & 0x7F);
@@ -73,7 +94,7 @@ class SciPicInterpreter {
 
     void getPatternTexture() {
       if ((canvas.patternCode & 0x20) != 0) {
-        patternTexture = (data[curPos++] >> 1) & 0x7F;
+        patternTexture = (nextByte('pattern texture') >> 1) & 0x7F;
       }
     }
 
@@ -105,7 +126,7 @@ class SciPicInterpreter {
       final op = data[curPos++];
       switch (op) {
         case 0xF0:
-          final rawColor = data[curPos++];
+          final rawColor = nextByte('visual color');
           final palColor = getPaletteEntry(rawColor);
           canvas.picColor = (palColor ^ (palColor << 4)) & 0xFF;
           break;
@@ -113,7 +134,7 @@ class SciPicInterpreter {
           canvas.picColor = 255;
           break;
         case 0xF2:
-          canvas.picPriority = data[curPos++] & 0x0F;
+          canvas.picPriority = nextByte('priority color') & 0x0F;
           break;
         case 0xF3:
           canvas.picPriority = 255;
@@ -162,7 +183,7 @@ class SciPicInterpreter {
           }
           break;
         case 0xF9:
-          canvas.patternCode = data[curPos++];
+          canvas.patternCode = nextByte('pattern code');
           break;
         case 0xFA:
           while (curPos < data.length && data[curPos] < 0xF0) {
@@ -172,7 +193,7 @@ class SciPicInterpreter {
           }
           break;
         case 0xFB:
-          canvas.picControl = data[curPos++] & 0x0F;
+          canvas.picControl = nextByte('control color') & 0x0F;
           break;
         case 0xFC:
           canvas.picControl = 255;
@@ -188,20 +209,21 @@ class SciPicInterpreter {
           }
           break;
         case 0xFE:
-          final subOp = data[curPos++];
+          final subOp = nextByte('FE sub-opcode');
           switch (subOp) {
             case 0:
               while (curPos < data.length && data[curPos] < 0xF0) {
-                final pix = data[curPos++];
+                final pix = nextByte('palette entry index');
                 if (pix < canvas.egaPalettes.length) {
-                  canvas.egaPalettes[pix] = data[curPos++];
+                  canvas.egaPalettes[pix] = nextByte('palette entry value');
                 } else {
-                  curPos++;
+                  nextByte('palette entry padding');
                 }
               }
               break;
             case 1:
-              final pIdx = data[curPos++];
+              final pIdx = nextByte('palette index');
+              requireBytes(40, 'palette block');
               if (pIdx < 4) {
                 final base = pIdx * 40;
                 for (int i = 0; i < 40; i++) {
@@ -212,10 +234,12 @@ class SciPicInterpreter {
               }
               break;
             case 2:
+              requireBytes(41, 'palette block');
               curPos += 41;
               break;
             case 3:
             case 5:
+              requireBytes(1, 'palette parameter');
               curPos++;
               break;
             case 4:
@@ -223,22 +247,33 @@ class SciPicInterpreter {
               break;
             case 7:
               getAbsCoords(coords, mirror: false);
+              requireBytes(2, 'embedded view size');
               final size = data[curPos] | (data[curPos + 1] << 8);
               curPos += 2;
+              requireBytes(size, 'embedded view data');
               canvas.drawEmbeddedView(data, curPos, coords[0], coords[1]);
               curPos += size;
               break;
             case 8:
+              requireBytes(14, 'priority bands');
               final bands = <int>[];
-              for (int i = 0; i < 14 && curPos < data.length; i++) {
+              for (int i = 0; i < 14; i++) {
                 bands.add(data[curPos++]);
               }
               priorityBands = bands;
               break;
+            default:
+              throw SciCorruptResourceException(
+                'Invalid picture FE sub-opcode 0x${subOp.toRadixString(16).padLeft(2, '0').toUpperCase()} at offset ${curPos - 1}',
+              );
           }
           break;
         case 0xFF:
           break;
+        default:
+          throw SciCorruptResourceException(
+            'Invalid picture opcode 0x${op.toRadixString(16).padLeft(2, '0').toUpperCase()} at offset ${curPos - 1}',
+          );
       }
       if (op == 0xFF) break;
     }
