@@ -193,7 +193,7 @@ class WindowsWaveOutSink implements AudioOutputSink {
   int _currentEpoch = 0;
 
   AudioPlaybackStatus _status = AudioPlaybackStatus.uninitialized;
-  final StreamController<AudioPlaybackStatus> _statusController =
+  StreamController<AudioPlaybackStatus> _statusController =
       StreamController<AudioPlaybackStatus>.broadcast();
 
   final _AudioRingBuffer _ringBuffer = _AudioRingBuffer();
@@ -284,7 +284,10 @@ class WindowsWaveOutSink implements AudioOutputSink {
     int bufferSizeInFrames = 2048,
   }) async {
     if (_hWaveOut != null) {
-      dispose();
+      _teardownDevice();
+    }
+    if (_statusController.isClosed) {
+      _statusController = StreamController<AudioPlaybackStatus>.broadcast();
     }
 
     _sampleRate = sampleRate;
@@ -461,8 +464,8 @@ class WindowsWaveOutSink implements AudioOutputSink {
     }
   }
 
-  @override
-  void dispose() {
+  /// Releases native device state only; never touches [_statusController].
+  void _teardownDevice() {
     if (_hWaveOut != null) {
       _currentEpoch++;
       _reset(_hWaveOut!);
@@ -483,7 +486,15 @@ class WindowsWaveOutSink implements AudioOutputSink {
     _ringBuffer.clear();
 
     _status = AudioPlaybackStatus.uninitialized;
-    _statusController.add(_status);
+  }
+
+  @override
+  void dispose() {
+    if (_hWaveOut == null && _statusController.isClosed) return;
+    _teardownDevice();
+    if (!_statusController.isClosed) {
+      _statusController.add(_status);
+    }
     _statusController.close();
   }
 }

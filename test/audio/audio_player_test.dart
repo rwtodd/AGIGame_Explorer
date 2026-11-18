@@ -30,6 +30,17 @@ void main() {
       sink.dispose();
       expect(sink.status, AudioPlaybackStatus.uninitialized);
     });
+
+    test('NullAudioSink can be re-initialized after dispose and dispose is idempotent', () async {
+      final sink = NullAudioSink();
+      await sink.initialize(sampleRate: 44100);
+      sink.dispose();
+      sink.dispose();
+      await sink.initialize(sampleRate: 22050);
+      expect(sink.sampleRate, 22050);
+      expect(sink.status, AudioPlaybackStatus.stopped);
+      sink.dispose();
+    });
   });
 
   group('AgiSoundPlayer', () {
@@ -123,6 +134,21 @@ void main() {
       expect(player.isLooping, false);
       player.setLooping(true);
       expect(player.isLooping, true);
+    });
+
+    test('play after dispose is a no-op', () async {
+      player.dispose();
+      await player.play(dummySound);
+      expect(player.isPlaying, isFalse);
+      expect(mockSink.queuedBuffers, isEmpty);
+    });
+
+    test('play re-initializes sink when sampleRate changes', () async {
+      await player.play(dummySound,
+          config: const SynthesizerConfig(sampleRate: 44100));
+      await player.play(dummySound,
+          config: const SynthesizerConfig(sampleRate: 22050));
+      expect(mockSink.sampleRate, 22050);
     });
   });
 }

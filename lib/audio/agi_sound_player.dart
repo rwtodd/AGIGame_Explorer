@@ -131,6 +131,7 @@ class AgiSoundPlayer {
 
   /// Initializes the underlying audio output device.
   Future<void> initialize({int sampleRate = 44100}) async {
+    if (_isDisposed) return;
     await _sink.initialize(
       sampleRate: sampleRate,
       numChannels: 2,
@@ -164,6 +165,7 @@ class AgiSoundPlayer {
     int startTick = 0,
     bool muted = false,
   }) async {
+    if (_isDisposed) return;
     if (sound.isEmpty || sound.length <= 0) {
       stop();
       return;
@@ -179,8 +181,9 @@ class AgiSoundPlayer {
     _sink.flush();
 
     if (!muted) {
-      // Make sure sink is initialized
-      if (_sink.status == AudioPlaybackStatus.uninitialized) {
+      // Make sure sink is initialized at the current sample rate
+      if (_sink.status == AudioPlaybackStatus.uninitialized ||
+          _sink.sampleRate != _currentConfig.sampleRate) {
         await initialize(sampleRate: _currentConfig.sampleRate);
       }
 

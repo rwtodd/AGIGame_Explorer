@@ -84,7 +84,7 @@ class NullAudioSink implements AudioOutputSink {
   @override
   int get playedFrames => _playedFrames;
 
-  final StreamController<AudioPlaybackStatus> _statusController =
+  StreamController<AudioPlaybackStatus> _statusController =
       StreamController<AudioPlaybackStatus>.broadcast();
 
   @override
@@ -98,6 +98,9 @@ class NullAudioSink implements AudioOutputSink {
     int numChannels = 2,
     int bufferSizeInFrames = 2048,
   }) async {
+    if (_statusController.isClosed) {
+      _statusController = StreamController<AudioPlaybackStatus>.broadcast();
+    }
     this.sampleRate = sampleRate;
     this.numChannels = numChannels;
     status = AudioPlaybackStatus.stopped;
@@ -111,18 +114,21 @@ class NullAudioSink implements AudioOutputSink {
 
   @override
   void play() {
+    if (_statusController.isClosed) return;
     status = AudioPlaybackStatus.playing;
     _statusController.add(status);
   }
 
   @override
   void pause() {
+    if (_statusController.isClosed) return;
     status = AudioPlaybackStatus.paused;
     _statusController.add(status);
   }
 
   @override
   void stop() {
+    if (_statusController.isClosed) return;
     status = AudioPlaybackStatus.stopped;
     _playedFrames = 0;
     queuedBuffers.clear();
@@ -144,7 +150,10 @@ class NullAudioSink implements AudioOutputSink {
 
   @override
   void dispose() {
+    if (_statusController.isClosed) return;
     status = AudioPlaybackStatus.uninitialized;
+    queuedBuffers.clear();
+    _playedFrames = 0;
     _statusController.close();
   }
 }

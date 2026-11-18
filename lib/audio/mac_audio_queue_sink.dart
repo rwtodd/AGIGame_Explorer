@@ -186,7 +186,7 @@ class MacAudioQueueSink implements AudioOutputSink {
   int _currentEpoch = 0;
 
   AudioPlaybackStatus _status = AudioPlaybackStatus.uninitialized;
-  final StreamController<AudioPlaybackStatus> _statusController =
+  StreamController<AudioPlaybackStatus> _statusController =
       StreamController<AudioPlaybackStatus>.broadcast();
 
   // High performance O(1) circular sample ring buffer
@@ -269,7 +269,10 @@ class MacAudioQueueSink implements AudioOutputSink {
     int bufferSizeInFrames = 2048,
   }) async {
     if (_audioQueue != null) {
-      dispose();
+      _teardownDevice();
+    }
+    if (_statusController.isClosed) {
+      _statusController = StreamController<AudioPlaybackStatus>.broadcast();
     }
 
     _sampleRate = sampleRate;
@@ -424,8 +427,8 @@ class MacAudioQueueSink implements AudioOutputSink {
     }
   }
 
-  @override
-  void dispose() {
+  /// Releases native device state only; never touches [_statusController].
+  void _teardownDevice() {
     if (_audioQueue != null) {
       _currentEpoch++;
       _stopAQ(_audioQueue!, true);
@@ -439,7 +442,15 @@ class MacAudioQueueSink implements AudioOutputSink {
     _ringBuffer.clear();
 
     _status = AudioPlaybackStatus.uninitialized;
-    _statusController.add(_status);
+  }
+
+  @override
+  void dispose() {
+    if (_audioQueue == null && _statusController.isClosed) return;
+    _teardownDevice();
+    if (!_statusController.isClosed) {
+      _statusController.add(_status);
+    }
     _statusController.close();
   }
 }
