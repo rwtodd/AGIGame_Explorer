@@ -31,9 +31,10 @@ class InventoryDialog extends StatefulWidget {
   final List<CarriedItem>? items;
   final List<AgiObject>? objects;
   final AgiMemory? memory;
-  final VoidCallback? onClose;
+  /// Single completion callback: null = dismissed/cancelled,
+  /// non-null = selected object index.
+  final ValueChanged<int?>? onDone;
   final ValueChanged<int>? onItemSelected;
-  final ValueChanged<int>? onSelect;
   final bool? isSelectionMode;
   final int? initialSelectedObject;
   final bool correctAspectRatio;
@@ -45,9 +46,8 @@ class InventoryDialog extends StatefulWidget {
     this.items,
     this.objects,
     this.memory,
-    this.onClose,
+    this.onDone,
     this.onItemSelected,
-    this.onSelect,
     this.isSelectionMode,
     this.initialSelectedObject,
     this.correctAspectRatio = true,
@@ -163,12 +163,16 @@ class _InventoryDialogState extends State<InventoryDialog> {
     }
   }
 
+  /// Fires the single completion callback exactly once.
+  void _done(int? selected) => widget.onDone?.call(selected);
+
   void _handleSelectCurrent(List<CarriedItem> carried) {
     if (carried.isNotEmpty && _selectedIndex >= 0 && _selectedIndex < carried.length) {
       final selectedItem = carried[_selectedIndex];
-      widget.onSelect?.call(selectedItem.index);
+      _done(selectedItem.index);
+    } else {
+      _done(null);
     }
-    widget.onClose?.call();
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -178,7 +182,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
     final isSelect = _isSelectionMode;
 
     if (event.logicalKey == LogicalKeyboardKey.escape) {
-      widget.onClose?.call();
+      widget.onDone?.call(null);
       return KeyEventResult.handled;
     }
 
@@ -186,7 +190,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter ||
           event.logicalKey == LogicalKeyboardKey.space) {
-        widget.onClose?.call();
+        widget.onDone?.call(null);
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;
@@ -227,11 +231,11 @@ class _InventoryDialogState extends State<InventoryDialog> {
       if (isSelect) {
         _handleSelectCurrent(carried);
       } else {
-        widget.onClose?.call();
+        widget.onDone?.call(null);
       }
       return KeyEventResult.handled;
     } else if (event.logicalKey == LogicalKeyboardKey.space && !isSelect) {
-      widget.onClose?.call();
+      widget.onDone?.call(null);
       return KeyEventResult.handled;
     }
 
@@ -250,11 +254,11 @@ class _InventoryDialogState extends State<InventoryDialog> {
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.escape): () => widget.onClose?.call(),
+        const SingleActivator(LogicalKeyboardKey.escape): () => widget.onDone?.call(null),
         if (carried.isEmpty || !isSelect) ...{
-          const SingleActivator(LogicalKeyboardKey.enter): () => widget.onClose?.call(),
-          const SingleActivator(LogicalKeyboardKey.numpadEnter): () => widget.onClose?.call(),
-          const SingleActivator(LogicalKeyboardKey.space): () => widget.onClose?.call(),
+          const SingleActivator(LogicalKeyboardKey.enter): () => widget.onDone?.call(null),
+          const SingleActivator(LogicalKeyboardKey.numpadEnter): () => widget.onDone?.call(null),
+          const SingleActivator(LogicalKeyboardKey.space): () => widget.onDone?.call(null),
         },
       },
       child: Focus(
@@ -263,7 +267,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
         onKeyEvent: _handleKeyEvent,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => widget.onClose?.call(),
+          onTap: () => widget.onDone?.call(null),
           child: Container(
             color: Colors.transparent, // Authentic Sierra: no dark screen tint
             child: LayoutBuilder(
@@ -317,7 +321,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
 
                 return Center(
                   child: GestureDetector(
-                    onTap: isSelect ? () {} : () => widget.onClose?.call(),
+                    onTap: isSelect ? () {} : () => widget.onDone?.call(null),
                     child: Container(
                       constraints: BoxConstraints(
                         minWidth: effectiveMinWidth,
@@ -503,7 +507,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
           widget.onItemSelected?.call(item.index);
           _scrollToSelected();
           if (!isSelect) {
-            widget.onClose?.call();
+            widget.onDone?.call(null);
           }
         },
         onDoubleTap: () {
@@ -511,7 +515,7 @@ class _InventoryDialogState extends State<InventoryDialog> {
           if (isSelect) {
             _handleSelectCurrent(carried);
           } else {
-            widget.onClose?.call();
+            widget.onDone?.call(null);
           }
         },
         child: Container(

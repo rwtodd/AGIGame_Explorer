@@ -728,9 +728,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                   Positioned.fill(
                                     child: InventoryDialog(
                                       engine: agi,
-                                      onClose: () => agi.closeInventory(),
-                                      onSelect: (selectedObj) =>
-                                          agi.closeInventory(selectedObj),
+                                      onDone: (selected) =>
+                                          agi.closeInventory(selected),
                                       correctAspectRatio: _correctAspectRatio,
                                       strictIntegerScaling: _strictIntegerScaling,
                                     ),

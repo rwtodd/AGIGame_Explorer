@@ -22,7 +22,7 @@ void main() {
           home: Scaffold(
             body: InventoryDialog(
               items: const [],
-              onClose: () => closed = true,
+              onDone: (_) => closed = true,
             ),
           ),
         ),
@@ -44,7 +44,7 @@ void main() {
           home: Scaffold(
             body: InventoryDialog(
               items: const [],
-              onClose: () => closed = true,
+              onDone: (_) => closed = true,
             ),
           ),
         ),
@@ -61,7 +61,7 @@ void main() {
           home: Scaffold(
             body: InventoryDialog(
               items: const [],
-              onClose: () => closed = true,
+              onDone: (_) => closed = true,
             ),
           ),
         ),
@@ -88,7 +88,7 @@ void main() {
             body: InventoryDialog(
               items: items,
               onItemSelected: (idx) => selectedItemIndex = idx,
-              onClose: () => closed = true,
+              onDone: (_) => closed = true,
             ),
           ),
         ),
@@ -146,8 +146,7 @@ void main() {
             body: InventoryDialog(
               items: items,
               isSelectionMode: true,
-              onSelect: (idx) => selectedChoice = idx,
-              onClose: () => closed = true,
+              onDone: (idx) { selectedChoice = idx; closed = true; },
             ),
           ),
         ),
@@ -180,8 +179,7 @@ void main() {
             body: InventoryDialog(
               items: items,
               isSelectionMode: true,
-              onSelect: (idx) => selectedChoice = idx,
-              onClose: () => closed = true,
+              onDone: (idx) { selectedChoice = idx; closed = true; },
             ),
           ),
         ),
@@ -453,6 +451,37 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pump();
 
+      expect(find.byType(InventoryDialog), findsNothing);
+      expect(engine.isInventoryOpen, isFalse);
+    });
+
+    testWidgets('selection mode passes selected object to var 25 and closes inventory', (tester) async {
+      final engine = AgiGameEngine(
+        objects: const [
+          AgiObject(name: '?', startingRoom: 0),
+          AgiObject(name: 'Crystal Orb', startingRoom: 255),
+          AgiObject(name: 'Map of Daventry', startingRoom: 255),
+        ],
+      );
+      engine.initializeGame();
+      // Flag 13 = selection mode (e.g. "see object"): closeInventory writes
+      // the selection into var 25, or 255 for cancel.
+      engine.memory.setFlag(13);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine),
+        ),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(find.byType(InventoryDialog), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(engine.memory.getVar(25), equals(1));
       expect(find.byType(InventoryDialog), findsNothing);
       expect(engine.isInventoryOpen, isFalse);
     });
