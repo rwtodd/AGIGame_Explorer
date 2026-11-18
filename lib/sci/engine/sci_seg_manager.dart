@@ -3,6 +3,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
+import 'package:flutter_agigame/sci/sci_exceptions.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
@@ -91,6 +92,9 @@ class SciSegManager {
 
   /// Dynamic memory buffers (hunks / strings) indexed by offset.
   final Map<int, Uint8List> hunkBuffers = {};
+
+  /// Sorted, coalesced free (offset, length) ranges below [nextHunkOffset].
+  final List<(int, int)> _hunkFreeList = [];
   int nextHunkOffset = 1;
 
   /// Global variables array (in SCI0, corresponds to script 0 locals).
@@ -120,6 +124,7 @@ class SciSegManager {
     clones.clear();
     _cloneIds.clear();
     hunkBuffers.clear();
+    _hunkFreeList.clear();
     nextHunkOffset = 1;
     globals.clear();
     currentStack = null;
@@ -312,6 +317,7 @@ class SciSegManager {
   /// Allocates a new cloned instance of [source].
   SciObject cloneObject(SciObject source) {
     final offset = _cloneIds.alloc(clones.containsKey);
+    if (offset == -1) throw const SciException('clone offset pool exhausted');
     final clonePos = SciReg.pointer(cloneSegmentId, offset);
     final cloned = source.clone(clonePos);
     if (source.isClass) {
@@ -363,6 +369,7 @@ class SciSegManager {
 
   SciReg newList() {
     final offset = _listIds.alloc(lists.containsKey);
+    if (offset == -1) return SciReg.nullReg;
     final pos = SciReg.pointer(listSegmentId, offset);
     final list = SciList(pos: pos);
     lists[offset] = list;
@@ -388,6 +395,7 @@ class SciSegManager {
 
   SciReg newNode(SciReg value, [SciReg key = SciReg.nullReg]) {
     final offset = _nodeIds.alloc(nodes.containsKey);
+    if (offset == -1) return SciReg.nullReg;
     final pos = SciReg.pointer(nodeSegmentId, offset);
     final node = SciNode(pos: pos, value: value, key: key);
     nodes[offset] = node;
@@ -910,10 +918,59 @@ class SciSegManager {
   // --- Dynamic Memory Allocation (Hunk) ---
 
   SciReg allocHunk(int bytes) {
+    if (bytes <= 0) throw ArgumentError.value(bytes, 'bytes', 'must be positive');
+    // First-fit over freed ranges (lowest offset wins), splitting the remainder.
+    for (var i = 0; i < _hunkFreeList.length; i++) {
+      final (freeOff, freeLen) = _hunkFreeList[i];
+      if (freeLen >= bytes) {
+        _hunkFreeList.removeAt(i);
+        if (freeLen > bytes) {
+          _hunkFreeList.insert(i, (freeOff + bytes, freeLen - bytes));
+        }
+        hunkBuffers[freeOff] = Uint8List(bytes);
+        return SciReg.pointer(hunkSegmentId, freeOff);
+      }
+    }
+    // Bump-allocate only while the offset stays in 16-bit pointer space.
+    if (nextHunkOffset + bytes > 0x10000) {
+      throw const SciException('SCI hunk space exhausted');
+    }
     final offset = nextHunkOffset;
     nextHunkOffset += bytes;
     hunkBuffers[offset] = Uint8List(bytes);
     return SciReg.pointer(hunkSegmentId, offset);
+  }
+
+  void _insertHunkFreeRange(int offset, int length) {
+    if (length <= 0) return;
+    var start = offset;
+    var end = offset + length;
+    var i = 0;
+    while (i < _hunkFreeList.length && _hunkFreeList[i].$1 + _hunkFreeList[i].$2 < start) {
+      i++;
+    }
+    while (i < _hunkFreeList.length && _hunkFreeList[i].$1 <= end) {
+      start = min(start, _hunkFreeList[i].$1);
+      end = max(end, _hunkFreeList[i].$1 + _hunkFreeList[i].$2);
+      _hunkFreeList.removeAt(i);
+    }
+    _hunkFreeList.insert(i, (start, end - start));
+  }
+
+  /// Recomputes free ranges as gaps between live [hunkBuffers] entries below
+  /// [nextHunkOffset]. Needed after snapshot restore assigns those directly.
+  void rebuildHunkFreeList() {
+    _hunkFreeList.clear();
+    final offsets = hunkBuffers.keys.toList()..sort();
+    var cursor = 1;
+    for (final off in offsets) {
+      if (off > cursor) _hunkFreeList.add((cursor, off - cursor));
+      final end = off + hunkBuffers[off]!.length;
+      if (end > cursor) cursor = end;
+    }
+    if (cursor < nextHunkOffset) {
+      _hunkFreeList.add((cursor, nextHunkOffset - cursor));
+    }
   }
 
   Uint8List? getHunk(SciReg addr) {
@@ -924,7 +981,10 @@ class SciSegManager {
   /// Frees a dynamically allocated hunk buffer at [addr].
   bool freeHunk(SciReg addr) {
     if (addr.segment != hunkSegmentId) return false;
-    return hunkBuffers.remove(addr.offset) != null;
+    final buf = hunkBuffers.remove(addr.offset);
+    if (buf == null) return false;
+    _insertHunkFreeRange(addr.offset, buf.length);
+    return true;
   }
 
   /// Writes a 16-bit word value at [ptr] + [wordOffset] (words).
@@ -1096,7 +1156,7 @@ class _Offset16Pool {
       final o = _next++;
       if (!inUse(o)) return o;
     }
-    return 1;
+    return -1;
   }
 
   void release(int offset) {

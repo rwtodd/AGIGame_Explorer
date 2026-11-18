@@ -8,6 +8,20 @@ import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 
+/// Validates the `version` field of a snapshot map.
+///
+/// Saves without a version stay accepted; a present version must have major
+/// component 1, otherwise the save was written by a newer format and
+/// restoring it could half-apply — fail closed instead.
+void _validateSaveVersion(Map<String, dynamic> json) {
+  final raw = json['version'];
+  if (raw == null) return;
+  final major = int.tryParse(raw.toString().split('.').first);
+  if (major != 1) {
+    throw FormatException('Unsupported save version "$raw" (expected major version 1)');
+  }
+}
+
 /// Helper to serialize [SciReg] to JSON Map.
 Map<String, int> regToJson(SciReg r) => {'s': r.segment, 'o': r.offset};
 
@@ -658,6 +672,7 @@ class SciGameStateSnapshot {
       engine.segManager.hunkBuffers[h.offset] = h.bytes;
     }
     engine.segManager.nextHunkOffset = nextHunkOffset;
+    engine.segManager.rebuildHunkFreeList();
     engine.segManager.nextScriptSegmentId = nextScriptSegmentId;
 
     // 8. Restore clock, kernel, and menu bar (AddMenu only runs at boot,
@@ -798,6 +813,8 @@ class SciGameStateSnapshot {
   }
 
   factory SciGameStateSnapshot.fromJson(Map<String, dynamic> json) {
+    _validateSaveVersion(json);
+
     final rawClock = json['clock'] as Map? ?? const {};
     final rawAlloc = json['allocators'] as Map? ?? const {};
     final rawVm = json['vm'] as Map? ?? const {};
