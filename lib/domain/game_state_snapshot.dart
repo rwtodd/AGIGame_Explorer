@@ -4,6 +4,24 @@ import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 
+/// Leniently reads an integer from JSON, accepting any `num` representation
+/// (ints, doubles like `12.0`, or null).
+int? _jsonInt(Object? v) => (v as num?)?.toInt();
+
+/// Validates the `version` field of a snapshot map.
+///
+/// Saves without a version are legacy and stay accepted; a present version
+/// must have major component 1, otherwise the save was written by a newer
+/// format and restoring it could half-apply — fail closed instead.
+void _validateSaveVersion(Map<String, dynamic> json) {
+  final raw = json['version'];
+  if (raw == null) return;
+  final major = int.tryParse(raw.toString().split('.').first);
+  if (major != 1) {
+    throw FormatException('Unsupported save version "$raw" (expected major version 1)');
+  }
+}
+
 /// Standard Sierra AGI Variable Names (Variables 0 to 26).
 const Map<int, String> agiVariableNames = {
   0: 'current_room',
@@ -244,35 +262,35 @@ class AgiObjectSnapshot {
 
   factory AgiObjectSnapshot.fromJson(Map<String, dynamic> json) {
     return AgiObjectSnapshot(
-      number: json['number'] as int,
-      x: json['x'] as int,
-      y: json['y'] as int,
-      prevX: json['prevX'] as int? ?? json['x'] as int,
-      prevY: json['prevY'] as int? ?? json['y'] as int,
-      view: json['view'] as int,
-      loop: json['loop'] as int,
-      cel: json['cel'] as int,
-      priority: json['priority'] as int,
+      number: _jsonInt(json['number']) ?? 0,
+      x: _jsonInt(json['x']) ?? 0,
+      y: _jsonInt(json['y']) ?? 0,
+      prevX: _jsonInt(json['prevX']) ?? _jsonInt(json['x']) ?? 0,
+      prevY: _jsonInt(json['prevY']) ?? _jsonInt(json['y']) ?? 0,
+      view: _jsonInt(json['view']) ?? 0,
+      loop: _jsonInt(json['loop']) ?? 0,
+      cel: _jsonInt(json['cel']) ?? 0,
+      priority: _jsonInt(json['priority']) ?? 0,
       fixedPriority: json['fixedPriority'] as bool? ?? false,
       fixedLoop: json['fixedLoop'] as bool? ?? false,
-      direction: json['direction'] as int? ?? 0,
-      stepSize: json['stepSize'] as int? ?? 1,
-      stepTime: json['stepTime'] as int? ?? 1,
-      stepTimer: json['stepTimer'] as int? ?? 1,
-      cycleTime: json['cycleTime'] as int? ?? 1,
-      cycleTimer: json['cycleTimer'] as int? ?? 1,
+      direction: _jsonInt(json['direction']) ?? 0,
+      stepSize: _jsonInt(json['stepSize']) ?? 1,
+      stepTime: _jsonInt(json['stepTime']) ?? 1,
+      stepTimer: _jsonInt(json['stepTimer']) ?? 1,
+      cycleTime: _jsonInt(json['cycleTime']) ?? 1,
+      cycleTimer: _jsonInt(json['cycleTimer']) ?? 1,
       isAnimated: json['isAnimated'] as bool? ?? false,
       isDrawn: json['isDrawn'] as bool? ?? false,
       isUpdating: json['isUpdating'] as bool? ?? true,
       isCycling: json['isCycling'] as bool? ?? true,
-      cycleMode: json['cycleMode'] as int? ?? 0,
-      endOfLoopFlag: json['endOfLoopFlag'] as int?,
-      motionType: json['motionType'] as int? ?? 0,
-      targetX: json['targetX'] as int? ?? 0,
-      targetY: json['targetY'] as int? ?? 0,
-      stepDistance: json['stepDistance'] as int? ?? 1,
-      oldStepSize: json['oldStepSize'] as int? ?? 1,
-      targetFlag: json['targetFlag'] as int?,
+      cycleMode: _jsonInt(json['cycleMode']) ?? 0,
+      endOfLoopFlag: _jsonInt(json['endOfLoopFlag']),
+      motionType: _jsonInt(json['motionType']) ?? 0,
+      targetX: _jsonInt(json['targetX']) ?? 0,
+      targetY: _jsonInt(json['targetY']) ?? 0,
+      stepDistance: _jsonInt(json['stepDistance']) ?? 1,
+      oldStepSize: _jsonInt(json['oldStepSize']) ?? 1,
+      targetFlag: _jsonInt(json['targetFlag']),
       ignoreHorizon: json['ignoreHorizon'] as bool? ?? false,
       ignoreBlocks: json['ignoreBlocks'] as bool? ?? false,
       ignoreObjects: json['ignoreObjects'] as bool? ?? false,
@@ -299,8 +317,8 @@ class AgiCallFrameSnapshot {
 
   factory AgiCallFrameSnapshot.fromJson(Map<String, dynamic> json) =>
       AgiCallFrameSnapshot(
-        scriptNumber: json['scriptNumber'] as int,
-        ip: json['ip'] as int,
+        scriptNumber: _jsonInt(json['scriptNumber']) ?? 0,
+        ip: _jsonInt(json['ip']) ?? 0,
       );
 }
 
@@ -741,6 +759,8 @@ class AgiGameStateSnapshot {
 
   /// Deserializes from Map.
   factory AgiGameStateSnapshot.fromJson(Map<String, dynamic> json) {
+    _validateSaveVersion(json);
+
     // Handle variables: Map or List (legacy GameStateSerializer)
     final vars = <String, int>{};
     final varsRaw = json['variables'];
@@ -917,7 +937,7 @@ class AgiGameStateSnapshot {
       strings: strings,
       objects: objects,
       callStack: callStack,
-      scanStartIp: json['scanStartIp'] as int? ?? (scanStarts['0'] ?? 0),
+      scanStartIp: _jsonInt(json['scanStartIp']) ?? (scanStarts['0'] ?? 0),
       scanStarts: scanStarts,
       thumbnailRgba: thumbnailRgba,
       isRoomTransition: isRoomTransition,

@@ -348,4 +348,35 @@ void main() {
       expect(engine.addToPicCalls[1].view, 12);
     });
   });
+
+  group('AgiGameStateSnapshot defensive parsing', () {
+    test('fromJson tolerates double-typed object, call-frame and scan-start numerics', () {
+      final snap = AgiGameStateSnapshot.fromJson({
+        'version': '1.0',
+        'objects': [
+          {
+            'number': 0.0,
+            'x': 12.0,
+            'y': 25.0,
+            'view': 1.0,
+            'loop': 0.0,
+            'cel': 0.0,
+            'priority': 4.0,
+          },
+        ],
+        'callStack': [
+          {'scriptNumber': 1.0, 'ip': 42.0},
+        ],
+        'scanStartIp': 42.0,
+      });
+
+      expect(snap.objects.single.x, 12);
+      expect(snap.objects.single.y, 25);
+      expect(snap.objects.single.prevX, 12); // falls back to x
+      expect(snap.objects.single.prevY, 25); // falls back to y
+      expect(snap.callStack.single.scriptNumber, 1);
+      expect(snap.callStack.single.ip, 42);
+      expect(snap.scanStartIp, 42);
+    });
+  });
 }

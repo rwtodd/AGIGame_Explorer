@@ -231,15 +231,27 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     this.segManager.volumeManager = volumeManager;
     this.kernel.onRestartGameRequested ??= () => restartGame();
     this.kernel.onSaveGameSync = (slot, desc) {
-      saveGameStateSync(slot: slot, description: desc);
-      return true;
+      try {
+        saveGameStateSync(slot: slot, description: desc);
+        return true;
+      } catch (_) {
+        return false;
+      }
     };
     this.kernel.onRestoreGameSync = (slot) {
-      return restoreGameStateSync(slot: slot);
+      try {
+        return restoreGameStateSync(slot: slot);
+      } catch (_) {
+        return false;
+      }
     };
     this.kernel.onCheckSaveGameSync = (slot) {
-      final info = SciGameStateSerializer.getSlotInfoSync(slot, directory: saveDirectory);
-      return info != null && info.exists;
+      try {
+        final info = SciGameStateSerializer.getSlotInfoSync(slot, directory: saveDirectory);
+        return info != null && info.exists;
+      } catch (_) {
+        return false;
+      }
     };
     this.kernel.onListSlotsSync = () {
       return SciGameStateSerializer.listSlotsSync(directory: saveDirectory);

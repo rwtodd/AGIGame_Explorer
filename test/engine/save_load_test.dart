@@ -448,6 +448,56 @@ void main() {
     });
   });
 
+  group('Atomic, versioned, slot-validated saves', () {
+    test('atomic save: overwrite keeps latest data and leaves no tmp behind', () async {
+      engine.memory.setVar(0, 5);
+      engine.memory.setVar(3, 10);
+      await GameStateSerializer.saveToSlot(engine, 1, description: 'A', directory: tempDir);
+      engine.memory.setVar(3, 20);
+      await GameStateSerializer.saveToSlot(engine, 1, description: 'B', directory: tempDir);
+
+      final leftovers = tempDir.listSync().where((e) => e.path.endsWith('.tmp')).toList();
+      expect(leftovers, isEmpty);
+
+      engine.memory.setVar(3, 0);
+      expect(await GameStateSerializer.restoreFromSlot(engine, 1, directory: tempDir), isTrue);
+      expect(engine.memory.getVar(3), 20);
+    });
+
+    test('restore rejects future-version save without touching engine state', () async {
+      engine.memory.setVar(0, 11);
+      engine.memory.setVar(3, 77);
+      await GameStateSerializer.saveToSlot(engine, 1, description: 'V1', directory: tempDir);
+
+      final file = File('${tempDir.path}/slot_1.sav');
+      final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      map['version'] = '99.0';
+      await file.writeAsString(jsonEncode(map));
+
+      engine.memory.setVar(0, 1); // sentinel
+      engine.memory.setVar(3, 2); // sentinel
+      expect(
+        () => GameStateSerializer.restoreFromSlotSync(engine, 1, directory: tempDir),
+        throwsFormatException,
+      );
+      expect(engine.memory.getVar(0), 1);
+      expect(engine.memory.getVar(3), 2);
+    });
+
+    test('save/restore reject slots outside 1..12', () async {
+      expect(() => GameStateSerializer.saveToSlotSync(engine, 0, directory: tempDir),
+          throwsArgumentError);
+      expect(() => GameStateSerializer.saveToSlotSync(engine, 13, directory: tempDir),
+          throwsArgumentError);
+      expect(() => GameStateSerializer.restoreFromSlotSync(engine, 0, directory: tempDir),
+          throwsArgumentError);
+      expect(() => GameStateSerializer.restoreFromSlotSync(engine, 13, directory: tempDir),
+          throwsArgumentError);
+      expect(() => GameStateSerializer.saveToSlotSync(engine, 12, directory: tempDir),
+          returnsNormally);
+    });
+  });
+
   group('AgiGameEngine restartGame & cancelRestart lifecycle tests', () {
     test('restartGame resets memory, animated objects, and raises Flag 5, 6, 11', () {
       // Dirty the engine state

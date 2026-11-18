@@ -350,5 +350,79 @@ void main() {
       expect(restoreRes.isNull, isTrue); // Returns 0 / null on success
       expect(engine.segManager.globals[15].toUint16(), 35);
     });
+
+    test('atomic save overwrites cleanly and leaves no tmp behind', () {
+      if (!hasPq2) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+      engine.restartGame();
+      for (var t = 0; t < 50; t++) {
+        engine.tick();
+      }
+
+      engine.segManager.globals[15] = SciReg.fromInt(10);
+      SciGameStateSerializer.saveToSlotSync(engine, 1, description: 'A', directory: tempDir);
+      engine.segManager.globals[15] = SciReg.fromInt(20);
+      SciGameStateSerializer.saveToSlotSync(engine, 1, description: 'B', directory: tempDir);
+
+      expect(tempDir.listSync().where((e) => e.path.endsWith('.tmp')), isEmpty);
+
+      engine.segManager.globals[15] = SciReg.fromInt(0);
+      expect(
+        SciGameStateSerializer.restoreFromSlotSync(engine, 1, directory: tempDir),
+        isTrue,
+      );
+      expect(engine.segManager.globals[15].toUint16(), 20);
+    });
+
+    test('restore rejects future-version save without touching engine state', () {
+      if (!hasPq2) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+      engine.restartGame();
+      for (var t = 0; t < 50; t++) {
+        engine.tick();
+      }
+
+      engine.segManager.globals[15] = SciReg.fromInt(77);
+      SciGameStateSerializer.saveToSlotSync(engine, 1, description: 'V1', directory: tempDir);
+
+      final file = File('${tempDir.path}/slot_1.sav');
+      final map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      map['version'] = '99.0';
+      file.writeAsStringSync(jsonEncode(map));
+
+      engine.segManager.globals[15] = SciReg.fromInt(2); // sentinel
+      expect(
+        () => SciGameStateSerializer.restoreFromSlotSync(engine, 1, directory: tempDir),
+        throwsFormatException,
+      );
+      expect(engine.segManager.globals[15].toUint16(), 2);
+    });
+
+    test('save/restore reject slots outside 1..12', () {
+      if (!hasPq2) {
+        markTestSkipped('PQ2 reference tree missing');
+        return;
+      }
+      expect(
+        () => SciGameStateSerializer.saveToSlotSync(engine, 0, directory: tempDir),
+        throwsArgumentError,
+      );
+      expect(
+        () => SciGameStateSerializer.saveToSlotSync(engine, 13, directory: tempDir),
+        throwsArgumentError,
+      );
+      expect(
+        () => SciGameStateSerializer.restoreFromSlotSync(engine, 0, directory: tempDir),
+        throwsArgumentError,
+      );
+      expect(
+        () => SciGameStateSerializer.restoreFromSlotSync(engine, 13, directory: tempDir),
+        throwsArgumentError,
+      );
+    });
   });
 }

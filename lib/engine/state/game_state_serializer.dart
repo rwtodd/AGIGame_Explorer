@@ -109,6 +109,19 @@ class GameStateSerializer {
     }
   }
 
+  /// Smallest valid save slot number.
+  static const int minSlot = 1;
+
+  /// Largest valid save slot number.
+  static const int maxSlot = 12;
+
+  /// Throws [ArgumentError] if [slot] is outside the supported range.
+  static void _validateSlot(int slot) {
+    if (slot < minSlot || slot > maxSlot) {
+      throw ArgumentError('Save slot $slot out of range ($minSlot..$maxSlot)', 'slot');
+    }
+  }
+
   /// Generates the standard file name for save slot [slot] (1..12).
   static String getSlotFileName(int slot) => 'slot_$slot.$fileExtension';
 
@@ -119,6 +132,7 @@ class GameStateSerializer {
     String description = '',
     Directory? directory,
   }) {
+    _validateSlot(slot);
     final saveDir = directory ?? Directory.current;
     if (!saveDir.existsSync()) {
       saveDir.createSync(recursive: true);
@@ -132,7 +146,19 @@ class GameStateSerializer {
     );
     final jsonContent = snap.toJsonString(pretty: true, includeThumbnail: true);
 
-    file.writeAsStringSync(jsonContent, flush: true);
+    // Write to a temp file in the same directory, then atomically rename it
+    // onto the target: a crash mid-write can no longer clobber the previous
+    // good save with a truncated file.
+    final tmpFile = File('$filePath.tmp');
+    try {
+      tmpFile.writeAsStringSync(jsonContent, flush: true);
+      tmpFile.renameSync(filePath);
+    } catch (_) {
+      try {
+        if (tmpFile.existsSync()) tmpFile.deleteSync();
+      } catch (_) {}
+      rethrow;
+    }
     return file;
   }
 
@@ -157,6 +183,7 @@ class GameStateSerializer {
     int slot, {
     Directory? directory,
   }) {
+    _validateSlot(slot);
     final saveDir = directory ?? Directory.current;
     final filePath = p.join(saveDir.path, getSlotFileName(slot));
     final file = File(filePath);
