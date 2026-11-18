@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Space Quest 2 Room 98 Name Prompt Tests', () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('Entering a custom name "Richard" sets %s1 to "Richard" without leaking command to Room 2', () async {
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -41,7 +42,7 @@ void main() {
     });
 
     test('Entering an empty name defaults to "Roger Wilco" in %s1 and enters Room 2 cleanly', () async {
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

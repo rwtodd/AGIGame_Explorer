@@ -8,6 +8,7 @@ import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import '../support/reference_games.dart';
 
 class _MockInterpreterDelegate extends AgiInterpreterDelegate {
   final Map<int, AgiLogicScript> loadedLogics = {};
@@ -90,7 +91,7 @@ void main() {
     });
 
     test('Space Quest 2 runs intro past cycle 600 without opcode 0xfd error', () async {
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

@@ -1,13 +1,13 @@
-import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('King\'s Quest 2 Magic Carpet Flight', () {
     test('riding carpet in Room 2 ascends past priority 0 barrier to Room 105', () async {
       const kq2Path = 'reference_games/kings-quest-2';
-      if (!Directory(kq2Path).existsSync()) return;
+      if (skipIfPathMissing(kq2Path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Path);
       final engine = AgiGameEngine(resourceLoader: loader);

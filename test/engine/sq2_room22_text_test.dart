@@ -4,12 +4,13 @@ import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Space Quest 2 Room 22', () {
     test('restores user state and loads room 22 picture and logic', () async {
       final sq2Dir = Directory('reference_games/space-quest-2');
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 2 Room 32 Poison Lake Tests", () {
@@ -13,7 +14,7 @@ void main() {
     });
 
     test('Stepping into poisoned lake in Room 32 triggers Flag 0 and drowning sequence', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

@@ -2,12 +2,13 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('The Black Cauldron F3/F4 Item Selection & Usage', () {
     test('F3 New Object opens inventory with f13=true, selecting item sets v25/v42, F4 uses object', () async {
       final dir = Directory('reference_games/black-cauldron');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -49,7 +50,7 @@ void main() {
 
     test('F3 New Object selecting Magic Sword (item 12) allows swinging sword with F4', () async {
       final dir = Directory('reference_games/black-cauldron');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -81,7 +82,7 @@ void main() {
 
     test('Controller 24 (See Object) opens inventory and then shows object inspection view', () async {
       final dir = Directory('reference_games/black-cauldron');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Space Quest 2 Room 46 Shuttle Cockpit Monitor', () {
@@ -9,7 +10,7 @@ void main() {
       final path = Directory('reference_games/space-quest-2').existsSync()
           ? 'reference_games/space-quest-2'
           : '/Users/rtodd/src/flutter_agigame/reference_games/space-quest-2';
-      if (!Directory(path).existsSync()) return;
+      if (skipIfPathMissing(path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);

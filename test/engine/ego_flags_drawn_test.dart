@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Ego Flags Update (isDrawn & isAnimated check)', () {
@@ -9,7 +10,7 @@ void main() {
       final path = Directory('reference_games/kings-quest-4-agi').existsSync()
           ? 'reference_games/kings-quest-4-agi'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-      if (!Directory(path).existsSync()) return;
+      if (skipIfPathMissing(path)) return;
 
       final loader = await AgiResourceLoader.fromDirectory(path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);

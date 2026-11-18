@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Space Quest 2 Room 39 Crawling and Standing Tests', () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('Entering Room 39 from Room 37 keeps Ego crawling in View 87 without immediately standing up', () async {
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

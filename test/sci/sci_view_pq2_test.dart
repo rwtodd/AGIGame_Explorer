@@ -3,9 +3,12 @@ import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
   group('Police Quest 2 VIEW integration', () {
     test('parses view 0 (ego) loops, shared mirror, and native 320 sizes', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vm = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final data = vm.getResource(SciResourceType.view, 0);
       final view = SciViewParser.parse(data, viewNumber: 0);
@@ -37,6 +40,7 @@ void main() {
     });
 
     test('parses all PQ2 views without crashing', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vm = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final entries = vm.resourceMap.entriesForType(SciResourceType.view);
       expect(entries.length, 207);

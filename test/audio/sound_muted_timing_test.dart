@@ -5,6 +5,7 @@ import 'package:flutter_agigame/audio/audio_output_sink.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Muted Sound Timing & Completion Flags', () {
@@ -51,7 +52,7 @@ void main() {
       final path = Directory('reference_games/kings-quest-4-agi').existsSync()
           ? 'reference_games/kings-quest-4-agi'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-      if (!Directory(path).existsSync()) return;
+      if (skipIfPathMissing(path)) return;
 
       final loader = await AgiResourceLoader.fromDirectory(path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);
@@ -75,7 +76,7 @@ void main() {
       final path = Directory('reference_games/kings-quest-4-agi').existsSync()
           ? 'reference_games/kings-quest-4-agi'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-      if (!Directory(path).existsSync()) return;
+      if (skipIfPathMissing(path)) return;
 
       final loader = await AgiResourceLoader.fromDirectory(path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);

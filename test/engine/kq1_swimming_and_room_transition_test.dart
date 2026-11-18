@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 1 Swimming & Room Transitions", () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('Swimming North from Room 37 (swamp) into Room 44 (woodcutter) transitions to walking View 0', () async {
-      if (!kq1Dir.existsSync()) return;
+      if (skipIfPathMissing(kq1Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq1Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

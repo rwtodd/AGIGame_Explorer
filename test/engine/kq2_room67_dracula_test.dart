@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   const userSnapshotJson = '''
@@ -327,7 +328,7 @@ void main() {
 
   test('Restoring user snapshot in Room 67 triggers Dracula catch flag 34 and dialog', () async {
     final kq2Dir = Directory('reference_games/kings-quest-2');
-    if (!kq2Dir.existsSync()) return;
+    if (skipIfPathMissing(kq2Dir.path)) return;
 
     final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
     final engine = AgiGameEngine(resourceLoader: loader);

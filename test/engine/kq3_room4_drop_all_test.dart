@@ -2,13 +2,14 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:test/test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 3 Room 4 - Drop/Hide All Possessions Under Bed", () {
     final kq3Dir = Directory('reference_games/kings-quest-3');
 
     test('drop all in bedroom matches said(56, 68, 9999) and hides possessions under bed', () async {
-      if (!kq3Dir.existsSync()) return;
+      if (skipIfPathMissing(kq3Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -97,7 +98,7 @@ void main() {
     });
 
     test('drop all in hallway outside bedroom warns player with message 31', () async {
-      if (!kq3Dir.existsSync()) return;
+      if (skipIfPathMissing(kq3Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final engine = AgiGameEngine(resourceLoader: loader);

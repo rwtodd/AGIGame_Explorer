@@ -6,6 +6,7 @@ import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Status Bar and Menu System UI Widget Tests', () {
@@ -135,7 +136,7 @@ void main() {
   group('Reference Games Status Line & Menu Integration', () {
     test('King\'s Quest II sets up authentic menus and status line in gameplay room', () async {
       final dir = Directory('reference_games/kings-quest-2');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -165,7 +166,7 @@ void main() {
 
     test('King\'s Quest III sets up menus including Speed menu in gameplay room', () async {
       final dir = Directory('reference_games/kings-quest-3');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -193,7 +194,7 @@ void main() {
 
     test('The Black Cauldron boots with active status line in gameplay room', () async {
       final dir = Directory('reference_games/black-cauldron');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -213,7 +214,7 @@ void main() {
 
     test('King\'s Quest IV (AGI V3) boots with menus and status line', () async {
       final dir = Directory('reference_games/kings-quest-4-agi');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

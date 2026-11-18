@@ -5,6 +5,7 @@ import 'package:flutter_agigame/domain/dictionary.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/parser/agi_said_extractor.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('AgiSaidExtractor', () {
@@ -250,7 +251,7 @@ void main() {
 
     test('extractActiveRoomCommands on reference PQ1 generates bounded candidate count', () {
       final pqDir = Directory('/Users/rtodd/src/flutter_agigame/reference_games/police-quest-1');
-      if (!pqDir.existsSync()) return;
+      if (skipIfPathMissing(pqDir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(pqDir.path);
       final logic0 = loader.loadLogic(0);

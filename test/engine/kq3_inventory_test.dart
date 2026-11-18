@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('King\'s Quest III Inventory & See Object Mechanics', () {
@@ -10,7 +11,7 @@ void main() {
           ? 'reference_games/kings-quest-3'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-3';
       final dir = Directory(path);
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -39,7 +40,7 @@ void main() {
           ? 'reference_games/kings-quest-3'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-3';
       final dir = Directory(path);
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(path);
       final engine = AgiGameEngine(resourceLoader: loader);

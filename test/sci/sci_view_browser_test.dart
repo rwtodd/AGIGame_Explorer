@@ -8,8 +8,11 @@ import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/screens/browsers/view_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/launcher_screen.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
   testWidgets('ViewBrowserScreen loads SCI0 PQ2 view 0 with native scale', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());
@@ -56,6 +59,7 @@ void main() {
   });
 
   testWidgets('LauncherScreen VIEW Sprites tile opens the View browser for SCI0', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());

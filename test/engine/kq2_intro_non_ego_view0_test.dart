@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Non-Ego Animated Object View 0 Tests', () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('Non-Ego object 1 with view 0 is drawn and composited in King\'s Quest 2 intro', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 final _userStateRoom2Json = <String, dynamic>{
   "version": "1.0",
@@ -75,7 +76,7 @@ void main() {
     });
 
     test('restoring user state in Room 2 and typing look door answers once and resets flag 2', () async {
-      if (!sq1Dir.existsSync()) return;
+      if (skipIfPathMissing(sq1Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq1Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

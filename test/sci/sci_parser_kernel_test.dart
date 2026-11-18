@@ -7,8 +7,11 @@ import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/parser/sci_said_matcher.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
-  group('SCI0 Stage 11 Parser & Said Matcher Integration Tests', () {
+  group('SCI0 Stage 11 Parser & Said Matcher Integration Tests',
+      skip: referenceGameSkip('police-quest-2'), () {
     late SciVolumeManager volumeManager;
 
     setUpAll(() async {

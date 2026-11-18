@@ -3,9 +3,12 @@ import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
   group('Police Quest 2 Picture Integration Tests', () {
     test('interprets Pic 1 and Pic 2 without error', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vm = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final pic1 = vm.findResource(SciResourceType.pic, 1);
       expect(pic1, isNotNull);
@@ -30,6 +33,7 @@ void main() {
     });
 
     test('interprets all 78 PQ2 pictures with 0 crashes', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vm = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final pics = vm.resourceMap.entriesForType(SciResourceType.pic);
       expect(pics.length, 78);

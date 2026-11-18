@@ -1,12 +1,12 @@
-import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('AgiResourceLoader logic loading', () {
     test('loads and parses King\'s Quest 2 LOGIC 30 with extended ASCII bytes', () {
       const kq2Path = 'reference_games/kings-quest-2';
-      if (!Directory(kq2Path).existsSync()) return;
+      if (skipIfPathMissing(kq2Path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Path);
       final script30 = loader.loadLogic(30);
@@ -30,7 +30,7 @@ void main() {
 
     test('loads and correctly decrypts uncompressed LOGIC 97 and 131 in AGI v3 (KQ4)', () {
       const kq4Path = 'reference_games/kings-quest-4-agi';
-      if (!Directory(kq4Path).existsSync()) return;
+      if (skipIfPathMissing(kq4Path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq4Path);
 

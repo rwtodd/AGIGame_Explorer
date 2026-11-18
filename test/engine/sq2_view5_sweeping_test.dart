@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/motion/agi_motion.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('3-Loop View and SQ2 Sweeping Roger Tests', () {
@@ -32,7 +33,7 @@ void main() {
     });
 
     test('Space Quest 2 Room 2: Roger sweeping with View 5 remains in loop 0 or 1 while wandering', () async {
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

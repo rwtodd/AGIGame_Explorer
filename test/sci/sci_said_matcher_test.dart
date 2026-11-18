@@ -4,12 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 import 'package:flutter_agigame/sci/parser/sci_said_matcher.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
   group('SciSaidSpec & SciSaidMatcher', () {
     late SciVocab vocab;
 
     setUpAll(() async {
       vocab = SciVocab();
+      if (!referenceGameExists('police-quest-2')) return;
       final vocabFile = File('reference_games/police-quest-2/VOCAB.000');
       if (await vocabFile.exists()) {
         final bytes = await vocabFile.readAsBytes();
@@ -39,6 +42,7 @@ void main() {
     });
 
     test('toSaidString decompiles with vocabulary words', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       // Find group for "look" and "door" in PQ2 vocab
       final lookWords = vocab.lookup('look');
       final doorWords = vocab.lookup('door');

@@ -2,13 +2,14 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   test('KQ4 Room 43: Riding dolphin moves Ego East under program control', () async {
     final gamePath = Directory('reference_games/kings-quest-4-agi').existsSync()
         ? 'reference_games/kings-quest-4-agi'
         : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-    if (!Directory(gamePath).existsSync()) return;
+    if (skipIfPathMissing(gamePath)) return;
     final loader = await AgiResourceLoader.fromDirectory(gamePath);
     final engine = AgiGameEngine(resourceLoader: loader);
 

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 2 Castle Hallway Transitions (Room 61 <-> Room 64)", () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('Walking right through east archway in Room 61 enters dining room (Room 64) at (25, 119)', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -46,7 +47,7 @@ void main() {
     });
 
     test('Walking left through west archway in Room 64 returns to hallway (Room 61) at (125, 123)', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

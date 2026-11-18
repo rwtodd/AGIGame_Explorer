@@ -2,12 +2,13 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('KQ2 Status Line & Help Screen Lifecycle', () {
     test('KQ2 title screen has status line disabled, gameplay enables it, and preserves it across room transitions', () async {
       final dir = Directory('reference_games/kings-quest-2');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -43,7 +44,7 @@ void main() {
 
     test('KQ2 Help menu item displays text screen and dismisses cleanly on key press without freezing', () async {
       final dir = Directory('reference_games/kings-quest-2');
-      if (!dir.existsSync()) return;
+      if (skipIfPathMissing(dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

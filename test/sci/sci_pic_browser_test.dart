@@ -10,8 +10,11 @@ import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
 import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
   testWidgets('PicBrowserScreen with SCI0 game loads, toggles 40-color undithered mode, and renders slices', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());
@@ -148,6 +151,7 @@ void main() {
   });
 
   testWidgets('PicBrowserScreen hover inspector accurately samples 320x200 coordinates and formats color labels', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());

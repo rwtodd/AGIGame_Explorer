@@ -6,8 +6,11 @@ import 'package:flutter_agigame/ui/screens/browsers/cursor_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/browsers/pic_browser_screen.dart';
 import 'package:flutter_agigame/ui/screens/launcher_screen.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
   testWidgets('LauncherScreen recognizes SCI0 game, displays 9 resource counts, and navigates to PicBrowser', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());
@@ -66,6 +69,7 @@ void main() {
   });
 
   testWidgets('LauncherScreen navigates to FontBrowserScreen when FONT Typography is tapped', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());
@@ -97,6 +101,7 @@ void main() {
   });
 
   testWidgets('LauncherScreen navigates to CursorBrowserScreen when CURSOR Sprites is tapped', (tester) async {
+    if (skipIfReferenceGameMissing('police-quest-2')) return;
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());

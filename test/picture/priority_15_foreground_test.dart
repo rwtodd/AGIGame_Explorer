@@ -4,12 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Priority 15 Foreground Occlusion Tests', () {
     test('King\'s Quest II Room 59 has priority 15 foreground pillar/wall in slice 15', () {
       final kq2Dir = Directory('reference_games/kings-quest-2');
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final pic59 = loader.loadPic(59);

@@ -5,8 +5,11 @@ import 'package:flutter_agigame/domain/sierra_cursor.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/ui/screens/browsers/cursor_browser_screen.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
-  group('CursorBrowserScreen widget tests', () {
+  group('CursorBrowserScreen widget tests',
+      skip: referenceGameSkip('police-quest-2'), () {
     late SciVolumeManager vm;
 
     setUp(() {

@@ -4,8 +4,11 @@ import 'package:flutter_agigame/sci/font/sci_font_parser.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
-  group('Police Quest 2 FONT integration', () {
+  group('Police Quest 2 FONT integration',
+      skip: referenceGameSkip('police-quest-2'), () {
     late SciVolumeManager vm;
 
     setUp(() {

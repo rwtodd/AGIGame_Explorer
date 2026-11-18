@@ -15,6 +15,8 @@ import 'package:flutter_agigame/sci/parser/sci_vocab.dart';
 import 'package:flutter_agigame/sci/script/sci_object.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 
+import '../support/reference_games.dart';
+
 class _FakeVolumeManager implements SciVolumeManager {
   final Map<int, Uint8List> textResources;
   _FakeVolumeManager(this.textResources);
@@ -588,6 +590,7 @@ void main() {
     });
 
     test('full SCI0 modal input and dialog dismissal round trip in PQ2', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final engine = SciGameEngine(volumeManager: vol);
       engine.kernel.captureDebugLogs = true;
@@ -661,6 +664,7 @@ void main() {
     });
 
     test('typed character appears in GetInput on the same handleKeyPress', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final engine = SciGameEngine(volumeManager: vol);
       engine.initializeGame();
@@ -689,6 +693,7 @@ void main() {
     });
 
     test('SciTextControl.wrapText splits long strings into multiple lines according to maxWidth', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final engine = SciGameEngine(volumeManager: vol);
       engine.initializeGame();
@@ -733,6 +738,7 @@ void main() {
     });
 
     test('session.sciWindows dynamically includes new dialogs and updates overlays', () {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final engine = SciGameEngine(volumeManager: vol);
       engine.initializeGame();
@@ -756,6 +762,7 @@ void main() {
     });
 
     testWidgets('GamePlayfieldWidget dynamically paints new dialog windows on session notification without mouse moves', (tester) async {
+      if (skipIfReferenceGameMissing('police-quest-2')) return;
       final vol = SciVolumeManager.fromDirectory('reference_games/police-quest-2');
       final engine = SciGameEngine(volumeManager: vol);
       engine.initializeGame();

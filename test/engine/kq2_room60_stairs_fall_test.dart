@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 2 Room 60 Tower Stairs Falling Tests", () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('Walking off lower tower stairs falls to floor at (52, 148) and plays dazed animation', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -54,7 +55,7 @@ void main() {
     });
 
     test('Walking off high tower stairs falls to floor and results in death', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

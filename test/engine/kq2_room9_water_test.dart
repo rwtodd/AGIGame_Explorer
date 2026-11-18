@@ -4,6 +4,7 @@ import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 import 'package:flutter_agigame/engine/state/game_state_serializer.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   test("King's Quest 2 Room 33 swimming start does not warp Ego", () async {
@@ -16,7 +17,11 @@ void main() {
       (p) => Directory(p).existsSync(),
       orElse: () => '',
     );
-    if (path.isEmpty) return;
+    if (path.isEmpty) {
+      markTestSkipped(
+          'Required reference game data not found: reference_games/kings-quest-2 (see doc/testing.md)');
+      return;
+    }
 
     final loader = AgiResourceLoader.fromDirectorySync(path);
     final engine = AgiGameEngine(resourceLoader: loader);
@@ -63,7 +68,11 @@ void main() {
       (p) => Directory(p).existsSync(),
       orElse: () => '',
     );
-    if (path.isEmpty) return;
+    if (path.isEmpty) {
+      markTestSkipped(
+          'Required reference game data not found: reference_games/kings-quest-2 (see doc/testing.md)');
+      return;
+    }
 
     final loader = AgiResourceLoader.fromDirectorySync(path);
     final engine = AgiGameEngine(resourceLoader: loader);
@@ -220,7 +229,11 @@ void main() {
       (p) => Directory(p).existsSync(),
       orElse: () => '',
     );
-    if (path.isEmpty) return;
+    if (path.isEmpty) {
+      markTestSkipped(
+          'Required reference game data not found: reference_games/kings-quest-2 (see doc/testing.md)');
+      return;
+    }
 
     final loader = AgiResourceLoader.fromDirectorySync(path);
     final engine = AgiGameEngine(resourceLoader: loader);
@@ -449,7 +462,7 @@ void main() {
     final path = Directory('reference_games/kings-quest-2').existsSync()
         ? 'reference_games/kings-quest-2'
         : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-2';
-    if (!Directory(path).existsSync()) return;
+    if (skipIfPathMissing(path)) return;
 
     final loader = AgiResourceLoader.fromDirectorySync(path);
     final engine = AgiGameEngine(resourceLoader: loader);

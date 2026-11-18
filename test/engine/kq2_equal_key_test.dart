@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 2 Equal Key Binding Tests", () {
@@ -12,7 +13,7 @@ void main() {
     });
 
     test('KQ2 initializes controller binding for equal sign (=)', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -27,7 +28,7 @@ void main() {
     });
 
     test('Pressing equal sign (=) while splashing in ocean water triggers swimming in Room 15', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

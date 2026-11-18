@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Space Quest 2 - Room 5 Accosted in Shuttle & Black Screen Sequence', () {
@@ -13,7 +14,7 @@ void main() {
 
     for (final speed in [20.0, 60.0]) {
       test('Room 5 accosted in shuttle at ${speed}Hz displays all dialogs and shake.screen', () async {
-        if (!sq2Dir.existsSync()) return;
+        if (skipIfPathMissing(sq2Dir.path)) return;
 
         final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
         final engine = AgiGameEngine(resourceLoader: loader, speedHz: speed);
@@ -86,7 +87,7 @@ void main() {
     }
 
     test('Room 5 handles async dismissDialog from UI events without dropping Logic 5 state', () async {
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader, speedHz: 60.0);

@@ -8,6 +8,7 @@ import 'package:flutter_agigame/loader/object_view_resolver.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
+import '../support/reference_games.dart';
 
 class _FakeVolumeManager extends VolumeManager {
   final Map<int, Uint8List> dataMap;
@@ -191,7 +192,7 @@ void main() {
     final path = Directory('reference_games/kings-quest-4-agi').existsSync()
         ? 'reference_games/kings-quest-4-agi'
         : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
-    if (!Directory(path).existsSync()) return;
+    if (skipIfPathMissing(path)) return;
 
     final loader = await AgiResourceLoader.fromDirectory(path);
     final objects = loader.initialObjects;
@@ -219,7 +220,7 @@ void main() {
     final path = Directory('reference_games/kings-quest-3').existsSync()
         ? 'reference_games/kings-quest-3'
         : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-3';
-    if (!Directory(path).existsSync()) return;
+    if (skipIfPathMissing(path)) return;
 
     final loader = await AgiResourceLoader.fromDirectory(path);
     final objects = loader.initialObjects;
@@ -247,7 +248,7 @@ void main() {
     final path = Directory('reference_games/kings-quest-2').existsSync()
         ? 'reference_games/kings-quest-2'
         : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-2';
-    if (!Directory(path).existsSync()) return;
+    if (skipIfPathMissing(path)) return;
 
     final loader = await AgiResourceLoader.fromDirectory(path);
     final objects = loader.initialObjects;

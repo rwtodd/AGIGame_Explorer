@@ -2,12 +2,13 @@ import 'dart:io';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('KQ2 Room 3 Mailbox Interaction', () {
     test('Ego near mailbox opens mailbox, sees goodies, and takes goodies', () async {
       final kq2Dir = Directory('reference_games/kings-quest-2');
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -72,7 +73,7 @@ void main() {
 
     test('Ego far away from mailbox gets "You are too far away." and mailbox does not open', () async {
       final kq2Dir = Directory('reference_games/kings-quest-2');
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

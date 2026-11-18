@@ -4,8 +4,11 @@ import 'package:flutter_agigame/sci/cursor/sci_cursor_parser.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
-  group('Police Quest 2 CURSOR integration', () {
+  group('Police Quest 2 CURSOR integration',
+      skip: referenceGameSkip('police-quest-2'), () {
     late SciVolumeManager vm;
 
     setUp(() {

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/sci_exceptions.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('SciVolumeManager Synthetic Tests', () {
@@ -101,10 +102,7 @@ void main() {
 
     test('loads and decompresses all 763 resources from PQ2 volumes', () {
       final mapFile = File('$pq2Path/RESOURCE.MAP');
-      if (!mapFile.existsSync()) {
-        // Skip if reference game is not available in current environment
-        return;
-      }
+      if (skipIfPathMissing(mapFile.path)) return;
 
       final vm = SciVolumeManager.fromDirectory(pq2Path);
       addTearDown(vm.close);

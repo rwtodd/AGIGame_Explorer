@@ -4,11 +4,12 @@ import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   test('KQ3 room 7 engine runs multiple cycles without freezing', () async {
     final kq3Dir = Directory('reference_games/kings-quest-3');
-    if (!kq3Dir.existsSync()) return;
+    if (skipIfPathMissing(kq3Dir.path)) return;
 
     final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
     final kq3Engine = AgiGameEngine(resourceLoader: loader);
@@ -31,7 +32,7 @@ void main() {
 
   testWidgets('KQ3 room 7 renders in GameScreen and pumps multiple frames with clock updates', (tester) async {
     final kq3Dir = Directory('reference_games/kings-quest-3');
-    if (!kq3Dir.existsSync()) return;
+    if (skipIfPathMissing(kq3Dir.path)) return;
 
     final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
     final kq3Engine = AgiGameEngine(resourceLoader: loader);

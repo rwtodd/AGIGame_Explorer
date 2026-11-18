@@ -2,11 +2,12 @@ import 'dart:io';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/disassembler/disassembly_formatter.dart';
 import 'package:test/test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   test('Disassemble Logic 2 in KQ3', () {
     final kq3Dir = Directory('reference_games/kings-quest-3');
-    if (!kq3Dir.existsSync()) return;
+    if (skipIfPathMissing(kq3Dir.path)) return;
 
     final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
     final dict = loader.dictionary;

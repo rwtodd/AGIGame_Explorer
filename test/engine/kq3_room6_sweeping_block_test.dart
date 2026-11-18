@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/motion/collision_detector.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('KQ3 Room 6 Sweeping and Script Block Tests', () {
@@ -36,7 +37,7 @@ void main() {
     });
 
     test('King\'s Quest 3 Room 6 sweeping: Ego wanders freely inside block area without getting stuck', () async {
-      if (!kq3Dir.existsSync()) return;
+      if (skipIfPathMissing(kq3Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq3Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

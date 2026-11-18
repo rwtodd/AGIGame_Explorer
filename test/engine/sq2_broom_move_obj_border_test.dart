@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('move.obj Border Collision & Completion Flag Tests', () {
@@ -103,7 +104,7 @@ void main() {
 
     test('Live SQ2 Room 2 broom sweep sets flag 34 and erases broom upon hitting edge of screen', () async {
       final sq2Dir = Directory('reference_games/space-quest-2');
-      if (!sq2Dir.existsSync()) return;
+      if (skipIfPathMissing(sq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq2Dir.path);
       final sq2Engine = AgiGameEngine(resourceLoader: loader, speedHz: 20.0);

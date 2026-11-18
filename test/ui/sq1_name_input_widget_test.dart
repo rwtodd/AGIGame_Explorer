@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/ui/screens/game/game_screen.dart';
+import '../support/reference_games.dart';
 
 LogicalKeyboardKey _charToKey(String char) {
   final lower = char.toLowerCase();
@@ -49,7 +50,7 @@ void main() {
     });
 
     testWidgets('types name using global key events without clicking or focusing TextField', (tester) async {
-      if (!sq1Dir.existsSync()) return;
+      if (skipIfPathMissing(sq1Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(sq1Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

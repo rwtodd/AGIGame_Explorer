@@ -4,8 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/ui/screens/browsers/sci_script_browser_screen.dart';
 
+import '../support/reference_games.dart';
+
 void main() {
-  group('SciScriptBrowserScreen Widget Tests', () {
+  group('SciScriptBrowserScreen Widget Tests',
+      skip: referenceGameSkip('police-quest-2'), () {
     late SciVolumeManager vm;
 
     setUp(() {

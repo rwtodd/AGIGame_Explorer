@@ -3,6 +3,7 @@ import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group("King's Quest 2 Room 15 Ocean Water & Swimming Tests", () {
@@ -13,7 +14,7 @@ void main() {
     });
 
     test('Walking into ocean water in Room 15 and typing swim succeeds', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -52,7 +53,7 @@ void main() {
     });
 
     test('Restoring user snapshot in Room 15 and submitting swim starts swimming', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -304,7 +305,7 @@ void main() {
     });
 
     test('Swimming across multiple rooms in KQ2 retains swimming view 97', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -389,7 +390,7 @@ void main() {
     });
 
     test('Restoring user state after seahorse in Room 15 allows Ego to move freely', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);
@@ -598,7 +599,7 @@ void main() {
     });
 
     test('King\'s Quest 2 Room 8 Ocean: Walking west into ocean wades and typing swim swims', () async {
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(kq2Dir.path);
       final engine = AgiGameEngine(resourceLoader: loader);

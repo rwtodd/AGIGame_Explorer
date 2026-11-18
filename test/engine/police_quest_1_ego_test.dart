@@ -2,12 +2,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Police Quest 1 Ego Animation & Movement Tests', () {
     test('Ego starts stationary in Room 6 without cycling animation cels', () async {
       final gameDir = Directory('reference_games/police-quest-1');
-      if (!gameDir.existsSync()) return;
+      if (skipIfPathMissing(gameDir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/police-quest-1');
       final engine = AgiGameEngine(resourceLoader: loader);

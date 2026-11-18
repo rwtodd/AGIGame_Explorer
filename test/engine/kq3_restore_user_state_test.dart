@@ -4,6 +4,7 @@ import 'package:flutter_agigame/domain/game_state_snapshot.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:test/test.dart';
+import '../support/reference_games.dart';
 
 void main() {
   const userSnapshotJson = '''
@@ -491,7 +492,7 @@ void main() {
 
   test('Restore and investigate user snapshot', () {
     final kq3Dir = Directory('reference_games/kings-quest-3');
-    if (!kq3Dir.existsSync()) return;
+    if (skipIfPathMissing(kq3Dir.path)) return;
 
     final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
     final engine = AgiGameEngine(resourceLoader: loader);

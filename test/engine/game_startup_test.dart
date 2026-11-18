@@ -5,6 +5,7 @@ import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('Sierra AGI Game Startup & Initialization', () {
@@ -108,7 +109,7 @@ void main() {
 
     test('boots King\'s Quest III reference game and simulates opening sequence', () async {
       final kq3Dir = Directory('reference_games/kings-quest-3');
-      if (!kq3Dir.existsSync()) return;
+      if (skipIfPathMissing(kq3Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final kq3Engine = AgiGameEngine(resourceLoader: loader);
@@ -142,7 +143,7 @@ void main() {
 
     test('add.to.pic respects background priority and masks "III" behind ribbon', () async {
       final kq3Dir = Directory('reference_games/kings-quest-3');
-      if (!kq3Dir.existsSync()) return;
+      if (skipIfPathMissing(kq3Dir.path)) return;
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-3');
       final kq3Engine = AgiGameEngine(resourceLoader: loader);
       await kq3Engine.initializeGame();
@@ -163,7 +164,7 @@ void main() {
 
     test('boots King\'s Quest II reference game, types look, and verifies single-shot dialog response', () async {
       final kq2Dir = Directory('reference_games/kings-quest-2');
-      if (!kq2Dir.existsSync()) return;
+      if (skipIfPathMissing(kq2Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-2');
       final kq2Engine = AgiGameEngine(resourceLoader: loader);
@@ -205,7 +206,7 @@ void main() {
 
     test('boots King\'s Quest IV (AGI V3) reference game to opening room', () async {
       final kq4Dir = Directory('reference_games/kings-quest-4-agi');
-      if (!kq4Dir.existsSync()) return;
+      if (skipIfPathMissing(kq4Dir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/kings-quest-4-agi');
       final kq4Engine = AgiGameEngine(resourceLoader: loader);
@@ -220,7 +221,7 @@ void main() {
 
     test('boots The Black Cauldron reference game and survives idle cycles in room 8 without dying', () async {
       final bcDir = Directory('reference_games/black-cauldron');
-      if (!bcDir.existsSync()) return;
+      if (skipIfPathMissing(bcDir.path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync('reference_games/black-cauldron');
       final bcEngine = AgiGameEngine(resourceLoader: loader);
