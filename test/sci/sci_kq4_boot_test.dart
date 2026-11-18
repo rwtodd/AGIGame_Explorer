@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
+import 'package:flutter_agigame/sci/engine/sci_vm.dart';
 import 'package:flutter_agigame/sci/font/sci_font_parser.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -94,9 +95,40 @@ void main() {
       final playMethod = gObj.lookupMethod(engine.segManager, 84);
       expect(playMethod, isNotNull);
 
+      // Trace raw kernel ids during boot (before scripts run) so a kernel
+      // remap breaks loudly. Early SCI0 uses the same numbering as late
+      // SCI0 (ScummVM loadKernelNames inserts FOpen..FClose at 0x29 for
+      // BOTH versions); a trace confirmed KQ4 calls NewList at raw 0x32.
+      final kernelIds = <String, int>{};
+      engine.vm.addObserver(
+        SciVmBaseObserver(
+          onKernel: (kernelId, name, argc, argv, result) {
+            kernelIds[name] = kernelId;
+          },
+          onInstruction: (vm, frame, instr) {
+            if (vm.stepCounter >= 100000) {
+              vm.abortScriptProcessing = true;
+            }
+          },
+        ),
+      );
+
       engine.start();
       expect(engine.isRunning, isTrue);
       expect(engine.vm.stepCounter, greaterThan(0));
+
+      // List kernels at late-table ids: 0x32 NewList, 0x34 NewNode,
+      // 0x3D AddToEnd, 0x3E FindKey. If early SCI0 were shifted (-4),
+      // these raw ids would decode as Save/Restore-family nonsense.
+      expect(kernelIds['NewList'], 0x32);
+      expect(kernelIds['NewNode'], 0x34);
+      expect(kernelIds['AddToEnd'], 0x3D);
+      expect(kernelIds['FindKey'], 0x3E);
+      expect(kernelIds['GameIsRestarting'], 0x30);
+      // Names agree with the kernel table for every observed id.
+      for (final entry in kernelIds.entries) {
+        expect(engine.kernel.getKernelName(entry.value), entry.key);
+      }
       engine.dispose();
     });
 

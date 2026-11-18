@@ -54,7 +54,7 @@ Volumes live under gitignored `reference_games/`. LSL2/3 *source* is also in `re
 | Codename: ICEMAN | `reference_games/codename-iceman/` | SCI0 late. |
 | The Colonel's Bequest | `reference_games/colonels-bequest/` | SCI0 late. |
 | Conquests of Camelot | `reference_games/conquests-of-camelot/` | SCI0 late. |
-| King's Quest IV (SCI) | `reference_games/kings-quest-4-sci/` | SCI0 **early** (unshifted kernel IDs). Distinct from `kings-quest-4-agi/`. |
+| King's Quest IV (SCI) | `reference_games/kings-quest-4-sci/` | SCI0 **early** (old script header, doubled selector stride; kernel IDs identical to late SCI0 — ScummVM inserts FileIO at 0x29 for both, and a boot trace confirms NewList at raw 0x32). Distinct from `kings-quest-4-agi/`. |
 | Quest for Glory 1 EGA | `reference_games/quest-for-glory-1/` | SCI01 / SCI1-EGA stepping stone. |
 | Quest for Glory 2 | `reference_games/quest-for-glory-2/` | SCI1 EGA. LZW1 + `paletteOffset`. Stage 17. |
 
