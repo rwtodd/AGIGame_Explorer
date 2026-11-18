@@ -8,6 +8,7 @@ import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
 import 'package:flutter_agigame/picture/picture_slicer.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('AgiGameEngine Core Cycle & State Machine', () {
@@ -85,6 +86,19 @@ void main() {
 
       expect(engine.memory.getVar(3), 25);
       expect(engine.memory.getFlag(10), isTrue);
+    });
+
+    test('tick with unknown opcode sets lastError and skips success cleanup', () async {
+      final script = AgiLogicScript(
+        bytecodes: Uint8List.fromList([200]),
+        messages: const [],
+      );
+      engine.interpreter.loadRootScript(script);
+      engine.memory.setFlag(2);
+      await engine.tick();
+      expect(engine.lastError, isNotNull);
+      expect(engine.memory.getFlag(2), isTrue);
+      expect(engine.interpreter.isExecuting, isFalse);
     });
   });
 
@@ -389,7 +403,7 @@ void main() {
       final path = Directory('reference_games/kings-quest-2').existsSync()
           ? 'reference_games/kings-quest-2'
           : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-2';
-      if (!Directory(path).existsSync()) return;
+      if (skipIfPathMissing(path)) return;
 
       final loader = AgiResourceLoader.fromDirectorySync(path);
       final kq2Engine = AgiGameEngine(resourceLoader: loader);

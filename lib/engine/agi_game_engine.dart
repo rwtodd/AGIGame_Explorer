@@ -1059,7 +1059,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
           !interpreter.isExecuting) {
         final frameStart = DateTime.now();
 
-        await tick();
+        try {
+          await tick();
+        } catch (e) {
+          _lastError = 'Tick error in cycle $_cycleCount: $e';
+          if (kDebugMode) {
+            print(_lastError);
+          }
+        }
 
         if (!_isRunning || _loopGeneration != generation) break;
 
@@ -1233,6 +1240,7 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         if (kDebugMode) {
           print(_lastError);
         }
+        return null;
       }
     }
 

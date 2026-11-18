@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter.dart';
@@ -446,6 +447,103 @@ void main() {
       ));
       vm.executeCycle();
       expect(memory.getFlag(2), isTrue);
+    });
+
+    test('unknown action opcode throws and does not freeze interpreter', () {
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([200]),
+        messages: const [],
+      ));
+      expect(() => vm.executeCycle(), throwsA(isA<AgiException>()));
+      expect(vm.isExecuting, isFalse);
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([0]),
+        messages: const [],
+      ));
+      expect(vm.executeCycle(), InterpreterStatus.completed);
+      expect(vm.isExecuting, isFalse);
+    });
+
+    test('truncated assignn operand throws AgiException', () {
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([3, 10]),
+        messages: const [],
+      ));
+      expect(() => vm.executeCycle(), throwsA(isA<AgiException>()));
+      expect(vm.isExecuting, isFalse);
+    });
+
+    test('truncated IF test operand throws AgiException', () {
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([0xFF, 0x01, 0x05]),
+        messages: const [],
+      ));
+      expect(() => vm.executeCycle(), throwsA(isA<AgiException>()));
+      expect(vm.isExecuting, isFalse);
+    });
+
+    test('truncated said test throws AgiException', () {
+      vm.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([0xFF, 0x0E, 0x02, 0x01]),
+        messages: const [],
+      ));
+      expect(() => vm.executeCycle(), throwsA(isA<AgiException>()));
+      expect(vm.isExecuting, isFalse);
+    });
+
+    test('infinite GOTO loop throws AgiException when step budget exceeded', () {
+      // GOTO offset -3 jumps to itself (see _execGoto: targetIp = ip + target + 3).
+      final limited = AgiLogicInterpreter(
+        memory: memory,
+        delegate: delegate,
+        randomSeed: 42,
+        maxStepsPerCycle: 1000,
+      );
+      limited.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([0xFE, 0xFD, 0xFF]),
+        messages: const [],
+      ));
+      expect(() => limited.executeCycle(), throwsA(isA<AgiException>()));
+      expect(limited.isExecuting, isFalse);
+    });
+
+    test('short script completes normally within step budget', () {
+      final limited = AgiLogicInterpreter(
+        memory: memory,
+        delegate: delegate,
+        randomSeed: 42,
+        maxStepsPerCycle: 1000,
+      );
+      limited.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0x03, 0x00, 0x2A, // assignn(%v0, 42)
+          0x00, // return
+        ]),
+        messages: const [],
+      ));
+      expect(limited.executeCycle(), InterpreterStatus.completed);
+      expect(memory.getVar(0), 42);
+      expect(limited.isExecuting, isFalse);
+    });
+
+    test('straight-line instructions beyond budget throw', () {
+      // Six increment(%v0) plus return = 7 steps, budget 5.
+      final limited = AgiLogicInterpreter(
+        memory: memory,
+        delegate: delegate,
+        randomSeed: 42,
+        maxStepsPerCycle: 5,
+      );
+      limited.loadRootScript(AgiLogicScript(
+        bytecodes: Uint8List.fromList([
+          0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
+          0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
+          0x00,
+        ]),
+        messages: const [],
+      ));
+      expect(() => limited.executeCycle(), throwsA(isA<AgiException>()));
+      expect(limited.isExecuting, isFalse);
     });
   });
 }

@@ -5,6 +5,7 @@ import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/animated_object.dart';
 import 'package:flutter_agigame/domain/engine_memory.dart';
 import 'package:flutter_agigame/domain/logic_script.dart';
+import 'package:flutter_agigame/logic/disassembler/instruction_decoder.dart';
 import 'package:flutter_agigame/logic/interpreter/agi_interpreter_delegate.dart';
 
 /// Call stack frame for nested LOGIC scripts (via `call` / `call.v`).
@@ -22,6 +23,9 @@ class AgiCallFrame {
   });
 }
 
+/// Default per-execution-cycle instruction budget for [AgiLogicInterpreter].
+const int defaultMaxStepsPerCycle = 1000000;
+
 /// Execution status returned by interpreter step methods.
 enum InterpreterStatus {
   running,
@@ -36,6 +40,9 @@ class AgiLogicInterpreter {
   final List<AnimatedObject> animatedObjects;
   AgiInterpreterDelegate delegate;
   final double version;
+  /// Per-execution-cycle instruction budget (see [defaultMaxStepsPerCycle]).
+  final int maxStepsPerCycle;
+  late final InstructionDecoder _decoder = InstructionDecoder(version: version);
   math.Random rng;
 
   final List<AgiCallFrame> callStack = [];
@@ -52,6 +59,7 @@ class AgiLogicInterpreter {
     List<AnimatedObject>? animatedObjects,
     AgiInterpreterDelegate? delegate,
     this.version = 2.917,
+    this.maxStepsPerCycle = defaultMaxStepsPerCycle,
     int? randomSeed,
     int maxAnimatedObjects = 64,
   })  : memory = memory ?? AgiMemory(),
@@ -137,10 +145,19 @@ class AgiLogicInterpreter {
   FutureOr<InterpreterStatus> _runExecutionLoop({int maxRescans = 10}) {
     _isExecuting = true;
     int rescanCount = 0;
+    int stepCount = 0;
 
     FutureOr<InterpreterStatus> stepLoop() {
       while (rescanCount < maxRescans) {
         while (!isHalted && callStack.isNotEmpty && !_newRoomRequested) {
+          stepCount++;
+          if (stepCount > maxStepsPerCycle) {
+            final frame = currentFrame;
+            throw AgiException(
+              'Instruction budget exceeded: more than $maxStepsPerCycle steps in one execution cycle '
+              '(script ${frame?.scriptNumber ?? '?'} ip ${frame?.ip ?? '?'}).',
+            );
+          }
           final status = stepInstruction();
           if (status is Future<InterpreterStatus>) {
             return status.then((s) {
@@ -173,7 +190,12 @@ class AgiLogicInterpreter {
       return InterpreterStatus.completed;
     }
 
-    return stepLoop();
+    try {
+      return stepLoop();
+    } catch (e) {
+      _isExecuting = false;
+      rethrow;
+    }
   }
 
   void Function(String?)? _pendingInputCallback;
@@ -224,6 +246,17 @@ class AgiLogicInterpreter {
         return InterpreterStatus.running;
 
       default:
+        // Bounds check: require opcode + operands present before dispatch.
+        // lookupActionTemplate throws AgiException for opcode > 181,
+        // preserving unknown-opcode behaviour.
+        final numArgs = _decoder.lookupActionTemplate(opcode).numArgs;
+        if (frame.ip + 1 + numArgs > code.length) {
+          throw AgiException(
+            'Truncated action instruction: opcode $opcode at ip ${frame.ip} '
+            'requires $numArgs operand byte(s), but only '
+            '${code.length - frame.ip - 1} remain.',
+          );
+        }
         return _execAction(opcode, code, frame);
     }
   }
@@ -281,6 +314,11 @@ class AgiLogicInterpreter {
         break;
 
       case 0x0E: // said(count, w1, w2, ...)
+        if (frame.ip + 1 >= code.length) {
+          throw AgiException(
+            'Truncated said test at ip ${frame.ip}: missing count byte.',
+          );
+        }
         final count = code[frame.ip + 1];
         frame.ip += 2 + count * 2;
         break;
@@ -347,6 +385,15 @@ class AgiLogicInterpreter {
     }
   }
 
+  void _requireBytes(Uint8List code, AgiCallFrame frame, int n, String what) {
+    if (frame.ip + n > code.length) {
+      throw AgiException(
+        'Truncated test condition: $what at ip ${frame.ip} requires $n byte(s), '
+        'but only ${code.length - frame.ip} remain.',
+      );
+    }
+  }
+
   bool _evalTestSection(Uint8List code, AgiCallFrame frame) {
     if (frame.ip >= code.length) {
       throw const AgiException('Truncated test condition.');
@@ -355,58 +402,68 @@ class AgiLogicInterpreter {
     final curVal = code[frame.ip];
     switch (curVal) {
       case 0x01: // equaln(%v, n)
+        _requireBytes(code, frame, 3, 'equaln');
         final v = code[frame.ip + 1];
         final n = code[frame.ip + 2];
         frame.ip += 3;
         return memory.getVar(v) == n;
 
       case 0x02: // equalv(%v1, %v2)
+        _requireBytes(code, frame, 3, 'equalv');
         final v1 = code[frame.ip + 1];
         final v2 = code[frame.ip + 2];
         frame.ip += 3;
         return memory.getVar(v1) == memory.getVar(v2);
 
       case 0x03: // lessn(%v, n)
+        _requireBytes(code, frame, 3, 'lessn');
         final v = code[frame.ip + 1];
         final n = code[frame.ip + 2];
         frame.ip += 3;
         return memory.getVar(v) < n;
 
       case 0x04: // lessv(%v1, %v2)
+        _requireBytes(code, frame, 3, 'lessv');
         final v1 = code[frame.ip + 1];
         final v2 = code[frame.ip + 2];
         frame.ip += 3;
         return memory.getVar(v1) < memory.getVar(v2);
 
       case 0x05: // greatern(%v, n)
+        _requireBytes(code, frame, 3, 'greatern');
         final v = code[frame.ip + 1];
         final n = code[frame.ip + 2];
         frame.ip += 3;
         return memory.getVar(v) > n;
 
       case 0x06: // greaterv(%v1, %v2)
+        _requireBytes(code, frame, 3, 'greaterv');
         final v1 = code[frame.ip + 1];
         final v2 = code[frame.ip + 2];
         frame.ip += 3;
         return memory.getVar(v1) > memory.getVar(v2);
 
       case 0x07: // isset(%f)
+        _requireBytes(code, frame, 2, 'isset');
         final f = code[frame.ip + 1];
         frame.ip += 2;
         return memory.getFlag(f);
 
       case 0x08: // issetv(%v)
+        _requireBytes(code, frame, 2, 'issetv');
         final v = code[frame.ip + 1];
         frame.ip += 2;
         return memory.getFlag(memory.getVar(v));
 
       case 0x09: // has(%i)
+        _requireBytes(code, frame, 2, 'has');
         final i = code[frame.ip + 1];
         frame.ip += 2;
         final room = memory.itemRooms[i];
         return room == 255; // 255 = Ego is carrying item
 
       case 0x0A: // obj.in.room(%i, %v)
+        _requireBytes(code, frame, 3, 'obj.in.room');
         final i = code[frame.ip + 1];
         final v = code[frame.ip + 2];
         frame.ip += 3;
@@ -414,6 +471,7 @@ class AgiLogicInterpreter {
         return room == memory.getVar(v);
 
       case 0x0B: // posn(%o, x1, y1, x2, y2)
+        _requireBytes(code, frame, 6, 'posn');
         final o = code[frame.ip + 1];
         final x1 = code[frame.ip + 2];
         final y1 = code[frame.ip + 3];
@@ -424,6 +482,7 @@ class AgiLogicInterpreter {
         return obj.x >= x1 && obj.x <= x2 && obj.y >= y1 && obj.y <= y2;
 
       case 0x0C: // controller(%c)
+        _requireBytes(code, frame, 2, 'controller');
         final c = code[frame.ip + 1];
         frame.ip += 2;
         return memory.getController(c);
@@ -440,7 +499,9 @@ class AgiLogicInterpreter {
         return hasKey;
 
       case 0x0E: // said(count, w1, w2, ...)
+        _requireBytes(code, frame, 2, 'said');
         final count = code[frame.ip + 1];
+        _requireBytes(code, frame, 2 + count * 2, 'said word list');
         var cur = frame.ip + 2;
         final words = <int>[];
         for (var i = 0; i < count; i++) {
@@ -451,6 +512,7 @@ class AgiLogicInterpreter {
         return delegate.checkSaid(words);
 
       case 0x0F: // compare.strings(%s1, %s2)
+        _requireBytes(code, frame, 3, 'compare.strings');
         final s1 = code[frame.ip + 1];
         final s2 = code[frame.ip + 2];
         frame.ip += 3;
@@ -460,6 +522,7 @@ class AgiLogicInterpreter {
       case 0x10: // obj.in.box(%o, x1, y1, x2, y2) — entire baseline inside the box
       case 0x11: // center.posn(%o, x1, y1, x2, y2) — center of baseline
       case 0x12: // right.posn(%o, x1, y1, x2, y2) — right edge of baseline
+        _requireBytes(code, frame, 6, 'posn box');
         final posnOp = code[frame.ip];
         final o = code[frame.ip + 1];
         final x1 = code[frame.ip + 2];
