@@ -135,14 +135,25 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _session.start();
     }
 
-    _session.onSaveGameRequested = () => SaveLoadDialog.showSave(context, _session);
-    _session.onRestoreGameRequested = () => SaveLoadDialog.showRestore(context, _session);
-    _session.onRestartGameRequested =
-        () => SaveLoadDialog.showRestartConfirmation(context, _session);
+    _session.onSaveGameRequested = () {
+      if (!mounted) return;
+      SaveLoadDialog.showSave(context, _session);
+    };
+    _session.onRestoreGameRequested = () {
+      if (!mounted) return;
+      SaveLoadDialog.showRestore(context, _session);
+    };
+    _session.onRestartGameRequested = () {
+      if (!mounted) return;
+      SaveLoadDialog.showRestartConfirmation(context, _session);
+    };
   }
 
   @override
   void dispose() {
+    _session.onSaveGameRequested = null;
+    _session.onRestoreGameRequested = null;
+    _session.onRestartGameRequested = null;
     final shouldDispose = widget.disposeSession ?? (widget.engine == null && widget.session == null);
     if (shouldDispose) {
       _session.dispose();

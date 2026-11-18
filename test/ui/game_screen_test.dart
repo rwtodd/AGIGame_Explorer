@@ -650,5 +650,24 @@ void main() {
 
       expect(find.text('AI COMMAND PARSER'), findsNothing);
     });
+
+    testWidgets('clears session save/restore/restart callbacks on dispose', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(engine: engine, disposeSession: false),
+        ),
+      );
+
+      expect(engine.onSaveGameRequested, isNotNull);
+      expect(engine.onRestoreGameRequested, isNotNull);
+      expect(engine.onRestartGameRequested, isNotNull);
+
+      // Dispose GameScreen by replacing the tree with an unrelated widget.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+      expect(engine.onSaveGameRequested, isNull);
+      expect(engine.onRestoreGameRequested, isNull);
+      expect(engine.onRestartGameRequested, isNull);
+    });
   });
 }
