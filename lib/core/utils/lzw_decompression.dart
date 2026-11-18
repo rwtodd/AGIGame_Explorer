@@ -51,15 +51,24 @@ class LzwDecompressor {
           last = _invalid;
           continue;
         } else if (current == _eof) {
-          return output.sublist(0, outIdx);
+          if (outIdx != output.length) {
+            throw AgiException(
+              'LZW: resource expected $expandedSize bytes, but only expanded $outIdx bytes.',
+            );
+          }
+          return output;
         } else if (current <= hi) {
           var token = current;
           final beginIdx = outIdx;
 
           if (token == hi && last != _invalid) {
             token = last;
+            var chainSteps = 0;
             while (token >= _clear) {
               token = prefix[token];
+              if (++chainSteps > (1 << _maxWidth)) {
+                throw const AgiException('Malformed LZW resource!');
+              }
             }
             if (outIdx >= output.length) {
               throw AgiException('LZW output overflow beyond expected $expandedSize bytes');
@@ -68,12 +77,16 @@ class LzwDecompressor {
             token = last;
           }
 
+          var chainSteps = 0;
           while (token >= _clear) {
             if (outIdx >= output.length) {
               throw AgiException('LZW output overflow beyond expected $expandedSize bytes');
             }
             output[outIdx++] = suffix[token];
             token = prefix[token];
+            if (++chainSteps > (1 << _maxWidth)) {
+              throw const AgiException('Malformed LZW resource!');
+            }
           }
           if (outIdx >= output.length) {
             throw AgiException('LZW output overflow beyond expected $expandedSize bytes');

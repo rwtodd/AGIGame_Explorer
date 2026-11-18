@@ -60,6 +60,9 @@ class SciDecompressorHuffman {
     }
 
     final numNodes = src[0];
+    if (numNodes == 0) {
+      throw const SciDecompressionException('Huffman compressed payload has no nodes');
+    }
     final terminator = (src[1] & 0xFF) | 0x100;
     final nodesByteCount = numNodes << 1;
 

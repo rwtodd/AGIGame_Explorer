@@ -17,6 +17,14 @@ void main() {
       );
     });
 
+    test('throws SciDecompressionException when numNodes is zero', () {
+      final src = Uint8List.fromList([0, 0xFF]);
+      expect(
+        () => SciDecompressorHuffman.decompress(src, 5),
+        throwsA(isA<SciDecompressionException>()),
+      );
+    });
+
     test('throws when node table exceeds payload size', () {
       // numNodes = 10 (needs 20 bytes), but payload only has 2 bytes total
       final src = Uint8List.fromList([10, 0x00]);

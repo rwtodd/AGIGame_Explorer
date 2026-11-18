@@ -72,6 +72,18 @@ void main() {
       );
     });
 
+    test('throws SciDecompressionException on early terminator before decompSize is reached', () {
+      final writer = _TestBitWriterLSB();
+      writer.writeBits(65, 9);
+      writer.writeBits(257, 9); // early terminator after 1 of 10 bytes
+      final src = writer.toBytes();
+
+      expect(
+        () => SciDecompressorLZW.decompress(src, 10),
+        throwsA(isA<SciDecompressionException>()),
+      );
+    });
+
     test('throws SciDecompressionException on size mismatch without terminator', () {
       final writer = _TestBitWriterLSB();
       writer.writeBits(65, 9); // only 1 byte written, expected 10

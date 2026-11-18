@@ -136,7 +136,7 @@ class SciDecompressorLZW {
       }
     }
 
-    if (dwWrote != decompSize && !terminatorFound) {
+    if (dwWrote != decompSize) {
       throw SciDecompressionException(
         'LZW decompression size mismatch: expanded $dwWrote bytes, expected $decompSize bytes',
       );
