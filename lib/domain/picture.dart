@@ -148,6 +148,15 @@ abstract class SierraPicture {
   /// Decodes and returns the control map as a Flutter [ui.Image].
   Future<ui.Image> toControlMapUiImage();
 
+  /// Renders a 320x200 RGBA value-encoded priority texture: R =
+  /// effectivePriority * 17, G/B = 0, A = 255. AGI is horizontally doubled
+  /// from 160x168 effective priorities (rows 168..199 have R = 0); SCI is
+  /// 1:1 from `(priorityPixels[i] & 0x0F)`.
+  Uint8List renderPriorityTextureRgba();
+
+  /// Decodes and returns the priority texture as a Flutter [ui.Image].
+  Future<ui.Image> toPriorityTextureUiImage();
+
   /// Cached Flutter [ui.Image] for the flat visual background, if decoded.
   ui.Image? get cachedFlatVisualImage;
 
@@ -157,8 +166,15 @@ abstract class SierraPicture {
   /// Cached Flutter [ui.Image] for the control barrier map, if decoded.
   ui.Image? get cachedControlMapImage;
 
+  /// Cached Flutter [ui.Image] for the value-encoded priority texture.
+  ui.Image? get cachedPriorityTextureImage;
+
+  /// Drops the flat/priority-map/control-map/priority-texture GPU caches
+  /// without touching slices and without marking disposed.
+  void invalidateCachedImages();
+
   /// Preloads GPU textures for all active slices asynchronously.
-  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false});
+  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false, bool includeShaderTextures = false});
 
   /// Disposes GPU resources held by this picture.
   void dispose();
@@ -236,6 +252,7 @@ class AgiPic implements SierraPicture {
   ui.Image? _cachedFlatVisualImage;
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
+  ui.Image? _cachedPriorityTextureImage;
   bool _isDisposed = false;
 
   /// The AGI picture resource number, if known.
@@ -270,6 +287,10 @@ class AgiPic implements SierraPicture {
   @override
   ui.Image? get cachedControlMapImage => _cachedControlMapImage;
 
+  /// Cached Flutter [ui.Image] for the value-encoded priority texture.
+  @override
+  ui.Image? get cachedPriorityTextureImage => _cachedPriorityTextureImage;
+
   /// Gets the priority slice for the given priority level (0..15), if present.
   @override
   PictureSlice? getSlice(int priority) => slices[priority];
@@ -301,7 +322,7 @@ class AgiPic implements SierraPicture {
 
   /// Preloads GPU textures for all active slices asynchronously.
   @override
-  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false}) {
+  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false, bool includeShaderTextures = false}) {
     final futures = <Future<ui.Image>>[];
     for (final slice in slices.values) {
       if (slice.hasVisiblePixels && slice.cachedUiImage == null) {
@@ -312,6 +333,10 @@ class AgiPic implements SierraPicture {
       if (_cachedFlatVisualImage == null) futures.add(toFlatVisualUiImage());
       if (_cachedPriorityMapImage == null) futures.add(toPriorityMapUiImage());
       if (_cachedControlMapImage == null) futures.add(toControlMapUiImage());
+    }
+    if (includeShaderTextures) {
+      if (_cachedFlatVisualImage == null) futures.add(toFlatVisualUiImage());
+      if (_cachedPriorityTextureImage == null) futures.add(toPriorityTextureUiImage());
     }
     if (futures.isEmpty) return null;
     // Ignore decode errors from slices disposed while upload was in flight.
@@ -438,6 +463,81 @@ class AgiPic implements SierraPicture {
     return completer.future;
   }
 
+  /// Renders the value-encoded priority texture as 320x200 RGBA bytes:
+  /// R = effectivePriority * 17, G/B = 0, A = 255, horizontally doubled
+  /// from the 160x168 effective priorities. Rows 168..199 have R = 0.
+  @override
+  Uint8List renderPriorityTextureRgba() {
+    final effective = priorityBuffer.computeEffectivePriorities();
+    final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
+    for (int y = 0; y < nativeHeight; y++) {
+      for (int x = 0; x < nativeWidth; x++) {
+        final r = effective[y * nativeWidth + x] * 17;
+        final outIdx1 = (y * renderedWidth + (x * 2)) * 4;
+        final outIdx2 = outIdx1 + 4;
+        outBytes[outIdx1 + 0] = r;
+        outBytes[outIdx1 + 1] = 0;
+        outBytes[outIdx1 + 2] = 0;
+        outBytes[outIdx1 + 3] = 255;
+        outBytes[outIdx2 + 0] = r;
+        outBytes[outIdx2 + 1] = 0;
+        outBytes[outIdx2 + 2] = 0;
+        outBytes[outIdx2 + 3] = 255;
+      }
+    }
+    for (int y = nativeHeight; y < renderedHeight; y++) {
+      for (int x = 0; x < renderedWidth; x++) {
+        final outIdx = (y * renderedWidth + x) * 4;
+        outBytes[outIdx + 0] = 0;
+        outBytes[outIdx + 1] = 0;
+        outBytes[outIdx + 2] = 0;
+        outBytes[outIdx + 3] = 255;
+      }
+    }
+    return outBytes;
+  }
+
+  /// Decodes and returns the priority texture as a Flutter [ui.Image].
+  @override
+  Future<ui.Image> toPriorityTextureUiImage() async {
+    if (_isDisposed) {
+      throw StateError('Cannot decode ui.Image on a disposed AgiPic.');
+    }
+    if (_cachedPriorityTextureImage != null) return _cachedPriorityTextureImage!;
+
+    final rgba = renderPriorityTextureRgba();
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      rgba,
+      renderedWidth,
+      renderedHeight,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        _completeGpuDecode(
+          disposed: _isDisposed,
+          completer: completer,
+          image: image,
+          onSuccess: (img) => _cachedPriorityTextureImage = img,
+        );
+      },
+    );
+    return completer.future;
+  }
+
+  /// Drops the flat/priority-map/control-map/priority-texture GPU caches
+  /// without touching slices and without marking disposed.
+  @override
+  void invalidateCachedImages() {
+    _cachedFlatVisualImage?.dispose();
+    _cachedFlatVisualImage = null;
+    _cachedPriorityMapImage?.dispose();
+    _cachedPriorityMapImage = null;
+    _cachedControlMapImage?.dispose();
+    _cachedControlMapImage = null;
+    _cachedPriorityTextureImage?.dispose();
+    _cachedPriorityTextureImage = null;
+  }
+
   /// Disposes GPU resources held by this picture and its slices.
   @override
   void dispose() {
@@ -448,6 +548,8 @@ class AgiPic implements SierraPicture {
     _cachedPriorityMapImage = null;
     _cachedControlMapImage?.dispose();
     _cachedControlMapImage = null;
+    _cachedPriorityTextureImage?.dispose();
+    _cachedPriorityTextureImage = null;
     for (final slice in slices.values) {
       slice.dispose();
     }

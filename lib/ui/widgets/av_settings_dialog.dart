@@ -973,7 +973,8 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
 
   Widget _buildRenderModeSelector(AgiDisplaySettings display, SettingsNotifier notifier) {
     const modes = [
-      (AgiPictureRenderMode.compositedSlices, 'Composited Slices', 'Standard 16-layer compositing with sprite depth sorting'),
+      (AgiPictureRenderMode.shaderComposited, 'Priority Shader', 'Native-resolution compositing with GPU priority masking'),
+      (AgiPictureRenderMode.compositedSlices, 'Composited Slices', 'Legacy 16-layer compositing with sprite depth sorting'),
       (AgiPictureRenderMode.flatVisual, 'Visual Only', 'Background visual plane only (ignoring actors)'),
       (AgiPictureRenderMode.priorityMap, 'Priority Buffer', '16-color priority depth map (0..15)'),
       (AgiPictureRenderMode.controlMap, 'Control Screen', 'Collision barrier lines and trigger pixels'),

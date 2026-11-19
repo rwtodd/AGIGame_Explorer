@@ -882,8 +882,8 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
 
           switch (mode) {
             case AgiPictureRenderMode.compositedSlices:
-              label = 'Priority Slices (Game View)';
-              sub = 'Multi-layer depth composited with sprites';
+              label = 'Priority Slices (Legacy)';
+              sub = 'Multi-layer depth compositing fallback';
               icon = Icons.view_in_ar;
               break;
             case AgiPictureRenderMode.flatVisual:
@@ -905,6 +905,11 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
               label = 'Control Screen';
               sub = 'Collision & trigger control lines';
               icon = Icons.security;
+              break;
+            case AgiPictureRenderMode.shaderComposited:
+              label = 'Priority Shader';
+              sub = 'Native-resolution compositing with GPU priority masking';
+              icon = Icons.auto_awesome;
               break;
           }
 

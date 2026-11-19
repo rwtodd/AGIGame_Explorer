@@ -15,6 +15,7 @@ import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/shaders/crt_shader_loader.dart';
+import 'package:flutter_agigame/ui/shaders/priority_sprite_shader.dart';
 
 /// Render modes for visualizing AGI and SCI pictures in game and diagnostic views.
 enum AgiPictureRenderMode {
@@ -32,6 +33,9 @@ enum AgiPictureRenderMode {
 
   /// Collision and script trigger control map (triggers, conditional/unconditional barriers, water).
   controlMap,
+
+  /// Native-resolution compositing with GPU priority masking (default game view).
+  shaderComposited,
 }
 
 /// Active actor/sprite in the Z-order playfield stack for both AGI and SCI engines.
@@ -158,6 +162,62 @@ class PlayfieldActorSprite {
     }
   }
 
+  /// Draws this sprite with GPU priority masking via [drawPrioritySprite].
+  ///
+  /// Mirror of [draw]: atlas entries resolve exactly as [draw] does, with
+  /// `srcRectPx = entry.sourceRect` and a `dstRect` matching [ViewTextureAtlas.drawEntry]'s
+  /// non-flip math (`renderPosition`, `entry.width * scaleX`, `entry.height * scaleY`).
+  /// Mirroring is passed as `flipX` exactly as `drawEntry` decides it
+  /// (`entry.isMirrored` when no override is given). Standalone images use the full
+  /// image rect with `dst = renderPosition + image size`, matching [draw]'s
+  /// `drawImage` behaviour. No image/atlas miss is a no-op, as in [draw].
+  void drawPriorityMasked(Canvas canvas, ui.FragmentShader shader, ui.Image priorityImage, Size playfieldSize) {
+    final atlas = this.atlas;
+    if (atlas != null && atlas.hasImage) {
+      final entry = celEntry ?? atlas.getEntry(viewNumber, loopNumber, celNumber);
+      if (entry != null) {
+        final dstRect = Rect.fromLTWH(
+          renderPosition.dx,
+          renderPosition.dy,
+          entry.width * scaleX,
+          entry.height * scaleY,
+        );
+        drawPrioritySprite(
+          canvas,
+          shader,
+          spriteImage: atlas.image!,
+          priorityImage: priorityImage,
+          srcRectPx: entry.sourceRect,
+          dstRect: dstRect,
+          playfieldSize: playfieldSize,
+          actorPriority: priority,
+          flipX: entry.isMirrored,
+        );
+        return;
+      }
+    }
+    if (image != null && !image!.debugDisposed) {
+      final srcRect = Rect.fromLTWH(0.0, 0.0, image!.width.toDouble(), image!.height.toDouble());
+      final dstRect = Rect.fromLTWH(
+        renderPosition.dx,
+        renderPosition.dy,
+        image!.width.toDouble(),
+        image!.height.toDouble(),
+      );
+      drawPrioritySprite(
+        canvas,
+        shader,
+        spriteImage: image!,
+        priorityImage: priorityImage,
+        srcRectPx: srcRect,
+        dstRect: dstRect,
+        playfieldSize: playfieldSize,
+        actorPriority: priority,
+        flipX: false,
+      );
+    }
+  }
+
   /// Sierra blit order within a picture-priority band:
   /// static (`stop.update`) sprites first, then sort-Y, then Ego last.
   static int compareDrawOrder(PlayfieldActorSprite a, PlayfieldActorSprite b) {
@@ -235,6 +295,8 @@ class PlayfieldPainter extends CustomPainter {
   final ui.Image? flatVisualImage;
   final ui.Image? priorityMapImage;
   final ui.Image? controlMapImage;
+  final ui.FragmentShader? prioritySpriteShader;
+  final ui.Image? priorityTextureImage;
   final int? isolatedPrioritySlice;
   final int playfieldRow;
   final bool showPixelGrid;
@@ -274,6 +336,8 @@ class PlayfieldPainter extends CustomPainter {
     this.flatVisualImage,
     this.priorityMapImage,
     this.controlMapImage,
+    this.prioritySpriteShader,
+    this.priorityTextureImage,
     this.isolatedPrioritySlice,
     this.showPixelGrid = false,
     this.renderBlackTextBackgrounds = false,
@@ -370,6 +434,14 @@ class PlayfieldPainter extends CustomPainter {
             }
             if (effectiveCtrl != null) {
               canvas.drawImage(effectiveCtrl, Offset.zero, paint);
+            }
+            break;
+
+          case AgiPictureRenderMode.shaderComposited:
+            if (prioritySpriteShader == null || effectiveFlat == null || priorityTextureImage == null) {
+              _paintCompositedSlices(canvas, paint, effectiveFlat, pic);
+            } else {
+              _paintShaderCompositedNative(canvas, paint, effectiveFlat, pic);
             }
             break;
         }
@@ -735,6 +807,76 @@ class PlayfieldPainter extends CustomPainter {
     }
   }
 
+  /// The shaderComposited scene body (flat + text pass + masked actors),
+  /// recorded at native resolution by [_paintShaderCompositedNative].
+  void _paintShaderScene(
+    Canvas canvas,
+    Paint paint,
+    ui.Image flat,
+    SierraPicture pic,
+  ) {
+    canvas.drawImage(flat, Offset.zero, paint);
+    if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
+      canvas.save();
+      canvas.translate(0.0, -playfieldRow * 8.0);
+      _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+      _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+      canvas.restore();
+    }
+    if (actors.isNotEmpty) {
+      final sortedActors = List<AgiActorSprite>.from(actors)
+        ..sort(AgiActorSprite.compareDrawOrder);
+      const playfieldSize = Size(320.0, 200.0);
+      for (final actor in sortedActors) {
+        actor.drawPriorityMasked(canvas, prioritySpriteShader!, priorityTextureImage!, playfieldSize);
+      }
+    }
+  }
+
+  /// Composites the shader scene at native 320x200 once per paint, then
+  /// upscales that single image to the outer (window-scale) canvas. At
+  /// native scale fragment centers are exact half-integers, so the
+  /// fractional-scale sampling seams of drawing the shader directly on
+  /// the scaled canvas disappear; the final nearest-neighbour upscale
+  /// samples exactly like [Canvas.drawImage] of slices does.
+  void _paintShaderCompositedNative(
+    Canvas canvas,
+    Paint paint,
+    ui.Image flat,
+    SierraPicture pic,
+  ) {
+    final recorder = ui.PictureRecorder();
+    final sceneCanvas = Canvas(recorder);
+    ui.Picture? picture;
+    ui.Image? image;
+    try {
+      if (!pic.isSci) {
+        sceneCanvas.translate(0.0, playfieldRow * 8.0);
+        sceneCanvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 168.0));
+      } else {
+        sceneCanvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0));
+      }
+      _paintShaderScene(sceneCanvas, paint, flat, pic);
+      picture = recorder.endRecording();
+      image = picture.toImageSync(320, 200);
+    } catch (_) {
+      picture?.dispose();
+      _paintCompositedSlices(canvas, paint, flat, pic);
+      return;
+    }
+    try {
+      canvas.drawImageRect(
+        image,
+        const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0),
+        Rect.fromLTWH(0.0, pic.isSci ? 0.0 : -playfieldRow * 8.0, 320.0, 200.0),
+        paint,
+      );
+    } finally {
+      picture.dispose();
+      image.dispose();
+    }
+  }
+
   void _paintCompositedSlices(Canvas canvas, Paint paint, ui.Image? fallbackFlat, SierraPicture pic) {
     // Check if we have valid slices ready
     final hasSlices = pic.slices.values.any((s) => s.hasVisiblePixels && s.cachedUiImage != null);
@@ -967,9 +1109,12 @@ class PlayfieldPainter extends CustomPainter {
         oldDelegate.flatVisualImage != flatVisualImage ||
         oldDelegate.priorityMapImage != priorityMapImage ||
         oldDelegate.controlMapImage != controlMapImage ||
+        oldDelegate.prioritySpriteShader != prioritySpriteShader ||
+        oldDelegate.priorityTextureImage != priorityTextureImage ||
         oldDelegate.picture?.cachedFlatVisualImage != picture?.cachedFlatVisualImage ||
         oldDelegate.picture?.cachedPriorityMapImage != picture?.cachedPriorityMapImage ||
         oldDelegate.picture?.cachedControlMapImage != picture?.cachedControlMapImage ||
+        oldDelegate.picture?.cachedPriorityTextureImage != picture?.cachedPriorityTextureImage ||
         oldDelegate.showCursor != showCursor ||
         oldDelegate.cursorRow != cursorRow ||
         oldDelegate.cursorCol != cursorCol ||
@@ -1191,6 +1336,8 @@ class AgiPictureWidget extends StatefulWidget {
   final int? isolatedPrioritySlice;
   final void Function(int x, int y)? onHoverPixel;
   final void Function()? onExitHover;
+  final ui.FragmentShader? prioritySpriteShader;
+  final ui.Image? priorityTextureImage;
 
   const AgiPictureWidget({
     super.key,
@@ -1207,6 +1354,8 @@ class AgiPictureWidget extends StatefulWidget {
     this.isolatedPrioritySlice,
     this.onHoverPixel,
     this.onExitHover,
+    this.prioritySpriteShader,
+    this.priorityTextureImage,
   }) : renderMode = initialMode ?? renderMode;
 
   @override
@@ -1313,6 +1462,12 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
           _ctrlImage = await targetPic.toControlMapUiImage();
         }
         break;
+      case AgiPictureRenderMode.shaderComposited:
+        await targetPic.preloadGpuTextures(includeShaderTextures: true);
+        if (force || _flatImage == null) {
+          _flatImage = await targetPic.toFlatVisualUiImage(undithered: false);
+        }
+        break;
     }
     if (!mounted || token != _loadToken || targetPic.isDisposed) return;
     setState(() {});
@@ -1407,6 +1562,8 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
                             : _flatImage,
                         priorityMapImage: _priImage,
                         controlMapImage: _ctrlImage,
+                        prioritySpriteShader: widget.prioritySpriteShader,
+                        priorityTextureImage: widget.priorityTextureImage,
                         isolatedPrioritySlice: widget.isolatedPrioritySlice,
                         showPixelGrid: widget.showPixelGrid,
                         renderBlackTextBackgrounds: widget.renderBlackTextBackgrounds,

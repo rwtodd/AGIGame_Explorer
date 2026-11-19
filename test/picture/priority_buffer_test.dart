@@ -1,3 +1,6 @@
+import 'dart:math';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
@@ -86,6 +89,50 @@ void main() {
       final expectedCol = EgaColors.rgbaBytes[1];
       expect(rgba.sublist(0, 4), equals(expectedCol));
       expect(rgba.sublist(4, 8), equals(expectedCol));
+    });
+
+    test('computeEffectivePriorities matches effectivePriorityAtIndex for every pixel', () {
+      final random = Random(42);
+      final pixels = Uint8List(PriorityBuffer.bufferSize);
+      for (int i = 0; i < pixels.length; i++) {
+        pixels[i] = random.nextInt(16);
+      }
+      final buffer = PriorityBuffer(pixels);
+      final effective = buffer.computeEffectivePriorities();
+      expect(effective.length, equals(PriorityBuffer.bufferSize));
+      for (int i = 0; i < PriorityBuffer.bufferSize; i++) {
+        expect(effective[i], equals(buffer.effectivePriorityAtIndex(i)), reason: 'mismatch at index $i');
+      }
+    });
+
+    test('computeEffectivePriorities crafted column: control lines 0,1,2 above a 7', () {
+      final buffer = PriorityBuffer();
+      buffer.setPriorityAt(10, 0, 0);
+      buffer.setPriorityAt(10, 1, 1);
+      buffer.setPriorityAt(10, 2, 2);
+      buffer.setPriorityAt(10, 3, 7);
+      final effective = buffer.computeEffectivePriorities();
+      int at(int y) => effective[y * PriorityBuffer.width + 10];
+      expect(at(0), equals(7));
+      expect(at(1), equals(7));
+      expect(at(2), equals(7));
+      expect(at(3), equals(7));
+      expect(at(4), equals(4));
+      expect(at(167), equals(4));
+    });
+
+    test('computeEffectivePriorities all-control column falls back to 4', () {
+      final buffer = PriorityBuffer();
+      for (int y = 0; y < PriorityBuffer.height; y++) {
+        buffer.setPriorityAt(20, y, y % 3); // 0,1,2 repeating — all control
+      }
+      buffer.setPriorityAt(21, 0, 9);
+      final effective = buffer.computeEffectivePriorities();
+      for (int y = 0; y < PriorityBuffer.height; y++) {
+        expect(effective[y * PriorityBuffer.width + 20], equals(4));
+      }
+      // Neighbouring depth column unaffected.
+      expect(effective[21], equals(9));
     });
 
     test('renderControlMapRgba produces 320x200 RGBA buffer with transparent non-control pixels', () {

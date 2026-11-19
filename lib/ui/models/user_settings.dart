@@ -18,7 +18,7 @@ class AgiDisplaySettings {
     this.showCrtShader = false,
     this.showPixelGrid = false,
     this.renderBlackTextBackgrounds = false,
-    this.renderMode = AgiPictureRenderMode.compositedSlices,
+    this.renderMode = AgiPictureRenderMode.shaderComposited,
     this.sciEnableDithering = true,
   });
 
@@ -56,12 +56,12 @@ class AgiDisplaySettings {
   factory AgiDisplaySettings.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AgiDisplaySettings();
 
-    AgiPictureRenderMode mode = AgiPictureRenderMode.compositedSlices;
+    AgiPictureRenderMode mode = AgiPictureRenderMode.shaderComposited;
     final modeStr = json['renderMode'] as String?;
     if (modeStr != null) {
       mode = AgiPictureRenderMode.values.firstWhere(
         (m) => m.name == modeStr,
-        orElse: () => AgiPictureRenderMode.compositedSlices,
+        orElse: () => AgiPictureRenderMode.shaderComposited,
       );
     }
 

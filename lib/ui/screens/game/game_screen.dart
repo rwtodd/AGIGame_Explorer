@@ -64,7 +64,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   final List<String> _commandHistory = [];
   int _historyIndex = -1;
 
-  AgiPictureRenderMode _renderMode = AgiPictureRenderMode.compositedSlices;
+  AgiPictureRenderMode _renderMode = AgiPictureRenderMode.shaderComposited;
   bool _showCrtShader = false;
   bool _showPixelGrid = false;
   bool _renderBlackTextBackgrounds = false;
@@ -72,6 +72,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   bool _strictIntegerScaling = false;
   SidebarPanelTab? _openPanelTab;
   DateTime? _lastDialogDismissTime;
+  ProviderSubscription<AgiUserSettings>? _displaySettingsSub;
 
   @override
   void initState() {
@@ -135,6 +136,28 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _session.start();
     }
 
+    // Live-sync display settings changed elsewhere (e.g. the launcher AV
+    // dialog) while this screen is alive; without this, the locals below
+    // would only take effect on the next entry to the game screen.
+    try {
+      _displaySettingsSub = ref.listenManual<AgiUserSettings>(
+        settingsProvider,
+        (previous, next) {
+          if (!mounted) return;
+          setState(() {
+            _renderMode = next.display.renderMode;
+            _showCrtShader = next.display.showCrtShader;
+            _showPixelGrid = next.display.showPixelGrid;
+            _renderBlackTextBackgrounds = next.display.renderBlackTextBackgrounds;
+            _correctAspectRatio = next.display.correctAspectRatio;
+            _strictIntegerScaling = next.display.strictIntegerScaling;
+          });
+        },
+      );
+    } catch (_) {
+      // Safe fallback if mounted without ProviderScope in unit tests
+    }
+
     _session.onSaveGameRequested = () {
       if (!mounted) return;
       SaveLoadDialog.showSave(context, _session);
@@ -151,6 +174,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   void dispose() {
+    _displaySettingsSub?.close();
+    _displaySettingsSub = null;
     _session.onSaveGameRequested = null;
     _session.onRestoreGameRequested = null;
     _session.onRestartGameRequested = null;

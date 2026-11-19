@@ -118,6 +118,7 @@ class SciPic implements SierraPicture {
   ui.Image? _cachedUnditheredVisualImage;
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
+  ui.Image? _cachedPriorityTextureImage;
   final List<ui.Image> _detachedGpuImages = [];
   bool _isDisposed = false;
 
@@ -131,6 +132,9 @@ class SciPic implements SierraPicture {
 
   @override
   ui.Image? get cachedControlMapImage => _cachedControlMapImage;
+
+  @override
+  ui.Image? get cachedPriorityTextureImage => _cachedPriorityTextureImage;
 
   /// Custom priority bands from opcode 0xFE 0x08, if defined by this picture.
   final List<int>? priorityBands;
@@ -362,7 +366,65 @@ class SciPic implements SierraPicture {
   }
 
   @override
-  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false}) {
+  Uint8List renderPriorityTextureRgba() {
+    final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
+    for (int i = 0; i < priorityPixels.length; i++) {
+      final pri = priorityPixels[i] & 0x0F;
+      final outIdx = i * 4;
+      outBytes[outIdx + 0] = pri * 17;
+      outBytes[outIdx + 1] = 0;
+      outBytes[outIdx + 2] = 0;
+      outBytes[outIdx + 3] = 255;
+    }
+    return outBytes;
+  }
+
+  @override
+  Future<ui.Image> toPriorityTextureUiImage() async {
+    if (_isDisposed) {
+      throw StateError('Cannot decode ui.Image on a disposed SciPic.');
+    }
+    if (_cachedPriorityTextureImage != null) return _cachedPriorityTextureImage!;
+
+    final rgba = renderPriorityTextureRgba();
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      rgba,
+      renderedWidth,
+      renderedHeight,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        _completeGpuDecode(
+          disposed: _isDisposed,
+          completer: completer,
+          image: image,
+          onSuccess: (img) => _cachedPriorityTextureImage = img,
+        );
+      },
+    );
+    return completer.future;
+  }
+
+  /// Drops the flat/priority-map/control-map/priority-texture GPU caches
+  /// without touching slices and without marking disposed. Stashes the
+  /// images instead of disposing them mid-frame; dispose with
+  /// [disposeDetachedGpuImages].
+  @override
+  void invalidateCachedImages() {
+    _stashGpuImage(_cachedFlatVisualImage);
+    _cachedFlatVisualImage = null;
+    _stashGpuImage(_cachedUnditheredVisualImage);
+    _cachedUnditheredVisualImage = null;
+    _stashGpuImage(_cachedPriorityMapImage);
+    _cachedPriorityMapImage = null;
+    _stashGpuImage(_cachedControlMapImage);
+    _cachedControlMapImage = null;
+    _stashGpuImage(_cachedPriorityTextureImage);
+    _cachedPriorityTextureImage = null;
+  }
+
+  @override
+  FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false, bool includeShaderTextures = false}) {
     final futures = <Future<ui.Image>>[];
     final activeSliceMap = isUndithered ? unditheredSlices : _ditheredSlices;
     for (final slice in activeSliceMap.values) {
@@ -375,6 +437,14 @@ class SciPic implements SierraPicture {
       if (_cachedUnditheredVisualImage == null) futures.add(toFlatVisualUiImage(undithered: true));
       if (_cachedPriorityMapImage == null) futures.add(toPriorityMapUiImage());
       if (_cachedControlMapImage == null) futures.add(toControlMapUiImage());
+    }
+    if (includeShaderTextures) {
+      if (isUndithered) {
+        if (_cachedUnditheredVisualImage == null) futures.add(toFlatVisualUiImage(undithered: true));
+      } else {
+        if (_cachedFlatVisualImage == null) futures.add(toFlatVisualUiImage(undithered: false));
+      }
+      if (_cachedPriorityTextureImage == null) futures.add(toPriorityTextureUiImage());
     }
     if (futures.isEmpty) return null;
     return Future.wait<ui.Image?>([
@@ -398,6 +468,8 @@ class SciPic implements SierraPicture {
     _cachedPriorityMapImage = null;
     _stashGpuImage(_cachedControlMapImage);
     _cachedControlMapImage = null;
+    _stashGpuImage(_cachedPriorityTextureImage);
+    _cachedPriorityTextureImage = null;
     for (final slice in _ditheredSlices.values) {
       _stashGpuImage(slice.detachCachedImage());
     }
@@ -493,6 +565,8 @@ class SciPic implements SierraPicture {
     _cachedPriorityMapImage = null;
     _cachedControlMapImage?.dispose();
     _cachedControlMapImage = null;
+    _cachedPriorityTextureImage?.dispose();
+    _cachedPriorityTextureImage = null;
     for (final slice in _ditheredSlices.values) {
       slice.dispose();
     }

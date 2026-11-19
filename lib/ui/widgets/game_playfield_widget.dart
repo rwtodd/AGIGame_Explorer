@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
 import 'package:flutter_agigame/domain/picture.dart';
@@ -12,6 +12,7 @@ import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic.dart';
 import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
+import 'package:flutter_agigame/ui/shaders/priority_sprite_shader.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// Interactive composite playfield viewport for the running Sierra Game Engine.
@@ -76,14 +77,36 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   AgiPictureRenderMode? _trackedMode;
   int? _trackedEpoch;
   Offset? _mousePosition;
+  ui.FragmentShader? _prioritySpriteShader;
+  bool _priorityShaderLoadAttempted = false;
+  final Set<(SierraPicture, int?)> _pendingShaderPreloads = {};
 
   SierraGameSession get _session => widget.session ?? widget.engine!;
   AgiGameEngine? get _agiEngine =>
       widget.engine ?? (widget.session is AgiGameEngine ? widget.session as AgiGameEngine : null);
 
+  void _acquirePrioritySpriteShader() {
+    if (_prioritySpriteShader != null) return;
+    final program = PrioritySpriteLoader.program;
+    if (program == null) return;
+    _prioritySpriteShader = program.fragmentShader();
+  }
+
+  Future<void> _loadPrioritySpriteShader() async {
+    if (_priorityShaderLoadAttempted) return;
+    _priorityShaderLoadAttempted = true;
+    _acquirePrioritySpriteShader();
+    if (_prioritySpriteShader != null) return;
+    await PrioritySpriteLoader.initialize();
+    if (!mounted) return;
+    _acquirePrioritySpriteShader();
+    if (_prioritySpriteShader != null) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadPrioritySpriteShader();
     _repaint = Listenable.merge([_session, _cursorBlink]);
     _session.addListener(_onEngineNotify);
     if (_agiEngine != null) {
@@ -199,11 +222,30 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
           });
         }
         break;
+      case AgiPictureRenderMode.shaderComposited:
+        if (pic.cachedFlatVisualImage == null || pic.cachedPriorityTextureImage == null) {
+          final key = (pic, pic.rasterEpoch);
+          if (!_pendingShaderPreloads.contains(key)) {
+            _pendingShaderPreloads.add(key);
+            final f = pic.preloadGpuTextures(includeShaderTextures: true);
+            if (f is Future) {
+              f.then((_) {
+                _pendingShaderPreloads.remove(key);
+                if (mounted) setState(() {});
+              });
+            } else {
+              _pendingShaderPreloads.remove(key);
+            }
+          }
+        }
+        break;
     }
   }
 
   @override
   void dispose() {
+    _prioritySpriteShader?.dispose();
+    _prioritySpriteShader = null;
     _session.removeListener(_onEngineNotify);
     if (_agiEngine != null) {
       _agiEngine!.atlasManager.onAtlasUpdated = null;
@@ -404,6 +446,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           session: _session,
                           agiEngine: _agiEngine,
                           renderMode: widget.renderMode,
+                          prioritySpriteShader: _prioritySpriteShader,
                           showPixelGrid: widget.showPixelGrid,
                           renderBlackTextBackgrounds: widget.renderBlackTextBackgrounds,
                           isolatedPrioritySlice: widget.isolatedPrioritySlice,
@@ -425,6 +468,47 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                     // Optional CRT retro shader overlay
                     if (widget.showCrtShader)
                       const CrtShaderOverlay(),
+
+                    // Debug-only active-renderer tell for shader mode:
+                    // green while the priority shader is actually drawing,
+                    // amber while falling back to slices (textures loading).
+                    if (kDebugMode && widget.renderMode == AgiPictureRenderMode.shaderComposited)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: IgnorePointer(
+                          child: Builder(
+                            builder: (context) {
+                              final pic = _session.currentPic;
+                              final active = _prioritySpriteShader != null &&
+                                  pic?.cachedFlatVisualImage != null &&
+                                  pic?.cachedPriorityTextureImage != null;
+                              final dpr = MediaQuery.devicePixelRatioOf(context);
+                              final win = MediaQuery.sizeOf(context);
+                              final scaleX = playfieldWidth / 320.0;
+                              final scaleY = playfieldHeight / 200.0;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                color: const Color(0x99000000),
+                                child: Text(
+                                  '${active ? 'PRIORITY SHADER' : 'PRIORITY SHADER: FALLBACK'}\n'
+                                  'win ${win.width.toStringAsFixed(1)}x${win.height.toStringAsFixed(1)} dpr $dpr '
+                                  'dev ${(win.width * dpr).round()}x${(win.height * dpr).round()}\n'
+                                  'pf ${playfieldWidth.toStringAsFixed(1)}x${playfieldHeight.toStringAsFixed(1)} '
+                                  'dev ${(playfieldWidth * dpr).round()}x${(playfieldHeight * dpr).round()}\n'
+                                  'scale ${scaleX.toStringAsFixed(4)} x ${scaleY.toStringAsFixed(4)} '
+                                  'pic ${pic?.picNumber} int ${widget.strictIntegerScaling ? "on" : "off"} 4:3 ${widget.correctAspectRatio ? "on" : "off"}',
+                                  style: TextStyle(
+                                    color: active ? const Color(0xFF55FF55) : const Color(0xFFFFFF55),
+                                    fontSize: 10,
+                                    fontFamily: 'Courier',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
 
                     // Command prompt is cheap chrome; keep it off the picture painter.
                     ListenableBuilder(
@@ -734,6 +818,7 @@ class _GamePlayfieldPainter extends CustomPainter {
   final SierraGameSession session;
   final AgiGameEngine? agiEngine;
   final AgiPictureRenderMode renderMode;
+  final ui.FragmentShader? prioritySpriteShader;
   final bool showPixelGrid;
   final bool renderBlackTextBackgrounds;
   final int? isolatedPrioritySlice;
@@ -749,6 +834,7 @@ class _GamePlayfieldPainter extends CustomPainter {
     required this.session,
     this.agiEngine,
     required this.renderMode,
+    this.prioritySpriteShader,
     required this.showPixelGrid,
     required this.renderBlackTextBackgrounds,
     required this.isolatedPrioritySlice,
@@ -790,6 +876,8 @@ class _GamePlayfieldPainter extends CustomPainter {
           : pic?.cachedFlatVisualImage,
       priorityMapImage: pic?.cachedPriorityMapImage,
       controlMapImage: pic?.cachedControlMapImage,
+      prioritySpriteShader: prioritySpriteShader,
+      priorityTextureImage: pic?.cachedPriorityTextureImage,
       isolatedPrioritySlice: isolatedPrioritySlice,
       showPixelGrid: showPixelGrid,
       renderBlackTextBackgrounds: renderBlackTextBackgrounds,
@@ -808,6 +896,7 @@ class _GamePlayfieldPainter extends CustomPainter {
     return oldDelegate.session != session ||
         oldDelegate.agiEngine != agiEngine ||
         oldDelegate.renderMode != renderMode ||
+        oldDelegate.prioritySpriteShader != prioritySpriteShader ||
         oldDelegate.showPixelGrid != showPixelGrid ||
         oldDelegate.renderBlackTextBackgrounds != renderBlackTextBackgrounds ||
         oldDelegate.isolatedPrioritySlice != isolatedPrioritySlice ||

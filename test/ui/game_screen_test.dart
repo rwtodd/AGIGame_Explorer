@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/ui/providers/settings_provider.dart';
+import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/domain/picture.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
@@ -668,6 +671,43 @@ void main() {
       expect(engine.onSaveGameRequested, isNull);
       expect(engine.onRestoreGameRequested, isNull);
       expect(engine.onRestartGameRequested, isNull);
+    });
+
+    testWidgets('live-syncs render mode from settings provider', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: GameScreen(engine: engine, disposeSession: false),
+          ),
+        ),
+      );
+      expect(
+        tester.widget<GamePlayfieldWidget>(find.byType(GamePlayfieldWidget)).renderMode,
+        AgiPictureRenderMode.shaderComposited,
+      );
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(GameScreen)),
+      );
+      container
+          .read(settingsProvider.notifier)
+          .updateDisplay(renderMode: AgiPictureRenderMode.compositedSlices);
+      await tester.pump();
+      expect(
+        tester.widget<GamePlayfieldWidget>(find.byType(GamePlayfieldWidget)).renderMode,
+        AgiPictureRenderMode.compositedSlices,
+      );
+
+      container
+          .read(settingsProvider.notifier)
+          .updateDisplay(renderMode: AgiPictureRenderMode.shaderComposited);
+      await tester.pump();
+
+      expect(
+        tester.widget<GamePlayfieldWidget>(find.byType(GamePlayfieldWidget)).renderMode,
+        AgiPictureRenderMode.shaderComposited,
+      );
+      expect(find.textContaining('PRIORITY SHADER'), findsOneWidget);
     });
   });
 }

@@ -3466,6 +3466,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
           futures.add(newSlice.toUiImage());
         }
       }
+      currentPic!.invalidateCachedImages();
+      futures.add(currentPic!.toFlatVisualUiImage());
+      futures.add(currentPic!.toPriorityTextureUiImage());
 
       if (futures.isNotEmpty) {
         return Future.wait(futures).then((_) {});

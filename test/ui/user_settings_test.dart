@@ -14,7 +14,7 @@ void main() {
       expect(settings.display.strictIntegerScaling, isFalse);
       expect(settings.display.showCrtShader, isFalse);
       expect(settings.display.showPixelGrid, isFalse);
-      expect(settings.display.renderMode, AgiPictureRenderMode.compositedSlices);
+      expect(settings.display.renderMode, AgiPictureRenderMode.shaderComposited);
 
       expect(settings.audio.soundMode, AgiSoundMode.pcJr);
       expect(settings.audio.waveform, WaveformType.square);

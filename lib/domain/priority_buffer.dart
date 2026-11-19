@@ -97,6 +97,30 @@ class PriorityBuffer {
     return effectivePriorityAtIndex(y * width + x);
   }
 
+  /// Computes the effective depth priority for every native pixel in O(n).
+  ///
+  /// Matches [effectivePriorityAtIndex] exactly: for each column, scan
+  /// bottom-up carrying the first value > 2 seen below (default 4 when
+  /// none). Pixels > 2 are their own effective priority; pixels <= 2
+  /// resolve to the carried depth band below them.
+  Uint8List computeEffectivePriorities() {
+    final out = Uint8List(bufferSize);
+    for (int x = 0; x < width; x++) {
+      int carry = 4;
+      for (int y = height - 1; y >= 0; y--) {
+        final idx = y * width + x;
+        final p = pixels[idx];
+        if (p > 2) {
+          out[idx] = p;
+          carry = p;
+        } else {
+          out[idx] = carry;
+        }
+      }
+    }
+    return out;
+  }
+
   /// Checks if `(x, y)` is an unconditional barrier (priority 0).
   bool isUnconditionalBarrier(int x, int y) => priorityAt(x, y) == 0;
 
