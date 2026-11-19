@@ -205,7 +205,21 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
 ## P2 — soon
 
 - [ ] **14. [DEBT+ENH/L] Replace 16-slice compositing with a
-  priority-checking fragment shader.**
+  priority-checking fragment shader.** *(In progress 2026-11-19:
+  spike GO + `shaderComposited` mode wired end-to-end
+  (priority textures, painter, widget shader ownership, AV settings
+  entry, add.to.pic invalidation). Parity goldens byte-exact vs
+  slices (synthetic AGI bands, text-in-band, real PQ2 pic). Field
+  tested seam-free including AGI text overlays; at 60 Hz / 4:3 the
+  user measured ~15% GPU for native priority-shader compositing
+  versus ~25% for slices, and ~25% versus ~35% with CRT enabled,
+  with CPU about equal. `shaderComposited` is therefore now the
+  default game render mode, with slices retained as automatic
+  fallback. Remaining before checking off: soak in the default
+  configuration, then delete the slice game path and stop computing
+  slices for gameplay (diagnostic slicing remains). Software-raster
+  proxy (60 renders, PQ2 pic 1): slices 1021 ms vs shader 224 ms at
+  4x scale; PQ2 pics average only 4.1 active slices (max 13).)*
   See [Graphics pipeline migration](#graphics-pipeline-migration-rank-14)
   below for the full plan, rationale (including the measured CPU
   comparison), spike risks, and acceptance gate. Do not start until
@@ -528,6 +542,64 @@ and the priority texture and discards fragments where
 - Profiled repaint on the dev machine shows the fullscreen-quad count
   per repaint dropped from ~12–16 to 1 + sprites, with no new
   per-frame allocations in `paint`.
+
+### Spike findings (2026-11-19) — GO for migration
+
+Prototype landed and is kept (`shaders/priority_sprite.frag`,
+`lib/ui/shaders/priority_sprite_shader.dart`, goldens in
+`test/graphics/priority_sprite_shader_test.dart` — 6 tests, all pass;
+not yet wired into the game painter):
+
+- **fragCoord mapping settled:** `FlutterFragCoord()` arrives in
+  local (playfield) space through the inverse canvas transform —
+  texel-exact at scale 1 and integer scale 3 with no scale uniform,
+  and correct under a pre-scale translate. Production shake
+  translates in device pixels before the painter's inner scale
+  (`_GamePlayfieldPainter`), which the passing shake case encodes.
+- **Equality edge:** discard only on `priAt > actorPri` with
+  `priAt = floor(r*15 + 0.5)` on `pri*17` encoding — byte-exact
+  against a CPU oracle including the pri==actor band, atlas
+  sub-rects, transparent texels, and mirrored cels.
+- **Fractional scale:** at 2.5× interior pixels are byte-exact;
+  the destination-rect boundary ring is coverage-blended by
+  rasterizer AA (same edge behaviour as scaled `drawImage` today).
+  The golden asserts zero interior diffs and blend-confinement on
+  the ring. SkSL (flutter-test backend) has no `discard`; emitting
+  transparent black under src-over is the equivalent used.
+- **Playfield text — no masking needed.** Slice-model per-cell
+  interleaving nets out to: text is never occluded by background
+  (its band is the background's own priority, drawn after that
+  slice), and actors draw over text exactly when
+  `actorPri >= backgroundPri` — the shader's own test. So the
+  migrated order is flat background → playfield text fills+glyphs
+  once (cell-priority map and 16 per-band text passes deleted) →
+  shader-masked actors, matching original Sierra framebuffer order
+  (`doc/text_and_picture_compositing_architecture.md` §1) and all
+  three of its case studies (SQ2 rope text, PQ1 newspaper photo,
+  SQ1 keypad banner). One documented divergence: a text cell
+  straddling a priority boundary — flat order keeps text over the
+  intruding higher-band scenery, as the original framebuffer did;
+  slice order lets the intrusion overpaint. Keep this in mind when
+  scoping "pixel-identical" goldens above to actor cases.
+- **Fractional-scale sprite seams (field report, PQ2 doors at
+  scales 2.32–2.75, DPR 2):** a plain shader `drawRect` gives edge
+  device pixels partial (AA on) or zero (AA off, center exactly on
+  the boundary) coverage, opening a 1px seam along sprite edges.
+  Fixed by rasterizing a rect inflated by half a playfield pixel
+  with AA off and letting the shader's floored playfield-pixel test
+  (`floor(fragCoord + 1e-3)`) decide coverage — every device pixel
+  then matches the naive spec oracle exactly at scales 3.25/5.5/6.5
+  in the goldens ((f)–(h) cases). The Skia test backend never
+  reproduced the original discard, so the Impeller field retest is
+  the confirming evidence. One residual seam per scale remained at
+  3.25–3.42 (field retest 2), at which point the shader was
+  rewritten to continuous coordinates with hardware nearest
+  selection (no `floor()` of fragCoord at all) plus a 1e-3
+  tie-break: reproducing the mechanism in tests showed exact-tie
+  fragment centers (e.g. scale 6.5 device px 6 → playfield 1.0)
+  make nearest pick the lower texel — the blocking side of a
+  priority step — discarding the sprite's first column, exactly the
+  field symptom. Final confirmation on Impeller still pending.
 
 ---
 
