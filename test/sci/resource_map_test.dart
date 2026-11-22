@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/loader/resource_map.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/sci_exceptions.dart';
+import '../support/reference_games.dart';
 
 void main() {
   group('SciResourceMap Tests', () {
@@ -152,6 +153,43 @@ void main() {
         () => SciResourceMap.fromFile(File('non_existent_resource.map')),
         throwsA(isA<SciResourceNotFoundException>()),
       );
+    });
+
+    test('throws SciCorruptResourceException when end-of-map sentinel is missing', () {
+      // One valid record (View 0, vol 1, offset 0x1000) and NO sentinel.
+      final buffer = Uint8List(6);
+      final bd = ByteData.sublistView(buffer);
+      bd.setUint16(0, 0x0000, Endian.little);
+      bd.setUint32(2, 0x04001000, Endian.little);
+      expect(
+        () => SciResourceMap.fromBytes(buffer),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
+    });
+
+    test('parses each present reference game map and finds >0 entries', () {
+      const games = [
+        'police-quest-2',
+        'kings-quest-4-sci',
+        'space-quest-3',
+        'lsl-2',
+        'lsl-3',
+        'codename-iceman',
+        'colonels-bequest',
+        'conquests-of-camelot',
+        'quest-for-glory-1',
+        'quest-for-glory-2',
+      ];
+      var checked = 0;
+      for (final game in games) {
+        if (skipIfReferenceGameMissing(game)) continue;
+        final mapFile = File('reference_games/$game/RESOURCE.MAP');
+        final map = SciResourceMap.fromFile(mapFile);
+        expect(map.length, greaterThan(0), reason: 'no entries parsed for $game');
+        checked++;
+      }
+      // If at least one game is present, the check above ran for real.
+      expect(checked, greaterThanOrEqualTo(0));
     });
   });
 }

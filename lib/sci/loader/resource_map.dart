@@ -65,12 +65,14 @@ class SciResourceMap {
     var rawCount = 0;
     var dupCount = 0;
 
+    var sawSentinel = false;
     for (var i = 0; i + 6 <= bytes.length; i += 6) {
       final id = bd.getUint16(i, Endian.little);
       final offset = bd.getUint32(i + 2, Endian.little);
 
       if (offset == 0xFFFFFFFF) {
         // Sierra end-of-map sentinel
+        sawSentinel = true;
         break;
       }
 
@@ -99,6 +101,13 @@ class SciResourceMap {
       } else {
         dupCount++;
       }
+    }
+
+    if (!sawSentinel) {
+      throw SciCorruptResourceException(
+        'truncated RESOURCE.MAP: end-of-map sentinel missing '
+        '(${bytes.length} bytes, $rawCount record(s) parsed)',
+      );
     }
 
     return SciResourceMap(

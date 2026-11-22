@@ -33,11 +33,11 @@ class _MockVolumeManager extends VolumeManager {
 
   @override
   Uint8List getWordsData() {
-    final bytes = Uint8List(54);
+    // Valid empty WORDS.TOK: header offset 52 + lone terminator prefix byte.
+    final bytes = Uint8List(53);
     bytes[0] = 0;
     bytes[1] = 52;
     bytes[52] = 0;
-    bytes[53] = 0;
     return bytes;
   }
 

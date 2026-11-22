@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/loader/dir_entry.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 
@@ -85,6 +86,37 @@ void main() {
       expect(rdir.findPic(0), equals(const DirEntry(1, 0x300)));
       expect(rdir.findView(0), equals(const DirEntry(2, 0x500)));
       expect(rdir.findSound(0), equals(const DirEntry(3, 0x700)));
+    });
+
+    test('V3 dir of 4 bytes throws CorruptResourceException', () {
+      expect(
+        () => V3ResourceDirectory(Uint8List.fromList([8, 0, 14, 0])),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('non-monotonic offsets throw CorruptResourceException', () {
+      final dirData = Uint8List.fromList([
+        20, 0, // logicOffs
+        8, 0, // picOffs < logicOffs
+        26, 0,
+        32, 0,
+        ...List.filled(24, 0),
+      ]);
+      expect(
+        () => V3ResourceDirectory(dirData),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('findLogic(-1) returns nonExistent', () {
+      final dirData = Uint8List.fromList([
+        8, 0, 14, 0, 20, 0, 26, 0,
+        ...List.filled(21, 0),
+      ]);
+      final rdir = V3ResourceDirectory(dirData);
+      expect(rdir.findLogic(-1).isPresent, isFalse);
+      expect(rdir.findLogic(-1), equals(DirEntry.nonExistent));
     });
   });
 }

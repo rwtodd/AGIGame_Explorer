@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 
 /// Decompressor for AGI v3 PICTURE resources packed with 4-bit color nibbles.
 class PicDecompressor {
@@ -6,6 +7,12 @@ class PicDecompressor {
 
   /// Expands packed V3 picture bytes [src] to [reslen] bytes.
   static Uint8List expand(Uint8List src, [int? reslen]) {
+    if (reslen != null && reslen <= 0) {
+      throw const CorruptResourceException(
+        'Malformed picture resource: expected decompressed length must be positive.',
+      );
+    }
+
     var buffer = Uint8List(reslen ?? (src.length * 2));
     var outIdx = 0;
     final lastSrcIdx = src.length;
@@ -14,8 +21,13 @@ class PicDecompressor {
     var srcIdx = 0;
 
     void addByte(int byte) {
+      if (reslen != null && outIdx >= reslen) {
+        throw const CorruptResourceException(
+          'Malformed picture resource: decompressed output exceeds the declared length.',
+        );
+      }
       if (outIdx >= buffer.length) {
-        final newBuffer = Uint8List(buffer.length * 2);
+        final newBuffer = Uint8List(buffer.isEmpty ? 16 : buffer.length * 2);
         newBuffer.setRange(0, buffer.length, buffer);
         buffer = newBuffer;
       }
@@ -52,7 +64,12 @@ class PicDecompressor {
       }
     }
 
-    if (reslen != null && outIdx == reslen) {
+    if (reslen != null) {
+      if (outIdx != reslen) {
+        throw const CorruptResourceException(
+          'Malformed picture resource: decompressed output length does not match the declared length.',
+        );
+      }
       return buffer;
     }
     return Uint8List.sublistView(buffer, 0, outIdx);

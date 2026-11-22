@@ -95,6 +95,90 @@ void main() {
       expect(header.method, equals(0));
       expect(header.decompSize, equals(10));
     });
+
+    // Helper: write a RESOURCE.MAP pointing [type].[number] at volume 0 offset 0,
+    // and a RESOURCE.000 containing one record with the given header/payload.
+    (Directory, SciVolumeManager) setupSingleRecord({
+      required SciResourceType type,
+      required int number,
+      required int headerId,
+      required int compSize,
+      required int decompSize,
+      required int method,
+      required List<int> payload,
+    }) {
+      final mapFile = File('${tempDir.path}/RESOURCE.MAP');
+      final mapData = Uint8List(12);
+      final mapBd = ByteData.sublistView(mapData);
+      mapBd.setUint16(0, (type.typeCode << 11) | number, Endian.little);
+      mapBd.setUint32(2, 0, Endian.little); // volume 0, offset 0
+      mapBd.setUint32(8, 0xFFFFFFFF, Endian.little); // sentinel
+      mapFile.writeAsBytesSync(mapData);
+
+      final volFile = File('${tempDir.path}/RESOURCE.000');
+      final volData = Uint8List(8 + payload.length);
+      final volBd = ByteData.sublistView(volData);
+      volBd.setUint16(0, headerId, Endian.little);
+      volBd.setUint16(2, compSize, Endian.little);
+      volBd.setUint16(4, decompSize, Endian.little);
+      volBd.setUint16(6, method, Endian.little);
+      volData.setRange(8, 8 + payload.length, payload);
+      volFile.writeAsBytesSync(volData);
+
+      final vm = SciVolumeManager.fromDirectory(tempDir.path);
+      addTearDown(vm.close);
+      return (tempDir, vm);
+    }
+
+    test('throws when volume header id differs from map entry (wrong resource)', () {
+      // Map asks for text.0 (0x1800) but record header says view.5 (5).
+      final (_, vm) = setupSingleRecord(
+        type: SciResourceType.text,
+        number: 0,
+        headerId: 5, // view.5
+        compSize: 4 + 3,
+        decompSize: 3,
+        method: 0,
+        payload: [1, 2, 3],
+      );
+      expect(
+        () => vm.getResource(SciResourceType.text, 0),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
+    });
+
+    test('throws when method 0 decompSize differs from payloadSize', () {
+      // compSize 7 -> payloadSize 3, but decompSize claims 5.
+      final (_, vm) = setupSingleRecord(
+        type: SciResourceType.text,
+        number: 0,
+        headerId: (SciResourceType.text.typeCode << 11) | 0,
+        compSize: 4 + 3,
+        decompSize: 5,
+        method: 0,
+        payload: [1, 2, 3],
+      );
+      expect(
+        () => vm.getResource(SciResourceType.text, 0),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
+    });
+
+    test('throws when compSize < 4', () {
+      final (_, vm) = setupSingleRecord(
+        type: SciResourceType.text,
+        number: 0,
+        headerId: (SciResourceType.text.typeCode << 11) | 0,
+        compSize: 2,
+        decompSize: 0,
+        method: 0,
+        payload: [],
+      );
+      expect(
+        () => vm.getResource(SciResourceType.text, 0),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
+    });
   });
 
   group('Police Quest 2 Real Game Tests', () {

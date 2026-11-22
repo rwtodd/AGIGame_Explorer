@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/domain/inventory_object.dart';
 import 'package:flutter_agigame/loader/parsers/objects_parser.dart';
 
@@ -86,6 +87,29 @@ void main() {
       expect(autoEnc.objects.length, equals(1));
       expect(autoEnc.objects.first.name, equals('key'));
       expect(autoEnc.objects.first.startingRoom, equals(7));
+    });
+
+    test('entry with nameOffset past EOF throws CorruptResourceException', () {
+      final data = Uint8List.fromList([
+        3, 0, 16, // wordsStart = 6
+        200, 0, 1, // nameOffset 200 -> 3+200=203 past EOF
+        65, 0, // names area, but offset far past
+      ]);
+      expect(
+        () => ObjectsParser.parse(data, isEncrypted: false),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('header with wordsStart past EOF throws CorruptResourceException', () {
+      final data = Uint8List.fromList([
+        100, 0, 16, // wordsStart = 103 past length
+        0, 0, 1,
+      ]);
+      expect(
+        () => ObjectsParser.parse(data, isEncrypted: false),
+        throwsA(isA<CorruptResourceException>()),
+      );
     });
   });
 }

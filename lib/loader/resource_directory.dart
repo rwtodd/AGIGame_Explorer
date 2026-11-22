@@ -156,11 +156,31 @@ class V3ResourceDirectory extends ResourceDirectory {
   final int viewOffs;
   final int soundOffs;
 
-  V3ResourceDirectory(this.dir)
-      : logicOffs = (dir[0] & 0xFF) | ((dir[1] & 0xFF) << 8),
-        picOffs = (dir[2] & 0xFF) | ((dir[3] & 0xFF) << 8),
-        viewOffs = (dir[4] & 0xFF) | ((dir[5] & 0xFF) << 8),
-        soundOffs = (dir[6] & 0xFF) | ((dir[7] & 0xFF) << 8);
+  V3ResourceDirectory._(
+    this.dir,
+    this.logicOffs,
+    this.picOffs,
+    this.viewOffs,
+    this.soundOffs,
+  );
+
+  factory V3ResourceDirectory(Uint8List dir) {
+    if (dir.length < 8) {
+      throw const CorruptResourceException(
+        'Malformed V3 resource directory: file is shorter than the 8-byte offset header.',
+      );
+    }
+    final logicOffs = (dir[0] & 0xFF) | ((dir[1] & 0xFF) << 8);
+    final picOffs = (dir[2] & 0xFF) | ((dir[3] & 0xFF) << 8);
+    final viewOffs = (dir[4] & 0xFF) | ((dir[5] & 0xFF) << 8);
+    final soundOffs = (dir[6] & 0xFF) | ((dir[7] & 0xFF) << 8);
+    if (!(8 <= logicOffs && logicOffs <= picOffs && picOffs <= viewOffs && viewOffs <= soundOffs && soundOffs <= dir.length)) {
+      throw const CorruptResourceException(
+        'Malformed V3 resource directory: section offsets are out of order or beyond the file.',
+      );
+    }
+    return V3ResourceDirectory._(dir, logicOffs, picOffs, viewOffs, soundOffs);
+  }
 
   factory V3ResourceDirectory.fromGamePath(String gamePath, String prefix) {
     try {
@@ -185,18 +205,22 @@ class V3ResourceDirectory extends ResourceDirectory {
   int get soundCount => (dir.length - soundOffs) ~/ 3;
 
   @override
-  DirEntry findLogic(int number) =>
-      number < logicCount ? _lookupItem(dir, logicOffs + (number * 3)) : DirEntry.nonExistent;
+  DirEntry findLogic(int number) => (number >= 0 && number < logicCount)
+      ? _lookupItem(dir, logicOffs + (number * 3))
+      : DirEntry.nonExistent;
 
   @override
-  DirEntry findPic(int number) =>
-      number < picCount ? _lookupItem(dir, picOffs + (number * 3)) : DirEntry.nonExistent;
+  DirEntry findPic(int number) => (number >= 0 && number < picCount)
+      ? _lookupItem(dir, picOffs + (number * 3))
+      : DirEntry.nonExistent;
 
   @override
-  DirEntry findView(int number) =>
-      number < viewCount ? _lookupItem(dir, viewOffs + (number * 3)) : DirEntry.nonExistent;
+  DirEntry findView(int number) => (number >= 0 && number < viewCount)
+      ? _lookupItem(dir, viewOffs + (number * 3))
+      : DirEntry.nonExistent;
 
   @override
-  DirEntry findSound(int number) =>
-      number < soundCount ? _lookupItem(dir, soundOffs + (number * 3)) : DirEntry.nonExistent;
+  DirEntry findSound(int number) => (number >= 0 && number < soundCount)
+      ? _lookupItem(dir, soundOffs + (number * 3))
+      : DirEntry.nonExistent;
 }

@@ -27,8 +27,14 @@ class LogicParser {
     final codeEnd = math.min(textOffset, data.length);
     final bytecodes = data.sublist(2, codeEnd);
 
-    // If there is no message section or it's past the end of the resource
-    if (textOffset >= data.length) {
+    if (textOffset > data.length) {
+      throw const CorruptResourceException(
+        'Malformed LOGIC resource: message section offset is beyond the end of the resource.',
+      );
+    }
+
+    // If there is no message section, the resource ends exactly at textOffset
+    if (textOffset == data.length) {
       return AgiLogicScript(
         bytecodes: bytecodes,
         messages: const [],
@@ -38,6 +44,12 @@ class LogicParser {
 
     final numMessages = data[textOffset] & 0xFF;
     final tableStart = textOffset + 3;
+
+    if (tableStart + numMessages * 2 > data.length) {
+      throw const CorruptResourceException(
+        'Malformed LOGIC resource: message pointer table overruns the resource.',
+      );
+    }
 
     // Work on a mutable copy of the buffer so decryption doesn't mutate source data
     final buffer = Uint8List.fromList(data);
@@ -66,8 +78,9 @@ class LogicParser {
     for (var i = 0; i < numMessages; i++) {
       final ptrIndex = tableStart + (i * 2);
       if (ptrIndex + 1 >= buffer.length) {
-        messages.add('');
-        continue;
+        throw const CorruptResourceException(
+          'Malformed LOGIC resource: message pointer table overruns the resource.',
+        );
       }
 
       final relOffset = buffer[ptrIndex] | (buffer[ptrIndex + 1] << 8);
@@ -75,6 +88,11 @@ class LogicParser {
         messages.add('');
       } else {
         final strPos = textOffset + relOffset + 1;
+        if (strPos >= buffer.length) {
+          throw const CorruptResourceException(
+            'Malformed LOGIC resource: message string offset is beyond the end of the resource.',
+          );
+        }
         final msg = CryptoUtils.asciizString(buffer, strPos);
         messages.add(msg);
       }

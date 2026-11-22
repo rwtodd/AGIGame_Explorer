@@ -17,6 +17,11 @@ class WordsParser {
 
     try {
       final startOffset = (data[0] << 8) | data[1];
+      if (startOffset > data.length) {
+        throw const CorruptResourceException(
+          'Malformed WORDS.TOK: start offset is beyond the end of the file.',
+        );
+      }
       var idx = startOffset;
 
       while (idx < data.length) {
@@ -30,6 +35,9 @@ class WordsParser {
         }
 
         if (idx >= data.length) {
+          // Legal terminator: real Sierra WORDS.TOK files (and the
+          // reference parser) end the word list with a lone trailing
+          // prefix byte and no suffix/group after it.
           break;
         }
 
@@ -43,8 +51,16 @@ class WordsParser {
           buffer.add(charCode);
         } while ((nextByte & 0x80) == 0 && idx < data.length);
 
+        if ((nextByte & 0x80) == 0) {
+          throw const CorruptResourceException(
+            'Malformed WORDS.TOK: unexpected EOF before suffix terminator.',
+          );
+        }
+
         if (idx + 1 >= data.length) {
-          break;
+          throw const CorruptResourceException(
+            'Malformed WORDS.TOK: unexpected EOF before 2-byte group number.',
+          );
         }
 
         final groupNumber = (data[idx] << 8) | data[idx + 1];

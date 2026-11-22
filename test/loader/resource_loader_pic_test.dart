@@ -26,8 +26,8 @@ class _MockVolumeManager extends VolumeManager {
 
   @override
   Uint8List getWordsData() => Uint8List.fromList([
-        // Minimal WORDS.TOK
-        0, 0,
+        // Minimal WORDS.TOK: start offset points at EOF (empty dictionary)
+        0, 2,
       ]);
 
   @override

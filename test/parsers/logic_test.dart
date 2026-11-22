@@ -99,6 +99,38 @@ void main() {
       expect(script.getMessage(1), '\xFF  Hear ye!');
     });
 
+    test('textOffset beyond length throws CorruptResourceException', () {
+      final raw = Uint8List.fromList([0x64, 0x00, 0x00, 0x00]);
+      expect(
+        () => LogicParser.parse(raw),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('truncated pointer table throws CorruptResourceException', () {
+      // textOffset = 2 (0 bytecodes), 3 messages declared but only 1 pointer present
+      final builder = BytesBuilder();
+      builder.add([0x00, 0x00]); // textOffset 2
+      builder.add([0x03]); // 3 messages
+      builder.add([0x0A, 0x00]); // end offset
+      builder.add([0x05, 0x00]); // one pointer only
+      builder.add(ascii.encode('Hi\x00'));
+      expect(
+        () => LogicParser.parse(builder.toBytes()),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('minimal valid logic with zero messages still parses', () {
+      final builder = BytesBuilder();
+      builder.add([0x00, 0x00]); // textOffset 2
+      builder.add([0x00]); // 0 messages
+      builder.add([0x01, 0x00]); // end offset
+      final script = LogicParser.parse(builder.toBytes());
+      expect(script.messageCount, equals(0));
+      expect(script.bytecodes.length, equals(0));
+    });
+
     test('throws AgiException on truncated header', () {
       expect(() => LogicParser.parse(Uint8List.fromList([0x01])), throwsA(isA<AgiException>()));
     });

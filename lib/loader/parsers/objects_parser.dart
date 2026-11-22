@@ -59,6 +59,12 @@ class ObjectsParser {
       }
     }
 
+    if (!isValid(bytes)) {
+      throw const CorruptResourceException(
+        'Malformed OBJECT file: word start offset is past the end of the file.',
+      );
+    }
+
     final wordsStart = 3 + (bytes[0] | (bytes[1] << 8));
     if ((wordsStart % 3) != 0) {
       throw const AgiException('Malformed game objects header: word start offset is unaligned.');
@@ -72,6 +78,11 @@ class ObjectsParser {
         throw const AgiException('Truncated object entries in OBJECT file.');
       }
       final nameOffset = 3 + (bytes[i] | (bytes[i + 1] << 8));
+      if (nameOffset < wordsStart || nameOffset >= bytes.length) {
+        throw const CorruptResourceException(
+          'Malformed OBJECT file: entry name offset is out of bounds.',
+        );
+      }
       final startingRoom = bytes[i + 2];
       final name = CryptoUtils.asciizString(bytes, nameOffset);
       objects.add(AgiObject(name: name, startingRoom: startingRoom));

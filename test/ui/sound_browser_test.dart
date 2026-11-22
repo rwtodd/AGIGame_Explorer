@@ -30,7 +30,8 @@ class _MockVolumeManager extends VolumeManager {
   Future<Uint8List> getResourceAsync(DirEntry entry) async => getResource(entry);
 
   @override
-  Uint8List getWordsData() => Uint8List(54);
+  // Valid empty WORDS.TOK: header offset 52 + lone terminator prefix byte.
+  Uint8List getWordsData() => Uint8List.fromList([0, 52, ...List.filled(51, 0)]);
 
   @override
   Uint8List getObjectsData() => Uint8List.fromList([3, 0, 16, 3, 0, 1, 98, 111, 111, 107, 0]);

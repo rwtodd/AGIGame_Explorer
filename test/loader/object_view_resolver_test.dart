@@ -22,11 +22,12 @@ class _FakeVolumeManager extends VolumeManager {
 
   @override
   Uint8List getWordsData() {
-    final bytes = Uint8List(54);
+    // Header offset 52, then the lone trailing prefix byte that
+    // terminates a real WORDS.TOK word list (empty dictionary).
+    final bytes = Uint8List(53);
     bytes[0] = 0;
     bytes[1] = 52;
     bytes[52] = 0;
-    bytes[53] = 0;
     return bytes;
   }
 

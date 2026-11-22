@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/core/utils/pic_compression.dart';
 
 void main() {
@@ -19,7 +20,22 @@ void main() {
       expect(expandedNoReslen.last, equals(0xFF));
     });
 
-    test('handles buffer reallocation when reslen is smaller than expanded output', () {
+    test('expand with reslen 0 throws CorruptResourceException', () {
+      expect(
+        () => PicDecompressor.expand(Uint8List.fromList([0xFF]), 0),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('reslen larger than actual output throws CorruptResourceException', () {
+      final packed = Uint8List.fromList([0xFF]);
+      expect(
+        () => PicDecompressor.expand(packed, 10),
+        throwsA(isA<CorruptResourceException>()),
+      );
+    });
+
+    test('reslen smaller than expanded output throws CorruptResourceException', () {
       final packed = Uint8List.fromList([
         0x01,
         0x02,
@@ -28,12 +44,11 @@ void main() {
         0xFF,
       ]);
 
-      // Provide deliberately undersized reslen to test dynamic growth fallback
-      final expandedUnder = PicDecompressor.expand(packed, 1);
-      final expandedNormal = PicDecompressor.expand(packed);
-
-      expect(expandedUnder, equals(expandedNormal));
-      expect(expandedUnder, equals(Uint8List.fromList([0x01, 0x02, 0x03, 0x04, 0xFF])));
+      expect(
+        () => PicDecompressor.expand(packed, 1),
+        throwsA(isA<CorruptResourceException>()),
+      );
+      expect(PicDecompressor.expand(packed), equals(Uint8List.fromList([0x01, 0x02, 0x03, 0x04, 0xFF])));
     });
   });
 }

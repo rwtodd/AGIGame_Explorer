@@ -30,7 +30,8 @@ class _TestVolumeManager extends VolumeManager {
   Future<Uint8List> getResourceAsync(DirEntry entry) async => getResource(entry);
 
   @override
-  Uint8List getWordsData() => Uint8List.fromList([0, 0]);
+  // Valid empty WORDS.TOK: start offset points at EOF.
+  Uint8List getWordsData() => Uint8List.fromList([0, 2]);
 
   @override
   Uint8List getObjectsData() => Uint8List.fromList([

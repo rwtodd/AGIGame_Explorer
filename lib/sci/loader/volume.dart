@@ -221,6 +221,32 @@ class SciVolumeManager {
     final headerBytes = raf.readSync(8);
     final header = SciVolumeRecordHeader.fromBytes(headerBytes);
 
+    final expectedId = (entry.id.type.typeCode << 11) | entry.id.number;
+    if (header.id != expectedId) {
+      throw SciCorruptResourceException(
+        'Volume header id mismatch for resource ${entry.id}: '
+        'map entry id 0x${expectedId.toRadixString(16)}, '
+        'volume record header id 0x${header.id.toRadixString(16)} '
+        '(compSize: ${header.compSize}, decompSize: ${header.decompSize}, '
+        'method: ${header.method})',
+      );
+    }
+    if (header.compSize < 4) {
+      throw SciCorruptResourceException(
+        'Volume record for resource ${entry.id} has invalid compSize '
+        '${header.compSize} (< 4): id 0x${header.id.toRadixString(16)}, '
+        'decompSize: ${header.decompSize}, method: ${header.method}',
+      );
+    }
+    if (header.method == 0 && header.payloadSize != header.decompSize) {
+      throw SciCorruptResourceException(
+        'Uncompressed volume record for resource ${entry.id} has '
+        'payloadSize ${header.payloadSize} != decompSize ${header.decompSize}: '
+        'id 0x${header.id.toRadixString(16)}, compSize: ${header.compSize}, '
+        'method: ${header.method}',
+      );
+    }
+
     final payload = raf.readSync(header.payloadSize);
     if (payload.length < header.payloadSize) {
       throw SciCorruptResourceException(
