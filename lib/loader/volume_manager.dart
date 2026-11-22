@@ -107,7 +107,7 @@ class V2VolumeManager implements VolumeManager {
 
     final cached = _resourceCache.get(de);
     if (cached != null) {
-      return cached;
+      return cached.asUnmodifiableView();
     }
 
     final raf = _getFile(de.volume);
@@ -129,7 +129,7 @@ class V2VolumeManager implements VolumeManager {
       }
 
       _resourceCache.put(de, resource);
-      return resource;
+      return resource.asUnmodifiableView();
     } catch (e) {
       if (e is AgiException) rethrow;
       throw AgiException('Failed to read resource $de: $e', e);
@@ -228,7 +228,7 @@ class V3VolumeManager implements VolumeManager {
 
     final cached = _resourceCache.get(de);
     if (cached != null) {
-      return cached;
+      return cached.asUnmodifiableView();
     }
 
     final raf = _getFile(de.volume);
@@ -263,7 +263,7 @@ class V3VolumeManager implements VolumeManager {
       }
 
       _resourceCache.put(de, resource);
-      return resource;
+      return resource.asUnmodifiableView();
     } catch (e) {
       if (e is AgiException) rethrow;
       throw AgiException('Failed to read resource $de: $e', e);

@@ -24,12 +24,23 @@ abstract class SierraViewCel {
 
   /// Resolves the actual un-flipped pixel buffer (from this cel or its source
   /// cel if mirrored).
-  Uint8List getUnflippedPixels({SierraView? parentView, int celIndex = 0}) {
+  ///
+  /// The returned buffer is an unmodifiable view of the underlying pixel
+  /// data: callers must not write into it (mutation throws [UnsupportedError]).
+  /// Callers needing a mutable copy should make one explicitly.
+  Uint8List getUnflippedPixels({SierraView? parentView, int celIndex = 0}) =>
+      _getUnflippedPixels(parentView, celIndex, <int>{});
+
+  Uint8List _getUnflippedPixels(
+    SierraView? parentView,
+    int celIndex,
+    Set<int> visitedMirrorLoops,
+  ) {
     if (!isMirrored) {
       if (rawPixels == null) {
         throw const AgiException('Forward cel is missing raw pixel data.');
       }
-      return rawPixels!;
+      return rawPixels!.asUnmodifiableView();
     }
 
     if (parentView == null) {
@@ -38,6 +49,12 @@ abstract class SierraViewCel {
 
     if (mirrorLoop < 0 || mirrorLoop >= parentView.loopCount) {
       throw AgiException('Invalid mirror loop index: $mirrorLoop');
+    }
+
+    if (!visitedMirrorLoops.add(mirrorLoop)) {
+      throw AgiException(
+        'Mirror cycle detected: loop $mirrorLoop is already visited while resolving a mirrored cel.',
+      );
     }
 
     final sourceLoop = parentView.getLoop(mirrorLoop);
@@ -52,15 +69,26 @@ abstract class SierraViewCel {
     if (sourceCel == null) {
       throw AgiException('Invalid cel index $celIndex in mirror loop $mirrorLoop');
     }
-    return sourceCel.getUnflippedPixels(parentView: parentView, celIndex: celIndex);
+    return sourceCel._getUnflippedPixels(parentView, celIndex, visitedMirrorLoops);
   }
 
   /// Resolves the final pixels for this cel. If mirrored, returns horizontally
   /// flipped pixels.
+  ///
+  /// For unmirrored cels the result is an unmodifiable view of the cel's
+  /// pixel data; for mirrored cels it is a freshly allocated flipped copy.
   Uint8List getPixels({SierraView? parentView, int celIndex = 0}) {
     final unflipped = getUnflippedPixels(parentView: parentView, celIndex: celIndex);
     if (!isMirrored) {
       return unflipped;
+    }
+
+    final expected = width * height;
+    if (unflipped.length != expected) {
+      throw AgiException(
+        'Mirrored cel dimension mismatch: source buffer has ${unflipped.length} bytes (actual), '
+        'but cel declares ${width}x$height (expected $expected).',
+      );
     }
 
     final flipped = Uint8List(unflipped.length);
