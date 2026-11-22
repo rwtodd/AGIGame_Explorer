@@ -283,7 +283,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
   Verify: kernel unit test per op; Avoider test mirroring
   `test/sci/sci_set_jump_test.dart`.
 
-- [ ] **19. [BUG/S] SCI dithering toggle is a no-op; view palette ignored.**
+- [x] **19. [BUG/S] SCI dithering toggle is a no-op; view palette ignored.** *(2026-11-19: `sciEnableDithering` wired through GameScreen (init + live-sync) → `SciGameEngine.setUnditheredPictures` → `SciKernel.unditheredPictures` at pic init; shader/flat paths now also select the undithered flat when `pic.isUndithered`. SCI view parser applies the ScummVM SCI1-EGA 8×16 mapping at parse time (table 0 bake — no per-actor palette plumbing exists; application is gated on a valid non-straight table, offsets 0/0x100 ignored, PQ2 unaffected) and rejects any flags with the 0x80 bit. Remaining: real QFG1/2 paletted-view field check (synthetic tests only; QFG2 volume resources are not parseable by the current loader path in tests).*
   `sciEnableDithering` (`lib/ui/models/user_settings.dart:13`) is
   persisted and shown (`lib/ui/widgets/av_settings_dialog.dart:910`)
   but no painter reads it. Similarly `paletteOffset` is parsed and
@@ -299,7 +299,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
 
 ## P3 — later / debt sweep
 
-- [ ] **20. [DEBT/S] `fetch_llama_server` unverified download.**
+- [x] **20. [DEBT/S] `fetch_llama_server` unverified download.** *(2026-11-19: per-tag/asset SHA-256 pin table verified before extraction (b11712 macOS/Windows digests computed locally and corroborated against GitHub API release digests); unpinned tags refused unless `--allow-unpinned` prints the digest to pin. `crypto` promoted to dev_dependency for the tool; full download not re-run as verification.)*
   `tool/fetch_llama_server.dart:127` downloads and extracts an
   executable release asset with no SHA-256/signature check.
   (Adversarial re-check downgraded this from P1: dev-run tool over
