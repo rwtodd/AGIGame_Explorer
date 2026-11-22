@@ -43,6 +43,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.31.1
+  # Tool-only (tool/fetch_llama_server.dart SHA-256 pinning); keep in sync
+  # with pubspec.lock.
+  crypto: ^3.0.7
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

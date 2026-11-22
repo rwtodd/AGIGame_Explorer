@@ -17,6 +17,11 @@
 /// dart tool/fetch_llama_server.dart --local             # dev shortcut
 /// ```
 ///
+/// Download integrity: the archive's SHA-256 must match [pinnedArchiveSha256]
+/// before extraction. A pin/build with no entry is refused, unless
+/// `--allow-unpinned` is passed (then the computed hash is printed so it can
+/// be pasted into the pin table).
+///
 /// Output: `third_party/llama-server/<platform>/llama-server[.exe]`
 /// (gitignored). See `tool/bundle_llama_server.dart` and
 /// `doc/local_ai_setup.md`.
@@ -24,8 +29,38 @@ library;
 
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 /// First llama.cpp build containing `gemma-embedding2` support (PR #30054).
 const int _minBuild = 11454;
+
+/// Pinned SHA-256 digests of upstream release archives, keyed by release
+/// tag, then by asset filename.
+///
+/// To add a pin for a new build: download the asset from the GitHub release
+/// (or read the release-asset `digest` via the GitHub API), compute
+/// `shasum -a 256 <asset>`, and add one line per asset below.
+const Map<String, Map<String, String>> pinnedArchiveSha256 = {
+  'b11712': {
+    'llama-b11712-bin-macos-arm64.tar.gz':
+        'fc2bdadcefee39c6b652707667d22ec8c959eaf7bf143e97a6d30226824852c1',
+    'llama-b11712-bin-win-cpu-x64.zip':
+        'cc8454164d885e6826a06abd6100aa040b5b5139d527ae49058ec7c449011b68',
+  },
+};
+
+/// Returns the pinned SHA-256 digest for ([tag], [asset]), or `null` when
+/// no pin is recorded for it.
+String? expectedArchiveSha256(String tag, String asset) =>
+    pinnedArchiveSha256[tag]?[asset];
+
+/// Streams [file] through SHA-256 and returns the lowercase hex digest.
+/// The file is never loaded into memory whole: [Hash.bind] chunks the
+/// byte stream through the converter.
+Future<String> sha256OfFile(File file) async {
+  final digest = await sha256.bind(file.openRead()).single;
+  return digest.toString();
+}
 
 const List<String> _homebrewCandidates = [
   '/opt/homebrew/bin/llama-server',
@@ -35,12 +70,15 @@ const List<String> _homebrewCandidates = [
 Future<void> main(List<String> args) async {
   String? pin;
   var local = false;
+  var allowUnpinned = false;
   final filters = <String>{};
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--pin' && i + 1 < args.length) {
       pin = args[++i];
     } else if (args[i] == '--local') {
       local = true;
+    } else if (args[i] == '--allow-unpinned') {
+      allowUnpinned = true;
     } else if (args[i].startsWith('--')) {
       filters.add(args[i].substring(2));
     }
@@ -87,7 +125,8 @@ Future<void> main(List<String> args) async {
       exitCode = 2;
       return;
     }
-    await _downloadReleaseAsset(pin, target, binaryName, outDir.path, dest);
+    await _downloadReleaseAsset(pin, target, binaryName, outDir.path, dest,
+        allowUnpinned: allowUnpinned);
   }
 }
 
@@ -119,8 +158,9 @@ Future<void> _downloadReleaseAsset(
   String target,
   String binaryName,
   String outDirPath,
-  String dest,
-) async {
+  String dest, {
+  bool allowUnpinned = false,
+}) async {
   final asset = target.startsWith('windows')
       ? 'llama-$tag-bin-win-cpu-x64.zip'
       : 'llama-$tag-bin-macos-arm64.tar.gz';
@@ -142,6 +182,31 @@ Future<void> _downloadReleaseAsset(
       await response.pipe(archive.openWrite());
     } finally {
       client.close();
+    }
+    // Integrity check before extraction: refuse an unpinned build unless
+    // the maintainer explicitly opted in with --allow-unpinned.
+    final expected = expectedArchiveSha256(tag, asset);
+    if (expected != null) {
+      final actual = await sha256OfFile(archive);
+      if (actual != expected) {
+        throw StateError(
+            'SHA-256 mismatch for $asset: expected $expected, got $actual. '
+            'Refusing to extract.');
+      }
+      stdout.writeln('Verified SHA-256 for $asset.');
+    } else if (allowUnpinned) {
+      final actual = await sha256OfFile(archive);
+      stdout.writeln(
+          'WARNING: no pinned SHA-256 for $asset (tag $tag); '
+          'proceeding because --allow-unpinned was passed.');
+      stdout.writeln('sha256: $actual  $asset');
+      stdout.writeln(
+          'Paste this digest into pinnedArchiveSha256 in tool/fetch_llama_server.dart.');
+    } else {
+      throw StateError('No pinned SHA-256 for $asset (tag $tag). '
+          'Add its digest to pinnedArchiveSha256 in '
+          'tool/fetch_llama_server.dart, or pass --allow-unpinned to '
+          'proceed without verification.');
     }
     stdout.writeln('Extracting $asset …');
     final extract = target.startsWith('windows')
