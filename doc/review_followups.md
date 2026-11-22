@@ -226,7 +226,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
   ranks 1–13 are landed; rank 1's honest test gate is what makes the
   golden-image acceptance tests meaningful.
 
-- [ ] **15. [BUG/M] Corrupt resources silently yield partial data.**
+- [x] **15. [BUG/M] Corrupt resources silently yield partial data.** *(2026-11-19: all sites throw `CorruptResourceException`/`SciCorruptResourceException`. WORDS.TOK keeps exactly one legal tolerance — the lone trailing prefix byte real Sierra files end with (reference-parser semantics); four invalid synthetic fixtures were corrected to valid empty dictionaries. SCI side verified against all 10 real maps and all 763 PQ2 volume records.)*
   Truncation is accepted and papered over in:
   `lib/loader/parsers/words_parser.dart:44` (partial dictionary),
   `lib/loader/parsers/objects_parser.dart:74` (blank-named objects),
@@ -243,7 +243,7 @@ Effort key: S = hours, M = a day or two, L = multi-day / architectural.
   `lib/core/errors/agi_exceptions.dart:23`).
   Verify: one truncation/corruption test per parser.
 
-- [ ] **16. [BUG/S] Cache aliasing corrupts shared buffers.**
+- [x] **16. [BUG/S] Cache aliasing corrupts shared buffers.** *(2026-11-19: unmodifiable views from view/volume caches and dictionary groups (caller audit found zero writers, so no call-site copies needed), duplicate-word group consistency, mirror-cycle and dimension-mismatch now `AgiException` instead of stack overflow / `RangeError`. Parse-time mirror validation deliberately not added — runtime guards cover both parsers.)*
   `getPixels` (`lib/domain/sierra_view.dart:60`) and `getResource`
   (`lib/loader/volume_manager.dart:131`) return the cached mutable
   buffer itself; any caller writing into it corrupts the cache for all
