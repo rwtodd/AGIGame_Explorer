@@ -367,7 +367,8 @@ class PlayfieldPainter extends CustomPainter {
     } else {
       final pic = picture;
       final ui.Image? effectiveFlat;
-      if (renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic) {
+      if (pic is SciPic &&
+          (renderMode == AgiPictureRenderMode.unditheredVisual || pic.isUndithered)) {
         effectiveFlat = flatVisualImage ?? pic.cachedUnditheredVisualImage;
       } else {
         effectiveFlat = flatVisualImage ?? pic?.cachedFlatVisualImage;

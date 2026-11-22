@@ -131,6 +131,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         if (initSettings != null) {
           sci.setSoundMode(initSettings.audio.soundMode);
           sci.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+          sci.setUnditheredPictures(!initSettings.display.sciEnableDithering);
         }
       }
       _session.start();
@@ -152,6 +153,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             _correctAspectRatio = next.display.correctAspectRatio;
             _strictIntegerScaling = next.display.strictIntegerScaling;
           });
+          if (previous?.display.sciEnableDithering != next.display.sciEnableDithering) {
+            _sciEngine?.setUnditheredPictures(!next.display.sciEnableDithering);
+          }
         },
       );
     } catch (_) {

@@ -10,7 +10,8 @@ import 'package:flutter_agigame/sci/view/sci_view.dart';
 /// [1]     flags           BYTE   0x40 uncompressed (VGA); 0x80 VGA-in-EGA
 /// [2..3]  mirrorBits      WORD   LSB = loop 0 is a mirror
 /// [4..5]  version         WORD   1 = SCI1.1 view
-/// [6..7]  paletteOffset   WORD   ignored for true SCI0 EGA
+/// [6..7]  paletteOffset   WORD   SCI1-EGA 8x16 mapping table (ignored for
+///                             true SCI0 EGA; 0 and 0x100 mean "no table")
 /// [8..]   loopOffset[i]   WORD   one per loop
 /// ```
 ///
@@ -46,7 +47,7 @@ class SciViewParser {
     final version = data[4] | (data[5] << 8);
     final paletteOffset = data[6] | (data[7] << 8);
 
-    if (flags == 0x80) {
+    if ((flags & 0x80) != 0) {
       throw SciCorruptResourceException(
         'VIEW #$viewNumber is a VGA view (flags=0x80) in an EGA game; not supported.',
       );
@@ -56,6 +57,18 @@ class SciViewParser {
         'VIEW #$viewNumber is SCI1.1 format (version=1); EGA parser supports kViewEga only.',
       );
     }
+
+    // SCI1-EGA EGA mapping: 8 tables x 16 bytes at [paletteOffset]
+    // (`SCI_VIEW_EGAMAPPING_COUNT`/`SCI_VIEW_EGAMAPPING_SIZE`), matching
+    // ScummVM `GfxView::initData` kViewEga. Only counts when the offset is
+    // valid and at least one table differs from the straight identity; when
+    // all 8 tables are straight the mapping is ignored entirely. This engine
+    // has no per-actor palette number, so cel pixels are remapped at parse
+    // time through table 0 (the default palette). The remap happens before
+    // any transparency test: ScummVM compares the mapped color to clearKey,
+    // and downstream consumers compare remapped pixels to clearKey the same
+    // way, so no clearKey adjustment is needed.
+    final egaMapping = _egaMappingTable(data, paletteOffset);
 
     final loopDirEnd = 8 + loopCount * 2;
     if (data.length < loopDirEnd) {
@@ -131,6 +144,7 @@ class SciViewParser {
               celNo: celNo,
               isMirrored: isMirrorLoop && sourceLoopByOffset[loopOffset] == null,
               mirrorLoop: loopNo,
+              egaMapping: egaMapping,
             ),
           );
         }
@@ -166,6 +180,27 @@ class SciViewParser {
     }
   }
 
+  /// Returns the first EGA mapping table (16 entries) when [data] carries a
+  /// non-straight SCI1-EGA mapping at [paletteOffset], else null. Mirrors
+  /// ScummVM `GfxView::initData`: offsets 0 and 0x100 disable the table, and
+  /// the table is ignored when all 8 tables are the straight identity
+  /// (`EGAmappingStraight`).
+  static Uint8List? _egaMappingTable(Uint8List data, int paletteOffset) {
+    if (paletteOffset == 0 || paletteOffset == 0x100) return null;
+    if (paletteOffset < 0 || paletteOffset + 8 * 16 > data.length) return null;
+    var anyNonStraight = false;
+    for (var t = 0; t < 8 && !anyNonStraight; t++) {
+      for (var i = 0; i < 16; i++) {
+        if (data[paletteOffset + t * 16 + i] != i) {
+          anyNonStraight = true;
+          break;
+        }
+      }
+    }
+    if (!anyNonStraight) return null;
+    return Uint8List.sublistView(data, paletteOffset, paletteOffset + 16);
+  }
+
   static SciViewCel _parseCel(
     Uint8List data, {
     required int celOffset,
@@ -173,6 +208,7 @@ class SciViewParser {
     required int celNo,
     required bool isMirrored,
     required int mirrorLoop,
+    Uint8List? egaMapping,
   }) {
     if (celOffset + 7 > data.length) {
       throw SciCorruptResourceException(
@@ -203,6 +239,12 @@ class SciViewParser {
       height: height,
       clearKey: clearKey,
     );
+
+    if (egaMapping != null) {
+      for (var i = 0; i < pixels.length; i++) {
+        pixels[i] = egaMapping[pixels[i] & 0x0F];
+      }
+    }
 
     return SciViewCel(
       width: width,

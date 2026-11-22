@@ -136,6 +136,12 @@ class SciKernel {
   int picPortTop = 10;
   int picPortLeft = 0;
 
+  /// When true, pictures are interpreted with undithered (blended 40-color)
+  /// slices and exposed as undithered ([SciPic.isUndithered]). Wired to the
+  /// `sciEnableDithering` display setting (inverted) by [SciGameEngine] via
+  /// `setUnditheredPictures`.
+  bool unditheredPictures = false;
+
   /// Ticks requested by the most recent `Wait`. 0 means the game is running
   /// unthrottled (speed test / `setSpeed: 0`) and the engine may pump extra
   /// `doit` cycles in one host tick, capped at AT throughput (~60 Hz).
@@ -888,7 +894,12 @@ class SciKernel {
           picNumber: picNum,
           portTop: picPortTop,
           computeSlices: true,
+          computeUnditheredSlices: unditheredPictures,
         );
+        if (unditheredPictures) {
+          pic.isUndithered = true;
+          pic.ensureSlices(undithered: true);
+        }
         currentPic = pic;
         if (pic.priorityBands != null) {
           initPriorityBands(customBands: pic.priorityBands);

@@ -301,6 +301,22 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     notifyListeners();
   }
 
+  /// Applies the inverted `sciEnableDithering` display setting: when [undithered]
+  /// is true, the kernel interprets new pictures undithered and the current
+  /// picture (if any) is flipped live.
+  void setUnditheredPictures(bool undithered) {
+    kernel.unditheredPictures = undithered;
+    final pic = kernel.currentPic;
+    if (pic != null) {
+      pic.isUndithered = undithered;
+      if (undithered) {
+        pic.ensureSlices(undithered: true);
+        pic.preloadGpuTextures(includeShaderTextures: true);
+      }
+    }
+    notifyListeners();
+  }
+
   @override
   void setSynthesizerConfig(SynthesizerConfig config) {
     kernel.synthesizerConfig = config;

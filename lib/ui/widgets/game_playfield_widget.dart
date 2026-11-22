@@ -223,7 +223,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         }
         break;
       case AgiPictureRenderMode.shaderComposited:
-        if (pic.cachedFlatVisualImage == null || pic.cachedPriorityTextureImage == null) {
+        final flatNull = (pic is SciPic && pic.isUndithered)
+            ? pic.cachedUnditheredVisualImage == null
+            : pic.cachedFlatVisualImage == null;
+        if (flatNull || pic.cachedPriorityTextureImage == null) {
           final key = (pic, pic.rasterEpoch);
           if (!_pendingShaderPreloads.contains(key)) {
             _pendingShaderPreloads.add(key);
@@ -480,8 +483,11 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           child: Builder(
                             builder: (context) {
                               final pic = _session.currentPic;
+                              final flatReady = (pic is SciPic && pic.isUndithered)
+                                  ? pic.cachedUnditheredVisualImage != null
+                                  : pic?.cachedFlatVisualImage != null;
                               final active = _prioritySpriteShader != null &&
-                                  pic?.cachedFlatVisualImage != null &&
+                                  flatReady &&
                                   pic?.cachedPriorityTextureImage != null;
                               final dpr = MediaQuery.devicePixelRatioOf(context);
                               final win = MediaQuery.sizeOf(context);
@@ -871,7 +877,8 @@ class _GamePlayfieldPainter extends CustomPainter {
           ? '${prompt.prompt}${prompt.currentText}'
           : null,
       renderMode: renderMode,
-      flatVisualImage: (renderMode == AgiPictureRenderMode.unditheredVisual && pic is SciPic)
+      flatVisualImage: (pic is SciPic &&
+              (renderMode == AgiPictureRenderMode.unditheredVisual || pic.isUndithered))
           ? pic.cachedUnditheredVisualImage
           : pic?.cachedFlatVisualImage,
       priorityMapImage: pic?.cachedPriorityMapImage,

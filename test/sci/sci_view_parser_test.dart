@@ -8,6 +8,9 @@ import 'package:flutter_agigame/sci/view/sci_view_parser.dart';
 /// Unmirrored loops each get their own copy of [rle] (or the default 4×2
 /// checker). Loops whose bit is set in [mirrorBits] share loop 0's directory
 /// offset, matching PQ2 (e.g. view 0 loop 1).
+///
+/// When [paletteBytes] is given, it is appended after all cel data and the
+/// header paletteOffset word points at it (SCI1-EGA 8x16 EGA mapping table).
 Uint8List createSciEgaViewData({
   int loopCount = 1,
   int celCount = 1,
@@ -20,6 +23,8 @@ Uint8List createSciEgaViewData({
   int flags = 0,
   int version = 0,
   List<int>? rle,
+  List<int>? paletteBytes,
+  int? paletteOffset,
 }) {
   final payload = rle ?? const [0x24, 0x21, 0x42]; // 4,4,1,1 / 2,2,2,2
   final dx = displaceX & 0xFF;
@@ -86,6 +91,16 @@ Uint8List createSciEgaViewData({
   for (var i = 0; i < loopCount; i++) {
     header[loopDirStart + i * 2] = loopOffsets[i] & 0xFF;
     header[loopDirStart + i * 2 + 1] = (loopOffsets[i] >> 8) & 0xFF;
+  }
+
+  if (paletteBytes != null) {
+    final offset = paletteOffset ?? header.length;
+    header[6] = offset & 0xFF;
+    header[7] = (offset >> 8) & 0xFF;
+    header.addAll(paletteBytes);
+  } else if (paletteOffset != null) {
+    header[6] = paletteOffset & 0xFF;
+    header[7] = (paletteOffset >> 8) & 0xFF;
   }
 
   return Uint8List.fromList(header);
@@ -157,11 +172,92 @@ void main() {
       expect(cel.displaceY, 1);
     });
 
-    test('rejects VGA-in-EGA views (flags 0x80)', () {
+    test('rejects VGA-in-EGA views (flags 0x80, bit-tested)', () {
       expect(
         () => SciViewParser.parse(createSciEgaViewData(flags: 0x80)),
         throwsA(isA<SciCorruptResourceException>()),
       );
+    });
+
+    test('rejects VGA-in-EGA views (flags 0xC0 sets bit 0x80 too)', () {
+      expect(
+        () => SciViewParser.parse(createSciEgaViewData(flags: 0xC0)),
+        throwsA(isA<SciCorruptResourceException>()),
+      );
+    });
+
+    test('remaps cel pixels through the SCI1-EGA mapping (table 0)', () {
+      // mapping[0] swaps 4 -> 9 and 1 -> 2, leaves others; rest straight.
+      final mapping0 = List<int>.generate(16, (i) => i);
+      mapping0[4] = 9;
+      mapping0[1] = 2;
+      final palette = <int>[];
+      for (var t = 0; t < 8; t++) {
+        palette.addAll(t == 0 ? mapping0 : List<int>.generate(16, (i) => i));
+      }
+      // Default RLE decodes to [4,4,1,1, 2,2,2,2]; clearKey 0 is untouched
+      // by the mapping, so no pixel becomes transparent through remapping.
+      final view = SciViewParser.parse(
+        createSciEgaViewData(paletteBytes: palette),
+        viewNumber: 3,
+      );
+
+      final cel = view.getCel(0, 0)!;
+      expect(cel.transparentColor, 0);
+      expect(cel.getUnflippedPixels(), equals([9, 9, 2, 2, 2, 2, 2, 2]));
+    });
+
+    test('remapped pixels are compared to clearKey after mapping', () {
+      // mapping[0] sends color 4 to 0; with clearKey 0 those pixels become
+      // transparent downstream (toRgba alpha 0), matching ScummVM's
+      // `if (color != clearKey)` on the mapped color.
+      final mapping0 = List<int>.generate(16, (i) => i);
+      mapping0[4] = 0;
+      final palette = <int>[];
+      for (var t = 0; t < 8; t++) {
+        palette.addAll(t == 0 ? mapping0 : List<int>.generate(16, (i) => i));
+      }
+      final view = SciViewParser.parse(
+        createSciEgaViewData(clearKey: 0, paletteBytes: palette),
+      );
+
+      final cel = view.getCel(0, 0)!;
+      expect(cel.getUnflippedPixels(), equals([0, 0, 1, 1, 2, 2, 2, 2]));
+      // Downstream transparency check: remapped 0 == clearKey yet only the
+      // first two pixels are transparent; original clearKey pixels also 0.
+      final rgba = cel.toRgba();
+      expect(rgba[0 * 4 + 3], 0);
+      expect(rgba[1 * 4 + 3], 0);
+      expect(rgba[2 * 4 + 3], 255);
+    });
+
+    test('ignores an all-straight mapping table', () {
+      final palette = <int>[];
+      for (var t = 0; t < 8; t++) {
+        palette.addAll(List<int>.generate(16, (i) => i));
+      }
+      final view = SciViewParser.parse(
+        createSciEgaViewData(paletteBytes: palette),
+      );
+      final cel = view.getCel(0, 0)!;
+      expect(cel.getUnflippedPixels(), equals([4, 4, 1, 1, 2, 2, 2, 2]));
+    });
+
+    test('ignores paletteOffset 0 and 0x100 even with table bytes present', () {
+      final mapping0 = List<int>.generate(16, (i) => i);
+      mapping0[4] = 9;
+      final palette = <int>[];
+      for (var t = 0; t < 8; t++) {
+        palette.addAll(t == 0 ? mapping0 : List<int>.generate(16, (i) => i));
+      }
+      for (final offset in [0, 0x100]) {
+        final view = SciViewParser.parse(
+          createSciEgaViewData(paletteBytes: palette, paletteOffset: offset),
+        );
+        final cel = view.getCel(0, 0)!;
+        expect(view.paletteOffset, offset);
+        expect(cel.getUnflippedPixels(), equals([4, 4, 1, 1, 2, 2, 2, 2]));
+      }
     });
 
     test('rejects SCI1.1 views (version word 1)', () {

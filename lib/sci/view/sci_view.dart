@@ -126,7 +126,8 @@ class SciView extends SierraView {
   /// Header version word. `1` is SCI1.1 (`kViewVga11`) and is rejected here.
   final int version;
 
-  /// Palette offset. Ignored for true SCI0 EGA; SCI1 EGA / QFG2 mapping is later.
+  /// Palette offset. When non-zero and not 0x100, SCI1-EGA views carry an
+  /// 8x16 EGA mapping table there (Baked into cel pixels by the parser).
   final int paletteOffset;
 
   const SciView({
