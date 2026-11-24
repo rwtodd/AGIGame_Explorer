@@ -47,6 +47,11 @@ abstract class AudioOutputSink {
   /// Writes interleaved 16-bit signed PCM [samples] to the audio buffer.
   ///
   /// For stereo audio, samples must alternate [left0, right0, left1, right1, ...].
+  ///
+  /// Implementations MUST copy or otherwise consume [samples]
+  /// synchronously before returning. Callers may reuse or mutate the
+  /// buffer immediately after this call, and outstanding queued audio
+  /// must never alias the caller's list.
   void writePcm(Int16List samples);
 
   /// Starts or resumes audio playback.
@@ -109,7 +114,9 @@ class NullAudioSink implements AudioOutputSink {
 
   @override
   void writePcm(Int16List samples) {
-    queuedBuffers.add(samples);
+    // Copy synchronously, honoring the AudioOutputSink contract: callers
+    // may reuse the submitted buffer for the next block.
+    queuedBuffers.add(Int16List.fromList(samples));
   }
 
   @override

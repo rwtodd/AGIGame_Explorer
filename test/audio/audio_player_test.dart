@@ -122,7 +122,10 @@ void main() {
       await player.seekToTick(60);
 
       expect(player.isPlaying, true);
-      expect(mockSink.queuedBuffers.length, 1);
+      // Streaming playback renders in lookahead-sized blocks via the
+      // shared transport rather than one whole-buffer write, so the
+      // seek re-render leaves several queued blocks.
+      expect(mockSink.queuedBuffers.length, greaterThan(1));
     });
 
     test('volume control propagates to sink', () {
