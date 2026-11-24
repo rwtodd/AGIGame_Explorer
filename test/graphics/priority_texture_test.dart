@@ -127,6 +127,35 @@ void main() {
       expect(pic.isDisposed, isTrue);
     });
 
+    test('effectivePriorityGrid (AGI doubled, rows 168..199 = 0)', () {
+      final pic = _buildAgiPic();
+      final grid = pic.effectivePriorityGrid();
+      expect(grid.length, equals(320 * 200));
+      expect(grid[4 * 320 + 3 * 2], equals(7));
+      expect(grid[4 * 320 + 3 * 2 + 1], equals(7));
+      expect(grid[0], equals(4));
+      expect(grid[199 * 320], equals(0));
+      expect(grid[199 * 320 + 319], equals(0));
+      // R == grid * 17 everywhere.
+      final rgba = pic.renderPriorityTextureRgba();
+      for (final idx in [0, 100, 4 * 320 + 7, 100 * 320 + 200, 199 * 320 + 5]) {
+        expect(rgba[idx * 4], equals(grid[idx] * 17), reason: 'idx $idx');
+        expect(rgba[idx * 4 + 3], equals(255));
+      }
+      pic.dispose();
+    });
+
+    test('effectivePriorityGrid (SCI 1:1 masked)', () {
+      final pic = _buildSciPic();
+      final grid = pic.effectivePriorityGrid();
+      expect(grid.length, equals(320 * 200));
+      expect(grid[0], equals(10));
+      expect(grid[1], equals(5));
+      expect(grid[2], equals(0));
+      expect(grid[320 * 199 + 319], equals(0));
+      pic.dispose();
+    });
+
     test('preloadGpuTextures includeShaderTextures decodes priority texture', () async {
       final pic = _buildAgiPic();
       expect(pic.cachedPriorityTextureImage, isNull);

@@ -12,6 +12,7 @@ import 'package:flutter_agigame/picture/picture_slicer.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
+import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/shaders/priority_sprite_shader.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
@@ -326,6 +327,28 @@ void main() {
     _expectParity(slicesBytes, shaderBytes, 'horizontal bands');
   });
 
+  test('occluder path first build cost (band pic, pri 10)', () {
+    final pic = buildBandPic();
+    addTearDown(pic.dispose);
+    final painter = PlayfieldPainter(picture: pic);
+    final sw = Stopwatch()..start();
+    final path = painter.occluderPathFor(pic, 10);
+    sw.stop();
+    // ignore: avoid_print
+    print('occluder path first build (band pic, pri 10): '
+        '${(sw.elapsedMicroseconds / 1000).toStringAsFixed(2)} ms');
+    expect(path, isNotNull);
+    // Second call for a different priority reuses the cached grid;
+    // a call for the same priority returns the cached path object.
+    expect(identical(painter.occluderPathFor(pic, 10), path), isTrue);
+    final sw2 = Stopwatch()..start();
+    painter.occluderPathFor(pic, 4);
+    sw2.stop();
+    // ignore: avoid_print
+    print('occluder path build (band pic, pri 4, cached grid): '
+        '${(sw2.elapsedMicroseconds / 1000).toStringAsFixed(2)} ms');
+  });
+
   test('playfield text inside pri-4 band with overlapping actor', () async {
     final program = await PrioritySpriteLoader.initialize();
     if (program == null) {
@@ -525,5 +548,116 @@ void main() {
     final slicesBytes = await _render(painter(AgiPictureRenderMode.compositedSlices));
     final shaderBytes = await _render(painter(AgiPictureRenderMode.shaderComposited));
     _expectParity(slicesBytes, shaderBytes, 'PQ2 pic1');
+  });
+
+  // Atlas-path parity: an actor drawn from a ViewTextureAtlas entry (the
+  // atlas branch of drawPriorityMasked), with scaleX = 2.0 (AGI doubling),
+  // whose cel is a 1-texel dark detail column on a bright field. At native
+  // 320x200 both paths must be byte-exact. Previous parity scenes used
+  // standalone images and never covered the atlas branch.
+  test('atlas entry with scaleX 2.0: slices vs shader parity at native', () async {
+    final program = await PrioritySpriteLoader.initialize();
+    if (program == null) {
+      markTestSkipped('FragmentProgram failed to load; see log');
+      return;
+    }
+    final shader = program.fragmentShader();
+    addTearDown(shader.dispose);
+
+    // Flat AGI pic, priority 0 everywhere so the actor is fully visible.
+    final visual = Uint8List(AgiPic.nativeWidth * AgiPic.nativeHeight);
+    visual.fillRange(0, visual.length, 1);
+    final priority = PriorityBuffer();
+    final slices = PictureSlicer.slice(visualPixels: visual, priorityBuffer: priority);
+    final pic = AgiPic(visualPixels: visual, priorityBuffer: priority, slices: slices);
+    addTearDown(pic.dispose);
+    await pic.preloadGpuTextures(includeShaderTextures: true);
+    final flat = pic.cachedFlatVisualImage!;
+    final priorityTexture = pic.cachedPriorityTextureImage!;
+    expect(flat, isNotNull);
+    expect(priorityTexture, isNotNull);
+
+    // Tiny synthetic atlas (manually packed, same shape ViewAtlasBuilder
+    // produces): 16x16 texture, one 8x8 cel at offset (2,2). Cel: bright
+    // field [240,240,240,255] with a single 1-texel dark detail column
+    // (local x == 3 -> [8,8,8,255]); fully opaque despite transparentColor 0.
+    const atlasW = 16;
+    const atlasH = 16;
+    const celX = 2;
+    const celY = 2;
+    const celW = 8;
+    const celH = 8;
+    const detailLocalX = 3;
+    final rgba = Uint8List(atlasW * atlasH * 4);
+    for (var y = 0; y < celH; y++) {
+      for (var x = 0; x < celW; x++) {
+        final i = ((celY + y) * atlasW + (celX + x)) * 4;
+        final isDetail = x == detailLocalX;
+        rgba[i + 0] = isDetail ? 8 : 240;
+        rgba[i + 1] = isDetail ? 8 : 240;
+        rgba[i + 2] = isDetail ? 8 : 240;
+        rgba[i + 3] = 255;
+      }
+    }
+    final entry = AtlasCelEntry(
+      viewNumber: 7,
+      loopNumber: 0,
+      celNumber: 0,
+      sourceRect: const Rect.fromLTWH(2.0, 2.0, 8.0, 8.0),
+      width: celW,
+      height: celH,
+      transparentColor: 0,
+      isMirrored: false,
+      sourceLoop: 0,
+      sourceCel: 0,
+    );
+    final atlas = ViewTextureAtlas(
+      width: atlasW,
+      height: atlasH,
+      rgbaPixels: rgba,
+      entries: {entry.intKey: entry},
+    );
+    addTearDown(atlas.dispose);
+    await atlas.ensureImage();
+    expect(atlas.hasImage, isTrue);
+
+    // AGI doubling: the 8-wide cel renders 16 wide, 8 tall at (40,30).
+    final actor = PlayfieldActorSprite(
+      priority: 15,
+      baselineY: 37,
+      objectNumber: 1,
+      isUpdating: true,
+      atlas: atlas,
+      celEntry: entry,
+      viewNumber: 7,
+      loopNumber: 0,
+      celNumber: 0,
+      scaleX: 2.0,
+      position: const Offset(40, 30),
+    );
+
+    PlayfieldPainter painter(AgiPictureRenderMode mode) => PlayfieldPainter(
+          picture: pic,
+          actors: [actor],
+          renderMode: mode,
+          flatVisualImage: flat,
+          priorityTextureImage: priorityTexture,
+          prioritySpriteShader: shader,
+        );
+
+    final slicesBytes = await _render(painter(AgiPictureRenderMode.compositedSlices));
+    final shaderBytes = await _render(painter(AgiPictureRenderMode.shaderComposited));
+    _expectParity(slicesBytes, shaderBytes, 'atlas scaleX 2.0');
+
+    // Guard against a no-op actor (byte-exact equality of two empty scenes
+    // would also pass): the detail column must be present in the shader
+    // render. Default playfieldRow=1 shifts the playfield down 8px, so the
+    // actor's top row lands at y=38 and the detail column (local x=3,
+    // doubled -> device x 46..47) is at (46,41).
+    final idx = ((41) * 320 + (46)) * 4;
+    expect(
+        [shaderBytes[idx], shaderBytes[idx + 1], shaderBytes[idx + 2], shaderBytes[idx + 3]],
+        [8, 8, 8, 255],
+        reason: 'detail column missing from shader render');
   });
 }

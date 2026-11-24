@@ -34,7 +34,7 @@ enum AgiPictureRenderMode {
   /// Collision and script trigger control map (triggers, conditional/unconditional barriers, water).
   controlMap,
 
-  /// Native-resolution compositing with GPU priority masking (default game view).
+  /// Native-resolution compositing with priority masking (default game view).
   shaderComposited,
 }
 
@@ -162,6 +162,38 @@ class PlayfieldActorSprite {
     }
   }
 
+  /// This sprite's destination rect in playfield (320x200) coordinates,
+  /// or null when no atlas entry / image resolves. Shared by [draw],
+  /// [drawPriorityMasked] and the painter's occluder-erase path so the
+  /// three agree byte-for-byte: atlas cels use `entry.width * scaleX` by
+  /// `entry.height * scaleY` at [renderPosition] (the same math as
+  /// [ViewTextureAtlas.drawEntry]'s non-flip case; the flip case mirrors
+  /// within this exact rect), standalone images use the full image size.
+  Rect? dstRectFor() {
+    final atlas = this.atlas;
+    if (atlas != null && atlas.hasImage) {
+      final entry = celEntry ?? atlas.getEntry(viewNumber, loopNumber, celNumber);
+      if (entry != null) {
+        return Rect.fromLTWH(
+          renderPosition.dx,
+          renderPosition.dy,
+          entry.width * scaleX,
+          entry.height * scaleY,
+        );
+      }
+    }
+    final img = image;
+    if (img != null && !img.debugDisposed) {
+      return Rect.fromLTWH(
+        renderPosition.dx,
+        renderPosition.dy,
+        img.width.toDouble(),
+        img.height.toDouble(),
+      );
+    }
+    return null;
+  }
+
   /// Draws this sprite with GPU priority masking via [drawPrioritySprite].
   ///
   /// Mirror of [draw]: atlas entries resolve exactly as [draw] does, with
@@ -172,16 +204,12 @@ class PlayfieldActorSprite {
   /// image rect with `dst = renderPosition + image size`, matching [draw]'s
   /// `drawImage` behaviour. No image/atlas miss is a no-op, as in [draw].
   void drawPriorityMasked(Canvas canvas, ui.FragmentShader shader, ui.Image priorityImage, Size playfieldSize) {
+    final dstRect = dstRectFor();
+    if (dstRect == null) return;
     final atlas = this.atlas;
     if (atlas != null && atlas.hasImage) {
       final entry = celEntry ?? atlas.getEntry(viewNumber, loopNumber, celNumber);
       if (entry != null) {
-        final dstRect = Rect.fromLTWH(
-          renderPosition.dx,
-          renderPosition.dy,
-          entry.width * scaleX,
-          entry.height * scaleY,
-        );
         drawPrioritySprite(
           canvas,
           shader,
@@ -198,12 +226,6 @@ class PlayfieldActorSprite {
     }
     if (image != null && !image!.debugDisposed) {
       final srcRect = Rect.fromLTWH(0.0, 0.0, image!.width.toDouble(), image!.height.toDouble());
-      final dstRect = Rect.fromLTWH(
-        renderPosition.dx,
-        renderPosition.dy,
-        image!.width.toDouble(),
-        image!.height.toDouble(),
-      );
       drawPrioritySprite(
         canvas,
         shader,
@@ -313,6 +335,14 @@ class PlayfieldPainter extends CustomPainter {
   /// Active Sierra in-game mouse cursor.
   final SierraCursor? mouseCursor;
 
+  /// Occluder-path cache for the native shaderComposited recording:
+  /// per-priority run-length [Path]s over the pic's effective priority
+  /// grid. Cleared when the pic identity or [rasterEpoch] changes.
+  SierraPicture? _occluderPic;
+  int? _occluderEpoch;
+  Uint8List? _occluderGrid;
+  final Map<int, Path> _occluderPaths = <int, Path>{};
+
   /// Position of the in-game mouse cursor in 320x200 screen coordinates.
   final Offset? mouseCursorPosition;
 
@@ -352,7 +382,15 @@ class PlayfieldPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..filterQuality = FilterQuality.none;
+    // Hard nearest-neighbor sampling AND hard (non-AA) geometry coverage.
+    // Paint.isAntiAlias defaults to true, which anti-aliases drawImageRect
+    // dst edges at fractional scales (coverage-blending sprite/slice edge
+    // pixels); the shader path draws crisp floored coverage, so the two
+    // modes diverged on every fractional sprite edge (SQ1 arrow badge
+    // scale 2.7188x3.2625: 51 boundary pixels on the arrow alone).
+    final paint = Paint()
+      ..filterQuality = FilterQuality.none
+      ..isAntiAlias = false;
 
     final scaleX = size.width / AgiDisplay.renderedWidth;
     final scaleY = size.height / AgiDisplay.renderedHeight;
@@ -439,7 +477,11 @@ class PlayfieldPainter extends CustomPainter {
             break;
 
           case AgiPictureRenderMode.shaderComposited:
-            if (prioritySpriteShader == null || effectiveFlat == null || priorityTextureImage == null) {
+            // The native occluder-erase path needs only the flat image
+            // (legacy drawImage sprite draws + dstOut erase of occluded
+            // pixels); it no longer depends on the priority-sprite
+            // fragment shader or the priority texture.
+            if (effectiveFlat == null) {
               _paintCompositedSlices(canvas, paint, effectiveFlat, pic);
             } else {
               _paintShaderCompositedNative(canvas, paint, effectiveFlat, pic);
@@ -808,38 +850,75 @@ class PlayfieldPainter extends CustomPainter {
     }
   }
 
-  /// The shaderComposited scene body (flat + text pass + masked actors),
-  /// recorded at native resolution by [_paintShaderCompositedNative].
-  void _paintShaderScene(
-    Canvas canvas,
-    Paint paint,
-    ui.Image flat,
-    SierraPicture pic,
-  ) {
-    canvas.drawImage(flat, Offset.zero, paint);
-    if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
-      canvas.save();
-      canvas.translate(0.0, -playfieldRow * 8.0);
-      _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
-      _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+  /// The actors-only layer of the shaderComposited scene, recorded at
+  /// native resolution by [_paintShaderCompositedNative] on a transparent
+  /// canvas. Background and playfield text are NOT recorded: text must be
+  /// rasterized at final window scale (vector glyphs baked at 320x200 and
+  /// magnified look fuzzy), so the outer paint draws flat, then text, then
+  /// this actors layer on top — the slice model's ordering, since actors
+  /// that pass the priority test cover playfield text.
+  void _paintShaderActors(Canvas canvas, SierraPicture pic) {
+    if (actors.isEmpty) return;
+    final sortedActors = List<AgiActorSprite>.from(actors)
+      ..sort(AgiActorSprite.compareDrawOrder);
+    final drawPaint = Paint()
+      ..filterQuality = FilterQuality.none
+      ..isAntiAlias = false;
+    final erasePaint = Paint()
+      ..color = const Color(0xFF000000)
+      ..blendMode = BlendMode.dstOut
+      ..isAntiAlias = false;
+    for (final actor in sortedActors) {
+      final dstRect = actor.dstRectFor();
+      if (dstRect == null || dstRect.isEmpty) continue;
+      canvas.saveLayer(dstRect, Paint());
+      actor.draw(canvas, drawPaint);
+      canvas.drawPath(occluderPathFor(pic, actor.priority), erasePaint);
       canvas.restore();
-    }
-    if (actors.isNotEmpty) {
-      final sortedActors = List<AgiActorSprite>.from(actors)
-        ..sort(AgiActorSprite.compareDrawOrder);
-      const playfieldSize = Size(320.0, 200.0);
-      for (final actor in sortedActors) {
-        actor.drawPriorityMasked(canvas, prioritySpriteShader!, priorityTextureImage!, playfieldSize);
-      }
     }
   }
 
-  /// Composites the shader scene at native 320x200 once per paint, then
-  /// upscales that single image to the outer (window-scale) canvas. At
-  /// native scale fragment centers are exact half-integers, so the
+  /// Run-length occluder path for [actorPriority] over [pic]'s effective
+  /// priority grid: one rect per maximal horizontal run of pixels where
+  /// the effective priority exceeds [actorPriority], in pic (320x200)
+  /// coordinates. Cached per (pic identity, [SierraPicture.rasterEpoch],
+  /// priority); the cache is cleared when the pic or its epoch changes.
+  /// A first build scans the 320x200 grid once for that priority.
+  Path occluderPathFor(SierraPicture pic, int actorPriority) {
+    if (!identical(pic, _occluderPic) || pic.rasterEpoch != _occluderEpoch) {
+      _occluderPic = pic;
+      _occluderEpoch = pic.rasterEpoch;
+      _occluderGrid = pic.effectivePriorityGrid();
+      _occluderPaths.clear();
+    }
+    final cached = _occluderPaths[actorPriority];
+    if (cached != null) return cached;
+    final grid = _occluderGrid!;
+    final path = Path();
+    for (int y = 0; y < 200; y++) {
+      var runStart = -1;
+      for (int x = 0; x <= 320; x++) {
+        final occluded = x < 320 && grid[y * 320 + x] > actorPriority;
+        if (occluded && runStart < 0) runStart = x;
+        if (!occluded && runStart >= 0) {
+          path.addRect(Rect.fromLTWH(
+              runStart.toDouble(), y.toDouble(), (x - runStart).toDouble(), 1.0));
+          runStart = -1;
+        }
+      }
+    }
+    _occluderPaths[actorPriority] = path;
+    return path;
+  }
+
+  /// Renders the priority-masked actors at native 320x200 once per paint
+  /// (legacy [actor.draw] draws plus a [BlendMode.dstOut] occluder-path
+  /// erase per actor — drawing at native resolution removes the
   /// fractional-scale sampling seams of drawing the shader directly on
-  /// the scaled canvas disappear; the final nearest-neighbour upscale
-  /// samples exactly like [Canvas.drawImage] of slices does.
+  /// the scaled canvas), then draws background, final-scale playfield
+  /// text, and that actors layer in slice-model order. The final
+  /// nearest-neighbour upscale of the actors layer samples exactly like
+  /// [Canvas.drawImage] of slices does.
   void _paintShaderCompositedNative(
     Canvas canvas,
     Paint paint,
@@ -857,7 +936,7 @@ class PlayfieldPainter extends CustomPainter {
       } else {
         sceneCanvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0));
       }
-      _paintShaderScene(sceneCanvas, paint, flat, pic);
+      _paintShaderActors(sceneCanvas, pic);
       picture = recorder.endRecording();
       image = picture.toImageSync(320, 200);
     } catch (_) {
@@ -866,6 +945,14 @@ class PlayfieldPainter extends CustomPainter {
       return;
     }
     try {
+      canvas.drawImage(flat, Offset.zero, paint);
+      if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
+        canvas.save();
+        canvas.translate(0.0, -playfieldRow * 8.0);
+        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+        _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+        canvas.restore();
+      }
       canvas.drawImageRect(
         image,
         const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0),

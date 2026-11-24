@@ -366,12 +366,21 @@ class SciPic implements SierraPicture {
   }
 
   @override
-  Uint8List renderPriorityTextureRgba() {
-    final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
+  Uint8List effectivePriorityGrid() {
+    final grid = Uint8List(renderedWidth * renderedHeight);
     for (int i = 0; i < priorityPixels.length; i++) {
-      final pri = priorityPixels[i] & 0x0F;
+      grid[i] = priorityPixels[i] & 0x0F;
+    }
+    return grid;
+  }
+
+  @override
+  Uint8List renderPriorityTextureRgba() {
+    final grid = effectivePriorityGrid();
+    final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
+    for (int i = 0; i < grid.length; i++) {
       final outIdx = i * 4;
-      outBytes[outIdx + 0] = pri * 17;
+      outBytes[outIdx + 0] = grid[i] * 17;
       outBytes[outIdx + 1] = 0;
       outBytes[outIdx + 2] = 0;
       outBytes[outIdx + 3] = 255;

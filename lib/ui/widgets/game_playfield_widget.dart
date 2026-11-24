@@ -223,22 +223,19 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
         }
         break;
       case AgiPictureRenderMode.shaderComposited:
+        // The native occluder-erase path needs only the flat image.
         final flatNull = (pic is SciPic && pic.isUndithered)
             ? pic.cachedUnditheredVisualImage == null
             : pic.cachedFlatVisualImage == null;
-        if (flatNull || pic.cachedPriorityTextureImage == null) {
+        if (flatNull) {
           final key = (pic, pic.rasterEpoch);
           if (!_pendingShaderPreloads.contains(key)) {
             _pendingShaderPreloads.add(key);
-            final f = pic.preloadGpuTextures(includeShaderTextures: true);
-            if (f is Future) {
-              f.then((_) {
-                _pendingShaderPreloads.remove(key);
-                if (mounted) setState(() {});
-              });
-            } else {
+            final undithered = pic is SciPic && pic.isUndithered;
+            pic.toFlatVisualUiImage(undithered: undithered).then((_) {
               _pendingShaderPreloads.remove(key);
-            }
+              if (mounted) setState(() {});
+            });
           }
         }
         break;
@@ -486,9 +483,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                               final flatReady = (pic is SciPic && pic.isUndithered)
                                   ? pic.cachedUnditheredVisualImage != null
                                   : pic?.cachedFlatVisualImage != null;
-                              final active = _prioritySpriteShader != null &&
-                                  flatReady &&
-                                  pic?.cachedPriorityTextureImage != null;
+                              final active = flatReady;
                               final dpr = MediaQuery.devicePixelRatioOf(context);
                               final win = MediaQuery.sizeOf(context);
                               final scaleX = playfieldWidth / 320.0;

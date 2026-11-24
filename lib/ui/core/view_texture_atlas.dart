@@ -194,7 +194,10 @@ class ViewTextureAtlas {
     }
 
     final shouldFlip = forceFlipHorizontal ?? entry.isMirrored;
-    final p = paint ?? (Paint()..filterQuality = FilterQuality.none);
+    final p = paint ??
+        (Paint()
+          ..filterQuality = FilterQuality.none
+          ..isAntiAlias = false);
     final finalScaleX = scale * scaleX;
     final finalScaleY = scale * scaleY;
 

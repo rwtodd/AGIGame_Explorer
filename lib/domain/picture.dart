@@ -154,6 +154,12 @@ abstract class SierraPicture {
   /// 1:1 from `(priorityPixels[i] & 0x0F)`.
   Uint8List renderPriorityTextureRgba();
 
+  /// Effective depth priority per rendered pixel: 320x200 bytes, values
+  /// 0..15. AGI is horizontally doubled from the 160x168 effective
+  /// priorities (rows 168..199 are 0); SCI is 1:1 from
+  /// `priorityPixels[i] & 0x0F`.
+  Uint8List effectivePriorityGrid();
+
   /// Decodes and returns the priority texture as a Flutter [ui.Image].
   Future<ui.Image> toPriorityTextureUiImage();
 
@@ -467,32 +473,30 @@ class AgiPic implements SierraPicture {
   /// R = effectivePriority * 17, G/B = 0, A = 255, horizontally doubled
   /// from the 160x168 effective priorities. Rows 168..199 have R = 0.
   @override
-  Uint8List renderPriorityTextureRgba() {
+  Uint8List effectivePriorityGrid() {
     final effective = priorityBuffer.computeEffectivePriorities();
-    final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
+    final grid = Uint8List(renderedWidth * renderedHeight);
     for (int y = 0; y < nativeHeight; y++) {
       for (int x = 0; x < nativeWidth; x++) {
-        final r = effective[y * nativeWidth + x] * 17;
-        final outIdx1 = (y * renderedWidth + (x * 2)) * 4;
-        final outIdx2 = outIdx1 + 4;
-        outBytes[outIdx1 + 0] = r;
-        outBytes[outIdx1 + 1] = 0;
-        outBytes[outIdx1 + 2] = 0;
-        outBytes[outIdx1 + 3] = 255;
-        outBytes[outIdx2 + 0] = r;
-        outBytes[outIdx2 + 1] = 0;
-        outBytes[outIdx2 + 2] = 0;
-        outBytes[outIdx2 + 3] = 255;
+        final v = effective[y * nativeWidth + x];
+        final outIdx = y * renderedWidth + (x * 2);
+        grid[outIdx] = v;
+        grid[outIdx + 1] = v;
       }
     }
-    for (int y = nativeHeight; y < renderedHeight; y++) {
-      for (int x = 0; x < renderedWidth; x++) {
-        final outIdx = (y * renderedWidth + x) * 4;
-        outBytes[outIdx + 0] = 0;
-        outBytes[outIdx + 1] = 0;
-        outBytes[outIdx + 2] = 0;
-        outBytes[outIdx + 3] = 255;
-      }
+    return grid;
+  }
+
+  @override
+  Uint8List renderPriorityTextureRgba() {
+    final grid = effectivePriorityGrid();
+    final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
+    for (int i = 0; i < grid.length; i++) {
+      final outIdx = i * 4;
+      outBytes[outIdx + 0] = grid[i] * 17;
+      outBytes[outIdx + 1] = 0;
+      outBytes[outIdx + 2] = 0;
+      outBytes[outIdx + 3] = 255;
     }
     return outBytes;
   }
