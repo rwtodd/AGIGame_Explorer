@@ -600,6 +600,43 @@ not yet wired into the game painter):
   make nearest pick the lower texel — the blocking side of a
   priority step — discarding the sprite's first column, exactly the
   field symptom. Final confirmation on Impeller still pending.
+- **Text refinement (field report — fuzzy KQ2 title text in the
+  first native-composite build):** the native composite records
+  only the priority-masked actors at 320×200 on a transparent
+  canvas; the outer paint draws the flat background, then playfield
+  text at final window scale, then the upscaled actors layer.
+  Baking vector ("modern fonts") text into the 320×200 composite
+  magnified its tiny-size anti-aliasing into fuzz, while
+  non-playfield text drawn at final scale stayed crisp. Parity
+  goldens remain byte-exact (at 1× the two orders coincide).
+- **Sprite sampling pivot (field reports — PQ2 doors, SQ1 rooms
+  50/65):** fragment-shader sampling on Impeller proved fragile in
+  ways the Skia test backend cannot reproduce (geometry-AA seams,
+  then texel-selection/linear-sampling distortions of 1-texel
+  sprite details at fractional scales; `texture()` bias and
+  `textureLod` do not compile in Flutter's SkSL, so mip/filter
+  behaviour is not directly controllable). The production actors
+  layer therefore no longer uses the fragment shader: sprites are
+  drawn with the legacy `drawImage` path into a per-actor
+  `saveLayer` at native resolution and occluded pixels are erased
+  with a cached run-length occluder `Path` (`BlendMode.dstOut`)
+  built from `SierraPicture.effectivePriorityGrid()`. The fragment
+  shader, loader, and spike tests remain in-tree as the research
+  record; the mode is still named `shaderComposited` for saved
+  settings compatibility. Native-resolution parity goldens remain
+  byte-exact; Impeller field confirmation pending.
+- **Sprite-edge AA divergence (field report — SQ1 room 65 arrow,
+  room 50 sprites):** the playfield `Paint` set only
+  `filterQuality = none`; `Paint.isAntiAlias` defaults to true, so
+  the legacy path coverage-blended every fractional sprite/slice
+  rect edge while the shader path drew crisp floored coverage.
+  Native-resolution renders were byte-identical; the divergence
+  was purely final-upscale geometry AA in the legacy path. Fixed
+  by setting `isAntiAlias = false` on the playfield paint (and the
+  atlas fallback paint); a badge-scale parity test built from the
+  user's room-65 state (view 245 cel 0 at 106,82) went from 51
+  differing boundary pixels to zero. Impeller field confirmation
+  pending.
 
 ---
 

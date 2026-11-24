@@ -1,7 +1,15 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **planning only — no code has been changed for this feature yet.**
+Status: **stages 0–1 landed 2026-11-22; stage 2 is next.**
 Date: 2026-11-22.
+
+Progress: stage 0 inventory test covers all 10 local SCI titles (patch 3
+at 1,344 or 2,690 bytes everywhere except KQ4's embedded-bank case).
+Stage 1 landed the shared pull transport: `AgiPcmSource` is
+byte-identical to the old offline renderer (golden hashes pinned from
+pre-refactor output, block-size invariant), and `AgiSoundPlayer` is now a
+facade over `StreamingPcmPlayer`. One old test assertion changed: queued
+buffer count is now chunk-based rather than one whole-track write.
 
 Related existing design: [sound_system_design.md](sound_system_design.md),
 [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md), and
