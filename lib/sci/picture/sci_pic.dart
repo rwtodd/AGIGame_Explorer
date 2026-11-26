@@ -531,10 +531,14 @@ class SciPic implements SierraPicture {
   }
 
   /// Rebuilds compositor slices after in-place buffer edits (`AddToPic`).
-  /// No-op when no slice set was computed (gameplay loads skip slicing);
-  /// flat invalidation is handled by [bumpRasterEpoch] callers.
+  /// When no slice set was computed (gameplay loads skip slicing), still
+  /// bumps the raster epoch and detaches GPU caches so the flat/shader
+  /// renderer re-reads the mutated buffers — without forcing slicing.
   FutureOr<void> rebuildSlices() {
-    if (_ditheredSlices.isEmpty && _unditheredSlices.isEmpty) return null;
+    if (_ditheredSlices.isEmpty && _unditheredSlices.isEmpty) {
+      bumpRasterEpoch();
+      return null;
+    }
     for (final slice in _ditheredSlices.values) {
       _stashGpuImage(slice.detachCachedImage());
     }

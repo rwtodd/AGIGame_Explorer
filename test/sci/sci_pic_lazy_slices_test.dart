@@ -28,7 +28,7 @@ void main() {
       expect(pic.getSlice(5)!.hasVisiblePixels, isTrue);
     });
 
-    test('rebuildSlices is a no-op when slices were never computed', () {
+    test('rebuildSlices without computed slices skips slicing but bumps epoch', () {
       final data = Uint8List.fromList([0xFF]);
       final pic = SciPicInterpreter.interpret(data, portTop: 10, computeSlices: false);
       final epoch = pic.rasterEpoch;
@@ -37,8 +37,36 @@ void main() {
 
       expect(pic.slices, isEmpty,
           reason: 'rebuildSlices must not force computation');
-      expect(pic.rasterEpoch, equals(epoch),
-          reason: 'no-op rebuild must not bump the epoch');
+      expect(pic.rasterEpoch, greaterThan(epoch),
+          reason: 'raster invalidation must still bump the epoch');
+    });
+
+    test('unsliced AddToPic mutation via rebuildSlices still invalidates raster caches', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final data = Uint8List.fromList([0xFF]);
+      final pic = SciPicInterpreter.interpret(data, portTop: 10, computeSlices: false);
+      expect(pic.slices, isEmpty);
+
+      // Prime the cached flat GPU image (shader renderer reads this).
+      final primed = await pic.toFlatVisualUiImage();
+      expect(pic.cachedFlatVisualImage, isNotNull);
+      final epochBefore = pic.rasterEpoch;
+
+      // Representative _blitViewToPic mutation: in-place buffer edits.
+      pic.visualPixels[0] = 0x0E;
+      pic.priorityPixels[0] = 7;
+
+      await pic.rebuildSlices();
+
+      expect(pic.slices, isEmpty,
+          reason: 'rebuildSlices must not force slice computation');
+      expect(pic.rasterEpoch, greaterThan(epochBefore),
+          reason: 'raster change must bump the epoch so the shader renderer re-reads buffers');
+      expect(pic.cachedFlatVisualImage, isNull,
+          reason: 'stale flat GPU image must be detached after AddToPic');
+      // Detached by rebuildSlices; dispose once via the stash.
+      expect(primed, isNotNull);
+      pic.disposeDetachedGpuImages();
     });
   });
 }
