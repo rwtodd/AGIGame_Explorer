@@ -1,9 +1,18 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **stages 0–3 landed 2026-11-22; stage 4 is next.**
+Status: **stages 0–4 landed 2026-11-26; stage 5 is next.**
 Date: 2026-11-22.
 
-Progress: stage 3 landed the patch-bank parser and loader
+Progress: stage 4 landed the pure Dart YM3812 (OPL2) core
+(`lib/audio/opl/opl2_chip.dart`, snapshots in
+`lib/audio/opl/opl_debug_snapshot.dart`): mono 49,716 Hz, integer 20-bit
+phase, generated sine/amp tables, log-domain envelope with documented
+rate-curve approximation, FM/additive, feedback, waveforms 0–3, AM/VIB,
+write-log capture, and saturating mix. Tests in `test/audio/opl2_chip_test.dart`
+(20 tests) pass; `dart analyze` clean; `test/audio/` (113) and `test/sci/`
+(370) green. Perf (JIT debug, 9 channels keyed): 5 s render in ~90 ms
+(debug budget <500 ms; release budget ~250 ms).
+Stage 3 landed the patch-bank parser and loader
 (`lib/audio/opl/sci_adlib_patch.dart`): 28-byte records with retained raw
 bytes, 1344/2690 containers (second half at `2 + 28*i`, separator bytes
 between halves — not a file prefix), inverted algorithm flag, embedded
