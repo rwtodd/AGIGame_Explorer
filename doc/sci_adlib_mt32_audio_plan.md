@@ -1,9 +1,25 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **stages 0–4 landed 2026-11-26; stage 5 is next.**
+Status: **stages 0–5 landed 2026-11-26 (stage 5 listening sign-off
+pending); stage 6 is next.**
 Date: 2026-11-22.
 
-Progress: stage 4 landed the pure Dart YM3812 (OPL2) core
+Progress: stage 5 landed the Sierra AdLib driver
+(`lib/audio/opl/sci_adlib_driver.dart`: initTrack voice assignment,
+round-robin allocation with oldest-voice stealing, sustain, pitch bend
+at Sierra's ±12-semitone scale, CC 0x4B voice mapping, SCI0 velocity
+math, computed equal-temperament pitch registers) against an
+`OplRegisterSink` abstraction, plus the offline audition renderer
+(`lib/audio/opl/sci_adlib_renderer.dart`). Corpus renders are non-silent
+(PQ2 sound 1, KQ4 sound 2 via embedded bank, SQ3 sound 1; structural
+assertions only). Two listening-gate items remain open: (1) the
+reference-compatible default patch 13 is never explicitly programmed by
+initTrack, so a note before any program change uses whatever operators
+the chip already holds; (2) 30-second PQ2/SQ3 renders peak at full scale
+in loud passages, so mix headroom wants an ear check against ScummVM.
+Audition WAVs from the 2026-11-26 session were generated under
+`/tmp/adlib_audition/` (not committed).
+Stage 4 landed the pure Dart YM3812 (OPL2) core
 (`lib/audio/opl/opl2_chip.dart`, snapshots in
 `lib/audio/opl/opl_debug_snapshot.dart`): mono 49,716 Hz, integer 20-bit
 phase, generated sine/amp tables, log-domain envelope with documented
