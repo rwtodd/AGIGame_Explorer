@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_agigame/domain/save_slot_info.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 

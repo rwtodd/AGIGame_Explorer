@@ -1,6 +1,6 @@
 // Syntax tokenizer and highlighter for SCI disassembly and decompiled script views.
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 
 /// Semantic token types for syntax-highlighting SCI scripts and disassembly.

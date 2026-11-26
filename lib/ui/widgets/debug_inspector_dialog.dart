@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
 import 'package:flutter_agigame/domain/game_state_snapshot.dart';

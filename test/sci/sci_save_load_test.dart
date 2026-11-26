@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_state_serializer.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_state_snapshot.dart';

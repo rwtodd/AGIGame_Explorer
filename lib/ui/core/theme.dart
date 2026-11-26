@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Dark retro-modern design system theme for the Sierra AGI Workbench.
 class AgiTheme {

@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/sci/picture/sci_pic_interpreter.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
