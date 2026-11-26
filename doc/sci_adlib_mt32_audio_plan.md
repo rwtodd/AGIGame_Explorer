@@ -1,15 +1,29 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **stages 0–1 landed 2026-11-22; stage 2 is next.**
+Status: **stages 0–3 landed 2026-11-22; stage 4 is next.**
 Date: 2026-11-22.
 
-Progress: stage 0 inventory test covers all 10 local SCI titles (patch 3
+Progress: stage 3 landed the patch-bank parser and loader
+(`lib/audio/opl/sci_adlib_patch.dart`): 28-byte records with retained raw
+bytes, 1344/2690 containers (second half at `2 + 28*i`, separator bytes
+between halves — not a file prefix), inverted algorithm flag, embedded
+`ADL.DRV` extractor with the exact {5684, 5720, 5727} size allowlist at
+offset `0x45a`, and provenance-distinguished loading (volume / loose
+patch / embedded `ADL.DRV` / unavailable). Corpus gates pass: PQ2 48
+instruments, SQ3 96, KQ4 SCI 48 via embedded bank. The 5382-byte SCI1.1
+form is rejected with a typed unsupported error, as documented.
+Stage 0 inventory test covers all 10 local SCI titles (patch 3
 at 1,344 or 2,690 bytes everywhere except KQ4's embedded-bank case).
 Stage 1 landed the shared pull transport: `AgiPcmSource` is
 byte-identical to the old offline renderer (golden hashes pinned from
 pre-refactor output, block-size invariant), and `AgiSoundPlayer` is now a
 facade over `StreamingPcmPlayer`. One old test assertion changed: queued
 buffer count is now chunk-based rather than one whole-track write.
+Stage 2 landed the lossless model: `SciMidiTrack`/`SciMidiParser` keep
+the full header, event stream, cues, loop, and digital sample; the
+legacy translation is now an adapter with note-for-note regression tests
+(verified identical output on 9 synthetic streams × 3 modes before and
+after the refactor).
 
 Related existing design: [sound_system_design.md](sound_system_design.md),
 [sci0_dual_engine_architecture.md](sci0_dual_engine_architecture.md), and
@@ -38,7 +52,9 @@ not merely code hidden in a DOS driver:
   override it through the existing loose-patch resource mechanism.
 - The formats ScummVM accepts are:
   - 1,344 bytes: 48 instruments × 28 bytes.
-  - 2,690 bytes: a two-byte prefix plus 96 instruments × 28 bytes.
+  - 2,690 bytes: 48 instruments, a two-byte separator between the halves,
+    then 48 more (second half at `2 + 28*i`; the separator bytes are never
+    record data).
   - 5,382 bytes: the later SCI1.1 form, 190 instruments plus a rhythm map.
     It is outside the SCI0 first slice, but the parser should reject it
     deliberately rather than misread it.
