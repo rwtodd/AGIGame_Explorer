@@ -35,8 +35,10 @@ void main() {
       final pri = engine.currentPic?.priorityBuffer.priorityAt(20, 160) ?? 4;
       expect(pri, greaterThanOrEqualTo(4));
 
-      // Give the picture cached slices
+      // Give the picture cached slices (gameplay loads are unsliced now;
+      // this test drives the legacy slice painter directly)
       final pic = engine.currentPic!;
+      pic.ensureSlices();
       await pic.preloadGpuTextures();
 
       final painter = AgiPicturePainter(

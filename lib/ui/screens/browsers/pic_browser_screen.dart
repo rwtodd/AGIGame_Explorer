@@ -172,6 +172,9 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
 
     try {
       final pic = loader.loadPic(picNum);
+      // Gameplay loads are unsliced; the browser's slice inspector and
+      // composited preview read them directly, so compute on demand.
+      pic.ensureSlices();
       final rawData = loader.loadRawPic(picNum);
       final stepInterpreter = PicStepInterpreter(rawData, isV3: loader.meta.isV3);
 
@@ -522,6 +525,9 @@ class _PicBrowserScreenState extends ConsumerState<PicBrowserScreen> {
                         _renderMode == AgiPictureRenderMode.unditheredVisual) {
                       sci.ensureSlices(undithered: sci.isUndithered);
                     }
+                  } else if (_currentPic != null &&
+                      _renderMode == AgiPictureRenderMode.compositedSlices) {
+                    _currentPic!.ensureSlices();
                   }
                 });
               },

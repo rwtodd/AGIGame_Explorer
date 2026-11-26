@@ -893,13 +893,14 @@ class SciKernel {
           picBytes,
           picNumber: picNum,
           portTop: picPortTop,
-          computeSlices: true,
-          computeUnditheredSlices: unditheredPictures,
+          computeSlices: false,
+          computeUnditheredSlices: false,
         );
-        if (unditheredPictures) {
-          pic.isUndithered = true;
-          pic.ensureSlices(undithered: true);
-        }
+        // Gameplay loads skip slices entirely (shader/flat paths need only
+        // the flat visual + priority textures). The undithered flag alone
+        // selects the flat rendering source; legacy compositedSlices and
+        // the pic browser call ensureSlices() on demand.
+        pic.isUndithered = unditheredPictures;
         currentPic = pic;
         if (pic.priorityBands != null) {
           initPriorityBands(customBands: pic.priorityBands);

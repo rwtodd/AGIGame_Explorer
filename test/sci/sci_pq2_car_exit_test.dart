@@ -44,7 +44,9 @@ void main() {
       expect(pic33.visualPixels[100 * 320 + 235], equals(6),
           reason: 'Headrest visual color 6 must not be overwritten by street');
 
-      // Verify active slices for the 16-layer compositor
+      // Verify active slices for the 16-layer compositor (gameplay loads
+      // are unsliced; compute on demand for this diagnostic read)
+      pic33.ensureSlices();
       expect(pic33.slices[0]?.hasVisiblePixels, isTrue, reason: 'Sky is in Slice 0');
       expect(pic33.slices[1]?.hasVisiblePixels, isTrue, reason: 'Street is in Slice 1');
       expect(pic33.slices[12]?.hasVisiblePixels, isTrue, reason: 'Sonny and mirror are in Slice 12');

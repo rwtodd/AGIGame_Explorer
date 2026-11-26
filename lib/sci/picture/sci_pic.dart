@@ -119,6 +119,7 @@ class SciPic implements SierraPicture {
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
   ui.Image? _cachedPriorityTextureImage;
+  final OccluderPathCache _occluderCache = OccluderPathCache();
   final List<ui.Image> _detachedGpuImages = [];
   bool _isDisposed = false;
 
@@ -375,6 +376,10 @@ class SciPic implements SierraPicture {
   }
 
   @override
+  ui.Path occluderPathFor(int actorPriority) =>
+      _occluderCache.forPriority(actorPriority, effectivePriorityGrid);
+
+  @override
   Uint8List renderPriorityTextureRgba() {
     final grid = effectivePriorityGrid();
     final outBytes = Uint8List(renderedWidth * renderedHeight * 4);
@@ -417,9 +422,11 @@ class SciPic implements SierraPicture {
   /// Drops the flat/priority-map/control-map/priority-texture GPU caches
   /// without touching slices and without marking disposed. Stashes the
   /// images instead of disposing them mid-frame; dispose with
-  /// [disposeDetachedGpuImages].
+  /// [disposeDetachedGpuImages]. Also drops the occluder-path cache so
+  /// replayed/mutated rasters rebuild it.
   @override
   void invalidateCachedImages() {
+    _occluderCache.clear();
     _stashGpuImage(_cachedFlatVisualImage);
     _cachedFlatVisualImage = null;
     _stashGpuImage(_cachedUnditheredVisualImage);
@@ -468,7 +475,12 @@ class SciPic implements SierraPicture {
 
   /// Drops GPU image handles without disposing them so the current frame can
   /// still paint. Call [disposeDetachedGpuImages] on the next frame.
+  /// Also drops the occluder-path cache: this is the single funnel for SCI
+  /// raster changes — [bumpRasterEpoch] (vector replay and
+  /// [rebuildSlices], reached via SCI `AddToPic`), [replaceSlices] and
+  /// [invalidateGpuCache] all route through here.
   void detachGpuCache() {
+    _occluderCache.clear();
     _stashGpuImage(_cachedFlatVisualImage);
     _cachedFlatVisualImage = null;
     _stashGpuImage(_cachedUnditheredVisualImage);
@@ -519,7 +531,10 @@ class SciPic implements SierraPicture {
   }
 
   /// Rebuilds compositor slices after in-place buffer edits (`AddToPic`).
+  /// No-op when no slice set was computed (gameplay loads skip slicing);
+  /// flat invalidation is handled by [bumpRasterEpoch] callers.
   FutureOr<void> rebuildSlices() {
+    if (_ditheredSlices.isEmpty && _unditheredSlices.isEmpty) return null;
     for (final slice in _ditheredSlices.values) {
       _stashGpuImage(slice.detachCachedImage());
     }
@@ -537,6 +552,7 @@ class SciPic implements SierraPicture {
     return preloadGpuTextures();
   }
 
+  @override
   void ensureSlices({bool undithered = false}) {
     if (undithered) {
       if (_unditheredSlices.isEmpty) {
@@ -565,6 +581,7 @@ class SciPic implements SierraPicture {
   @override
   void dispose() {
     _isDisposed = true;
+    _occluderCache.clear();
     disposeDetachedGpuImages();
     _cachedFlatVisualImage?.dispose();
     _cachedFlatVisualImage = null;

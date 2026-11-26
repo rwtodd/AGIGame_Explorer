@@ -14,7 +14,9 @@ class PicVectorInterpreter {
   PicVectorInterpreter({this.isV3 = false});
 
   /// Interprets raw PICTURE resource bytes [data] and returns an [AgiPic].
-  AgiPic interpret(Uint8List data) {
+  /// When [computeSlices] is false the returned pic carries an empty slice
+  /// map; call [AgiPic.ensureSlices] to compute them lazily.
+  AgiPic interpret(Uint8List data, {bool computeSlices = true}) {
     final canvas = AgiPicCanvas(isV3: isV3);
 
     int idx = 0;
@@ -294,6 +296,6 @@ class PicVectorInterpreter {
       }
     }
 
-    return canvas.toAgiPic(copyBuffers: false);
+    return canvas.toAgiPic(computeSlices: computeSlices, copyBuffers: false);
   }
 }

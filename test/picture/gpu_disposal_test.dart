@@ -67,7 +67,8 @@ void main() {
       await engine.onDrawPic(pics[0]);
       final pic1 = engine.currentPic;
       expect(pic1, isNotNull);
-      await pic1!.preloadGpuTextures();
+      pic1!.ensureSlices();
+      await pic1.preloadGpuTextures();
 
       final slice1 = pic1.activeSlices.first;
       expect(slice1.cachedUiImage, isNotNull);
@@ -101,6 +102,7 @@ void main() {
 
       await engine.onDrawPic(pics[0]);
       final pic = engine.currentPic!;
+      pic.ensureSlices();
       await pic.preloadGpuTextures();
 
       final oldSlice = pic.activeSlices.first;
@@ -130,6 +132,7 @@ void main() {
 
       await engine.onDrawPic(1);
       final pic = engine.currentPic!;
+      pic.ensureSlices();
       await pic.preloadGpuTextures();
       final oldSlice = pic.activeSlices.first;
       expect(oldSlice.cachedUiImage, isNotNull);

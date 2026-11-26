@@ -2699,7 +2699,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         } catch (_) {}
       }
 
-      if (_addToPicCalls.isNotEmpty) {
+      // Only maintain slices the caller already computed; gameplay loads
+      // are unsliced and the flat replay above is sufficient.
+      if (_addToPicCalls.isNotEmpty && currentPic!.slices.isNotEmpty) {
         final newSlices = PictureSlicer.slice(
           visualPixels: currentPic!.visualPixels,
           priorityBuffer: currentPic!.priorityBuffer,
@@ -2710,8 +2712,6 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         currentPic!.slices.clear();
         currentPic!.slices.addAll(newSlices);
       }
-
-      currentPic?.preloadGpuTextures();
     } else {
       currentPic?.dispose();
       currentPic = null;
@@ -2920,13 +2920,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       _dialogAutoCloseTicks = null;
     }
 
-    final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
-    if (f1 is Future || f2 is Future) {
-      return Future.wait<dynamic>([
-        if (f1 is Future) f1,
-        if (f2 is Future) f2 as Future,
-      ]).then((_) {
+    if (f2 is Future) {
+      return (f2 as Future).then((_) {
         notifyListeners();
       });
     }
@@ -3355,19 +3351,14 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
       currentPic?.picNumber = picNumber;
       textScreenBuffer.clearLines(_playfieldRow, _playfieldRow + 20, 0);
       _displayedTexts.removeWhere((t) => t.row >= _playfieldRow && t.row <= _playfieldRow + 20);
-      return currentPic?.preloadGpuTextures();
     }
   }
 
   @override
   FutureOr<void> onShowPic() {
-    final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
-    if (f1 is Future || f2 is Future) {
-      return Future.wait<dynamic>([
-        if (f1 is Future) f1,
-        if (f2 is Future) f2 as Future,
-      ]).then((_) {
+    if (f2 is Future) {
+      return (f2 as Future).then((_) {
         notifyListeners();
       });
     }
@@ -3451,19 +3442,22 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         dirtyPriorities.add(entry.boxPriority);
       }
 
-      // Re-slice only the dirty priority levels and re-upload GPU textures
+      // Re-slice only the dirty priority levels when slices were already
+      // computed; gameplay loads are unsliced and must not force it.
       final futures = <Future<ui.Image>>[];
-      for (final pri in dirtyPriorities) {
-        final oldSlice = currentPic!.slices[pri];
-        oldSlice?.dispose();
-        final newSlice = PictureSlicer.sliceSinglePriority(
-          visualPixels: currentPic!.visualPixels,
-          priorityBuffer: currentPic!.priorityBuffer,
-          priority: pri,
-        );
-        currentPic!.slices[pri] = newSlice;
-        if (newSlice.hasVisiblePixels) {
-          futures.add(newSlice.toUiImage());
+      if (currentPic!.slices.isNotEmpty) {
+        for (final pri in dirtyPriorities) {
+          final oldSlice = currentPic!.slices[pri];
+          oldSlice?.dispose();
+          final newSlice = PictureSlicer.sliceSinglePriority(
+            visualPixels: currentPic!.visualPixels,
+            priorityBuffer: currentPic!.priorityBuffer,
+            priority: pri,
+          );
+          currentPic!.slices[pri] = newSlice;
+          if (newSlice.hasVisiblePixels) {
+            futures.add(newSlice.toUiImage());
+          }
         }
       }
       currentPic!.invalidateCachedImages();
@@ -3549,13 +3543,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   @override
   FutureOr<void> onStatus() {
     _isInventoryOpen = true;
-    final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
-    if (f1 is Future || f2 is Future) {
-      return Future.wait<dynamic>([
-        if (f1 is Future) f1,
-        if (f2 is Future) f2 as Future,
-      ]).then((_) {
+    if (f2 is Future) {
+      return (f2 as Future).then((_) {
         notifyListeners();
       });
     }
@@ -3565,13 +3555,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
   @override
   FutureOr<void> onShowObj(int objNumber) {
     _inspectingObjectNumber = objNumber;
-    final f1 = currentPic?.preloadGpuTextures();
     final f2 = atlasManager.prepareAtlasAsync();
-    if (f1 is Future || f2 is Future) {
-      return Future.wait<dynamic>([
-        if (f1 is Future) f1,
-        if (f2 is Future) f2 as Future,
-      ]).then((_) {
+    if (f2 is Future) {
+      return (f2 as Future).then((_) {
         notifyListeners();
       });
     }

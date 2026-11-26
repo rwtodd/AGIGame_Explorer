@@ -16,7 +16,6 @@ import 'package:flutter_agigame/loader/parsers/words_parser.dart';
 import 'package:flutter_agigame/loader/resource_directory.dart';
 import 'package:flutter_agigame/loader/volume_manager.dart';
 import 'package:flutter_agigame/picture/pic_vector_interpreter.dart';
-import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// Central resource loader for Sierra AGI games (v2 and v3).
 class AgiResourceLoader {
@@ -151,28 +150,27 @@ class AgiResourceLoader {
     return vmgr.getResource(de);
   }
 
-  /// Loads and interprets an AGI PICTURE resource into an [AgiPic] with priority slices.
+  /// Loads and interprets an AGI PICTURE resource into an [AgiPic] without
+  /// priority slices (the shader/flat gameplay paths need none; call
+  /// [AgiPic.ensureSlices] for the legacy compositedSlices mode or the pic
+  /// browser).
   /// Uses cached base vector raster buffers to make repeated room entries instantaneous.
   AgiPic loadPic(int number) {
     final cached = _picCache.get(number);
     if (cached != null) {
       final visualCopy = Uint8List.fromList(cached.visualPixels);
       final priCopy = cached.priorityBuffer.clone();
-      final slices = PictureSlicer.slice(
-        visualPixels: visualCopy,
-        priorityBuffer: priCopy,
-      );
       return AgiPic(
         picNumber: number,
         visualPixels: visualCopy,
         priorityBuffer: priCopy,
-        slices: slices,
+        slices: <int, PictureSlice>{},
       );
     }
 
     final rawBytes = loadRawPic(number);
     final interpreter = PicVectorInterpreter(isV3: meta.isV3);
-    final pic = interpreter.interpret(rawBytes);
+    final pic = interpreter.interpret(rawBytes, computeSlices: false);
     pic.picNumber = number;
 
     // Cache unmutated template buffers
@@ -184,7 +182,7 @@ class AgiResourceLoader {
         picNumber: number,
         visualPixels: visualTemplate,
         priorityBuffer: priTemplate,
-        slices: const {},
+        slices: <int, PictureSlice>{},
       ),
     );
 

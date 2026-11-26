@@ -93,6 +93,8 @@ void main() {
       final pic = loader.loadPic(5);
       expect(pic.visualPixels, equals(expectedPic));
       expect(pic.priorityBuffer.pixels, equals(expectedPri));
+      expect(pic.slices, isEmpty, reason: 'gameplay loads must not compute slices');
+      pic.ensureSlices();
       expect(pic.slices.length, equals(16));
       expect(pic.slices[15]!.hasVisiblePixels, isTrue);
     });

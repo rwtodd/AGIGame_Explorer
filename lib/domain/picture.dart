@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/domain/priority_buffer.dart';
+import 'package:flutter_agigame/picture/picture_slicer.dart';
 
 /// Completes a [ui.decodeImageFromPixels] callback without hanging if the
 /// owner was disposed while the GPU upload was in flight.
@@ -109,6 +110,50 @@ class PictureSlice {
   }
 }
 
+/// Per-priority cache of run-length occluder paths over a pic's effective
+/// priority grid, shared by [AgiPic] and [SciPic].
+///
+/// A path for [SierraPicture.occluderPathFor] holds one rect per maximal
+/// horizontal run of rendered pixels (320x200 pic coordinates) where the
+/// effective priority exceeds the actor priority. The effective grid is
+/// captured once and reused across priorities; [clear] drops both, and must
+/// be called whenever the pic's visual/priority rasters are invalidated
+/// (pixel mutations change which pixels occlude which actors).
+class OccluderPathCache {
+  final Map<int, ui.Path> _paths = <int, ui.Path>{};
+  Uint8List? _grid;
+
+  ui.Path forPriority(int actorPriority, Uint8List Function() gridProvider) {
+    final cached = _paths[actorPriority];
+    if (cached != null) return cached;
+    final grid = _grid ??= gridProvider();
+    final path = ui.Path();
+    for (int y = 0; y < 200; y++) {
+      var runStart = -1;
+      for (int x = 0; x <= 320; x++) {
+        final occluded = x < 320 && grid[y * 320 + x] > actorPriority;
+        if (occluded && runStart < 0) runStart = x;
+        if (!occluded && runStart >= 0) {
+          path.addRect(ui.Rect.fromLTWH(
+            runStart.toDouble(),
+            y.toDouble(),
+            (x - runStart).toDouble(),
+            1.0,
+          ));
+          runStart = -1;
+        }
+      }
+    }
+    _paths[actorPriority] = path;
+    return path;
+  }
+
+  void clear() {
+    _paths.clear();
+    _grid = null;
+  }
+}
+
 /// Common interface for Sierra background pictures (both AGI and SCI).
 ///
 /// Enables UI components (like [PicBrowserScreen] and [AgiPictureCanvas]) to
@@ -160,6 +205,15 @@ abstract class SierraPicture {
   /// `priorityPixels[i] & 0x0F`.
   Uint8List effectivePriorityGrid();
 
+  /// Run-length occluder path for [actorPriority]: one rect per maximal
+  /// horizontal run of rendered pixels (320x200 pic coordinates) where the
+  /// effective priority exceeds [actorPriority]. Cached per priority; the
+  /// cache is cleared wherever this pic's rasters are invalidated
+  /// ([invalidateCachedImages] and the SCI GPU-detach funnel), so AGI
+  /// in-place burns (`add.to.pic`) no longer rely on the always-zero
+  /// [rasterEpoch] for invalidation.
+  ui.Path occluderPathFor(int actorPriority);
+
   /// Decodes and returns the priority texture as a Flutter [ui.Image].
   Future<ui.Image> toPriorityTextureUiImage();
 
@@ -178,6 +232,14 @@ abstract class SierraPicture {
   /// Drops the flat/priority-map/control-map/priority-texture GPU caches
   /// without touching slices and without marking disposed.
   void invalidateCachedImages();
+
+  /// Lazily computes priority slices on first use. Gameplay picture loads
+  /// skip slicing entirely (the shader/flat paths need only the flat visual
+  /// and priority textures); the legacy compositedSlices mode and the pic
+  /// browser call this before reading [slices]. No-op once computed.
+  /// [undithered] selects the blended 40-color slice set on [SciPic];
+  /// ignored for AGI, which has a single slice set.
+  void ensureSlices({bool undithered = false});
 
   /// Preloads GPU textures for all active slices asynchronously.
   FutureOr<void> preloadGpuTextures({bool includeDiagnosticMaps = false, bool includeShaderTextures = false});
@@ -259,6 +321,7 @@ class AgiPic implements SierraPicture {
   ui.Image? _cachedPriorityMapImage;
   ui.Image? _cachedControlMapImage;
   ui.Image? _cachedPriorityTextureImage;
+  final OccluderPathCache _occluderCache = OccluderPathCache();
   bool _isDisposed = false;
 
   /// The AGI picture resource number, if known.
@@ -325,6 +388,18 @@ class AgiPic implements SierraPicture {
   @override
   int effectivePriorityAtPixel(int x, int y) =>
       priorityBuffer.effectivePriorityAt(x, y);
+
+  @override
+  ui.Path occluderPathFor(int actorPriority) =>
+      _occluderCache.forPriority(actorPriority, effectivePriorityGrid);
+
+  @override
+  void ensureSlices({bool undithered = false}) {
+    if (slices.isNotEmpty) return;
+    slices.addAll(
+      PictureSlicer.slice(visualPixels: visualPixels, priorityBuffer: priorityBuffer),
+    );
+  }
 
   /// Preloads GPU textures for all active slices asynchronously.
   @override
@@ -529,9 +604,13 @@ class AgiPic implements SierraPicture {
   }
 
   /// Drops the flat/priority-map/control-map/priority-texture GPU caches
-  /// without touching slices and without marking disposed.
+  /// without touching slices and without marking disposed. Also drops the
+  /// occluder-path cache: callers that burned pixels into the buffers
+  /// (e.g. AGI `add.to.pic`, which funnels here) changed the effective
+  /// priorities, so previously built occluder paths are stale.
   @override
   void invalidateCachedImages() {
+    _occluderCache.clear();
     _cachedFlatVisualImage?.dispose();
     _cachedFlatVisualImage = null;
     _cachedPriorityMapImage?.dispose();
@@ -546,6 +625,7 @@ class AgiPic implements SierraPicture {
   @override
   void dispose() {
     _isDisposed = true;
+    _occluderCache.clear();
     _cachedFlatVisualImage?.dispose();
     _cachedFlatVisualImage = null;
     _cachedPriorityMapImage?.dispose();

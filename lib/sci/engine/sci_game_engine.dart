@@ -308,9 +308,16 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
     kernel.unditheredPictures = undithered;
     final pic = kernel.currentPic;
     if (pic != null) {
+      final hasSlices = pic.slices.isNotEmpty;
       pic.isUndithered = undithered;
-      if (undithered) {
+      // Only maintain slices the caller already computed; flipping the
+      // flag must not force slice computation. Preloading the shader
+      // textures (flat visual + priority texture) warms the first frame
+      // in the new dither mode.
+      if (undithered && hasSlices) {
         pic.ensureSlices(undithered: true);
+      }
+      if (undithered) {
         pic.preloadGpuTextures(includeShaderTextures: true);
       }
     }
