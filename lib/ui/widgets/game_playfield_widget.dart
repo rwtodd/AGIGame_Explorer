@@ -14,6 +14,7 @@ import 'package:flutter_agigame/ui/core/view_texture_atlas.dart';
 import 'package:flutter_agigame/ui/models/sci_window_overlay.dart';
 import 'package:flutter_agigame/ui/shaders/priority_sprite_shader.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
+import 'package:flutter_agigame/ui/widgets/renderer_diagnostics.dart';
 
 /// Interactive composite playfield viewport for the running Sierra Game Engine.
 ///
@@ -31,6 +32,10 @@ class GamePlayfieldWidget extends StatefulWidget {
   final int? isolatedPrioritySlice;
   final String currentInputText;
   final ValueChanged<Offset>? onCanvasTap;
+
+  /// Receives a [RendererDiagnostics] snapshot after each layout pass when
+  /// provided (consumed by the debug inspectors; not rendered on-screen).
+  final ValueNotifier<RendererDiagnostics?>? diagnostics;
 
   /// Display resolution, viewport, and priority geometry profile.
   final DisplayProfile? displayProfile;
@@ -57,6 +62,7 @@ class GamePlayfieldWidget extends StatefulWidget {
     this.isolatedPrioritySlice,
     this.currentInputText = '',
     this.onCanvasTap,
+    this.diagnostics,
     this.displayProfile,
     this.mouseCursor,
     this.showMouseCursor = false,
@@ -80,6 +86,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
   ui.FragmentShader? _prioritySpriteShader;
   bool _priorityShaderLoadAttempted = false;
   final Set<(SierraPicture, int?)> _pendingShaderPreloads = {};
+
+  /// Actors-layer cache for the native shaderComposited path, owned by
+  /// this state (see [ActorsLayerCache]) and disposed below.
+  final ActorsLayerCache _actorsLayerCache = ActorsLayerCache();
 
   SierraGameSession get _session => widget.session ?? widget.engine!;
   AgiGameEngine? get _agiEngine =>
@@ -176,6 +186,8 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
     if (pic == null) return;
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
+        // Gameplay loads are unsliced; legacy mode computes on demand.
+        pic.ensureSlices(undithered: pic is SciPic && pic.isUndithered);
         if (pic.slices.values.any((s) => s.hasVisiblePixels && s.cachedUiImage == null)) {
           final f = pic.preloadGpuTextures();
           if (f is Future) {
@@ -235,6 +247,10 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             pic.toFlatVisualUiImage(undithered: undithered).then((_) {
               _pendingShaderPreloads.remove(key);
               if (mounted) setState(() {});
+            }, onError: (Object _, StackTrace _) {
+              // Pic disposed while its decode was in flight; the next pic
+              // (or a later notify for this one) re-triggers the load.
+              _pendingShaderPreloads.remove(key);
             });
           }
         }
@@ -244,6 +260,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
 
   @override
   void dispose() {
+    _actorsLayerCache.dispose();
     _prioritySpriteShader?.dispose();
     _prioritySpriteShader = null;
     _session.removeListener(_onEngineNotify);
@@ -303,6 +320,27 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
             // Container is taller than target aspect ratio -> width-constrained
             playfieldWidth = availableWidth;
             playfieldHeight = availableWidth / targetAspect;
+          }
+        }
+
+        final diagNotifier = widget.diagnostics;
+        if (diagNotifier != null) {
+          final pic = _session.currentPic;
+          final flatReady = (pic is SciPic && pic.isUndithered)
+              ? pic.cachedUnditheredVisualImage != null
+              : pic?.cachedFlatVisualImage != null;
+          final next = RendererDiagnostics(
+            renderMode: widget.renderMode,
+            shaderActive: flatReady,
+            windowSize: MediaQuery.sizeOf(context),
+            playfieldSize: Size(playfieldWidth, playfieldHeight),
+            devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+            picNumber: pic?.picNumber,
+            strictIntegerScaling: widget.strictIntegerScaling,
+            correctAspectRatio: widget.correctAspectRatio,
+          );
+          if (diagNotifier.value != next) {
+            diagNotifier.value = next;
           }
         }
 
@@ -452,6 +490,7 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                           isolatedPrioritySlice: widget.isolatedPrioritySlice,
                           cursorBlink: _cursorBlink,
                           buildActors: _buildActorSprites,
+                          actorsLayerCache: _actorsLayerCache,
                           displayProfile: widget.displayProfile ?? _session.displayProfile,
                           sciWindows: widget.sciWindows,
                           mouseCursor: widget.mouseCursor ?? _session.mouseCursor,
@@ -468,48 +507,6 @@ class _GamePlayfieldWidgetState extends State<GamePlayfieldWidget> {
                     // Optional CRT retro shader overlay
                     if (widget.showCrtShader)
                       const CrtShaderOverlay(),
-
-                    // Debug-only active-renderer tell for shader mode:
-                    // green while the priority shader is actually drawing,
-                    // amber while falling back to slices (textures loading).
-                    if (kDebugMode && widget.renderMode == AgiPictureRenderMode.shaderComposited)
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: IgnorePointer(
-                          child: Builder(
-                            builder: (context) {
-                              final pic = _session.currentPic;
-                              final flatReady = (pic is SciPic && pic.isUndithered)
-                                  ? pic.cachedUnditheredVisualImage != null
-                                  : pic?.cachedFlatVisualImage != null;
-                              final active = flatReady;
-                              final dpr = MediaQuery.devicePixelRatioOf(context);
-                              final win = MediaQuery.sizeOf(context);
-                              final scaleX = playfieldWidth / 320.0;
-                              final scaleY = playfieldHeight / 200.0;
-                              return Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                color: const Color(0x99000000),
-                                child: Text(
-                                  '${active ? 'PRIORITY SHADER' : 'PRIORITY SHADER: FALLBACK'}\n'
-                                  'win ${win.width.toStringAsFixed(1)}x${win.height.toStringAsFixed(1)} dpr $dpr '
-                                  'dev ${(win.width * dpr).round()}x${(win.height * dpr).round()}\n'
-                                  'pf ${playfieldWidth.toStringAsFixed(1)}x${playfieldHeight.toStringAsFixed(1)} '
-                                  'dev ${(playfieldWidth * dpr).round()}x${(playfieldHeight * dpr).round()}\n'
-                                  'scale ${scaleX.toStringAsFixed(4)} x ${scaleY.toStringAsFixed(4)} '
-                                  'pic ${pic?.picNumber} int ${widget.strictIntegerScaling ? "on" : "off"} 4:3 ${widget.correctAspectRatio ? "on" : "off"}',
-                                  style: TextStyle(
-                                    color: active ? const Color(0xFF55FF55) : const Color(0xFFFFFF55),
-                                    fontSize: 10,
-                                    fontFamily: 'Courier',
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
 
                     // Command prompt is cheap chrome; keep it off the picture painter.
                     ListenableBuilder(
@@ -830,6 +827,7 @@ class _GamePlayfieldPainter extends CustomPainter {
   final SierraCursor? mouseCursor;
   final Offset? mouseCursorPosition;
   final bool showMouseCursor;
+  final ActorsLayerCache? actorsLayerCache;
 
   _GamePlayfieldPainter({
     required this.session,
@@ -846,6 +844,7 @@ class _GamePlayfieldPainter extends CustomPainter {
     this.mouseCursor,
     this.mouseCursorPosition,
     this.showMouseCursor = false,
+    this.actorsLayerCache,
     required super.repaint,
   });
 
@@ -859,6 +858,7 @@ class _GamePlayfieldPainter extends CustomPainter {
     AgiPicturePainter(
       picture: pic,
       actors: buildActors(),
+      actorsLayerCache: actorsLayerCache,
       displayedTexts: agiEngine?.displayedTexts ?? const [],
       textScreenBuffer: agiEngine?.textScreenBuffer,
       isTextScreen: agiEngine?.isTextScreen ?? false,

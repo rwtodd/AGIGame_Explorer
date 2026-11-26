@@ -33,6 +33,7 @@ void main() {
 
     final loader = AgiResourceLoader.fromDirectorySync('reference_games/space-quest-1');
     final pic = loader.loadPic(65);
+    pic.ensureSlices();
     final view = loader.loadView(245);
     await pic.preloadGpuTextures(includeShaderTextures: true);
     final flat = pic.cachedFlatVisualImage!;

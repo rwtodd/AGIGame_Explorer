@@ -330,9 +330,8 @@ void main() {
   test('occluder path first build cost (band pic, pri 10)', () {
     final pic = buildBandPic();
     addTearDown(pic.dispose);
-    final painter = PlayfieldPainter(picture: pic);
     final sw = Stopwatch()..start();
-    final path = painter.occluderPathFor(pic, 10);
+    final path = pic.occluderPathFor(10);
     sw.stop();
     // ignore: avoid_print
     print('occluder path first build (band pic, pri 10): '
@@ -340,9 +339,9 @@ void main() {
     expect(path, isNotNull);
     // Second call for a different priority reuses the cached grid;
     // a call for the same priority returns the cached path object.
-    expect(identical(painter.occluderPathFor(pic, 10), path), isTrue);
+    expect(identical(pic.occluderPathFor(10), path), isTrue);
     final sw2 = Stopwatch()..start();
-    painter.occluderPathFor(pic, 4);
+    pic.occluderPathFor(4);
     sw2.stop();
     // ignore: avoid_print
     print('occluder path build (band pic, pri 4, cached grid): '

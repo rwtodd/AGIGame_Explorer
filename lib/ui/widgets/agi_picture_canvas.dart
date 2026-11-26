@@ -299,6 +299,96 @@ class PlayfieldActorSprite {
 /// Backwards-compatibility alias for AGI engine code.
 typedef AgiActorSprite = PlayfieldActorSprite;
 
+/// Cache for the native `shaderComposited` path's actors-only layer
+/// (320x200), shared across paints so an unchanged actor set reuses the
+/// recorded image instead of re-recording it every frame.
+///
+/// Ownership: a [CustomPainter] has no dispose hook, and in this file GPU
+/// cleanup always lives in the owning widget's `State.dispose` (the only
+/// shader-dispose sites are widget states), so there is no painter-level
+/// disposal site to hook into. The cache therefore lives outside the
+/// painter: the owning state holds one instance for its lifetime, passes
+/// it into every paint, and calls [dispose] from `State.dispose`. For the
+/// game path that state is `_GamePlayfieldWidgetState` in
+/// `game_playfield_widget.dart` — its dispose already drops GPU textures,
+/// so the cached layer dies with the widget instead of leaking. Leaving
+/// the cache on the painter instead would be useless there anyway: the
+/// game path delegates to a fresh [PlayfieldPainter] per paint, so the
+/// signature would miss every paint and each paint would leak one
+/// 320x200 image (only reclaimed when the engine drops unreferenced
+/// textures). When no cache is passed, the painter keeps the old
+/// record-and-dispose-every-paint behaviour.
+class ActorsLayerCache {
+  ui.Image? _image;
+  int? _signature;
+
+  /// Test-only count of recordings performed with this cache.
+  @visibleForTesting
+  int renders = 0;
+
+  bool _matches(int? signature) =>
+      _image != null && signature != null && _signature == signature;
+
+  void _store(ui.Image image, int? signature) {
+    final previous = _image;
+    _image = image;
+    _signature = signature;
+    renders++;
+    previous?.dispose();
+  }
+
+  void dispose() {
+    _image?.dispose();
+    _image = null;
+    _signature = null;
+  }
+
+  /// Hash of everything the actors layer depends on: the pic identity and
+  /// its [SierraPicture.rasterEpoch], and per actor in (sorted) draw
+  /// order: priority, rendered position, scale, atlas identity, cel entry
+  /// identity (source rect + mirror + size), texture identity, and the
+  /// destination rect. Baseline/object number/`isUpdating` affect only
+  /// draw order, which the sorted input already encodes.
+  ///
+  /// Conscious gaps: pixel data mutated in place inside an existing entry
+  /// object and existing [ui.Image] (i.e. without the engine rebuilding
+  /// atlas entries or replacing the atlas image) would not change the
+  /// hash; no current path does that — engine atlas rebuilds create new
+  /// entry objects and replace the decoded image, so they miss as needed.
+  static int signatureFor(
+      SierraPicture pic, List<PlayfieldActorSprite> sortedActors) {
+    var signature = Object.hash(
+        identityHashCode(pic), pic.rasterEpoch, sortedActors.length);
+    for (final actor in sortedActors) {
+      signature = Object.hash(signature, _actorHash(actor));
+    }
+    return signature;
+  }
+
+  static int _actorHash(PlayfieldActorSprite actor) {
+    final atlas = actor.atlas;
+    AtlasCelEntry? entry;
+    if (atlas != null && atlas.hasImage) {
+      entry = actor.celEntry ??
+          atlas.getEntry(actor.viewNumber, actor.loopNumber, actor.celNumber);
+    }
+    return Object.hash(
+      actor.priority,
+      actor.renderPosition,
+      actor.scaleX,
+      actor.scaleY,
+      identityHashCode(atlas),
+      identityHashCode(entry),
+      entry == null
+          ? null
+          : Object.hash(
+              entry.sourceRect, entry.isMirrored, entry.width, entry.height),
+      identityHashCode(atlas?.image ?? actor.image),
+      actor.dstRectFor(),
+    );
+  }
+}
+
 /// Impeller-optimized CustomPainter that renders AGI and SCI backgrounds using the Painter's Algorithm across priority slices,
 /// interleaved with actors, text, active dialog window overlays, and in-game cursors.
 class PlayfieldPainter extends CustomPainter {
@@ -335,13 +425,19 @@ class PlayfieldPainter extends CustomPainter {
   /// Active Sierra in-game mouse cursor.
   final SierraCursor? mouseCursor;
 
-  /// Occluder-path cache for the native shaderComposited recording:
-  /// per-priority run-length [Path]s over the pic's effective priority
-  /// grid. Cleared when the pic identity or [rasterEpoch] changes.
-  SierraPicture? _occluderPic;
-  int? _occluderEpoch;
-  Uint8List? _occluderGrid;
-  final Map<int, Path> _occluderPaths = <int, Path>{};
+  /// Shared actors-layer cache for the native shaderComposited path
+  /// (see [ActorsLayerCache]). When null, that path records a fresh layer
+  /// every paint and disposes it after drawing.
+  final ActorsLayerCache? actorsLayerCache;
+
+  /// Local recording count, used only when [actorsLayerCache] is null.
+  int _localRenders = 0;
+
+  /// Test-only: how many actors-layer recordings this painter has paid
+  /// for. Delegates to [actorsLayerCache] when one is attached; counts
+  /// local recordings otherwise.
+  @visibleForTesting
+  int get debugActorsLayerRenders => actorsLayerCache?.renders ?? _localRenders;
 
   /// Position of the in-game mouse cursor in 320x200 screen coordinates.
   final Offset? mouseCursorPosition;
@@ -378,6 +474,7 @@ class PlayfieldPainter extends CustomPainter {
     this.mouseCursor,
     this.mouseCursorPosition,
     this.showMouseCursor = false,
+    this.actorsLayerCache,
   });
 
   @override
@@ -857,10 +954,9 @@ class PlayfieldPainter extends CustomPainter {
   /// magnified look fuzzy), so the outer paint draws flat, then text, then
   /// this actors layer on top — the slice model's ordering, since actors
   /// that pass the priority test cover playfield text.
-  void _paintShaderActors(Canvas canvas, SierraPicture pic) {
+  void _paintShaderActors(
+      Canvas canvas, SierraPicture pic, List<PlayfieldActorSprite> sortedActors) {
     if (actors.isEmpty) return;
-    final sortedActors = List<AgiActorSprite>.from(actors)
-      ..sort(AgiActorSprite.compareDrawOrder);
     final drawPaint = Paint()
       ..filterQuality = FilterQuality.none
       ..isAntiAlias = false;
@@ -873,42 +969,24 @@ class PlayfieldPainter extends CustomPainter {
       if (dstRect == null || dstRect.isEmpty) continue;
       canvas.saveLayer(dstRect, Paint());
       actor.draw(canvas, drawPaint);
-      canvas.drawPath(occluderPathFor(pic, actor.priority), erasePaint);
+      canvas.drawPath(pic.occluderPathFor(actor.priority), erasePaint);
       canvas.restore();
     }
   }
 
-  /// Run-length occluder path for [actorPriority] over [pic]'s effective
-  /// priority grid: one rect per maximal horizontal run of pixels where
-  /// the effective priority exceeds [actorPriority], in pic (320x200)
-  /// coordinates. Cached per (pic identity, [SierraPicture.rasterEpoch],
-  /// priority); the cache is cleared when the pic or its epoch changes.
-  /// A first build scans the 320x200 grid once for that priority.
-  Path occluderPathFor(SierraPicture pic, int actorPriority) {
-    if (!identical(pic, _occluderPic) || pic.rasterEpoch != _occluderEpoch) {
-      _occluderPic = pic;
-      _occluderEpoch = pic.rasterEpoch;
-      _occluderGrid = pic.effectivePriorityGrid();
-      _occluderPaths.clear();
+  /// Draws the flat background and the playfield-row text on top of it,
+  /// at final (outer-canvas) scale. Shared by the actors-empty path and
+  /// the cached/recorded-actors path of [_paintShaderCompositedNative].
+  void _paintFlatAndPlayfieldText(
+      Canvas canvas, Paint paint, ui.Image flat, SierraPicture pic) {
+    canvas.drawImage(flat, Offset.zero, paint);
+    if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
+      canvas.save();
+      canvas.translate(0.0, -playfieldRow * 8.0);
+      _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+      _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
+      canvas.restore();
     }
-    final cached = _occluderPaths[actorPriority];
-    if (cached != null) return cached;
-    final grid = _occluderGrid!;
-    final path = Path();
-    for (int y = 0; y < 200; y++) {
-      var runStart = -1;
-      for (int x = 0; x <= 320; x++) {
-        final occluded = x < 320 && grid[y * 320 + x] > actorPriority;
-        if (occluded && runStart < 0) runStart = x;
-        if (!occluded && runStart >= 0) {
-          path.addRect(Rect.fromLTWH(
-              runStart.toDouble(), y.toDouble(), (x - runStart).toDouble(), 1.0));
-          runStart = -1;
-        }
-      }
-    }
-    _occluderPaths[actorPriority] = path;
-    return path;
   }
 
   /// Renders the priority-masked actors at native 320x200 once per paint
@@ -925,10 +1003,34 @@ class PlayfieldPainter extends CustomPainter {
     ui.Image flat,
     SierraPicture pic,
   ) {
+    if (actors.isEmpty) {
+      // No actors: the 320x200 recording would be fully transparent, so
+      // skip it (and the render-target allocation) entirely.
+      _paintFlatAndPlayfieldText(canvas, paint, flat, pic);
+      return;
+    }
+
+    final cache = actorsLayerCache;
+    final sortedActors = List<AgiActorSprite>.from(actors)
+      ..sort(AgiActorSprite.compareDrawOrder);
+    final signature = cache == null
+        ? null
+        : ActorsLayerCache.signatureFor(pic, sortedActors);
+    if (cache != null && cache._matches(signature)) {
+      _paintFlatAndPlayfieldText(canvas, paint, flat, pic);
+      canvas.drawImageRect(
+        cache._image!,
+        const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0),
+        Rect.fromLTWH(0.0, pic.isSci ? 0.0 : -playfieldRow * 8.0, 320.0, 200.0),
+        paint,
+      );
+      return;
+    }
+
     final recorder = ui.PictureRecorder();
     final sceneCanvas = Canvas(recorder);
     ui.Picture? picture;
-    ui.Image? image;
+    ui.Image? layers;
     try {
       if (!pic.isSci) {
         sceneCanvas.translate(0.0, playfieldRow * 8.0);
@@ -936,32 +1038,32 @@ class PlayfieldPainter extends CustomPainter {
       } else {
         sceneCanvas.clipRect(const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0));
       }
-      _paintShaderActors(sceneCanvas, pic);
+      _paintShaderActors(sceneCanvas, pic, sortedActors);
       picture = recorder.endRecording();
-      image = picture.toImageSync(320, 200);
+      layers = picture.toImageSync(320, 200);
     } catch (_) {
       picture?.dispose();
       _paintCompositedSlices(canvas, paint, flat, pic);
       return;
     }
     try {
-      canvas.drawImage(flat, Offset.zero, paint);
-      if (textScreenBuffer != null && textScreenBuffer!.hasContentInRows(playfieldRow, playfieldRow + 20)) {
-        canvas.save();
-        canvas.translate(0.0, -playfieldRow * 8.0);
-        _paintTextBackgroundFills(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
-        _paintTextGlyphs(canvas, minRow: playfieldRow, maxRow: playfieldRow + 20, pic: pic);
-        canvas.restore();
-      }
+      _paintFlatAndPlayfieldText(canvas, paint, flat, pic);
       canvas.drawImageRect(
-        image,
+        layers,
         const Rect.fromLTWH(0.0, 0.0, 320.0, 200.0),
         Rect.fromLTWH(0.0, pic.isSci ? 0.0 : -playfieldRow * 8.0, 320.0, 200.0),
         paint,
       );
     } finally {
       picture.dispose();
-      image.dispose();
+      if (cache == null) {
+        _localRenders++;
+        layers.dispose();
+      } else {
+        // The freshly drawn layer becomes the cache; the previous one
+        // is disposed only now that the new one has been drawn.
+        cache._store(layers, signature);
+      }
     }
   }
 
@@ -1524,6 +1626,7 @@ class _AgiPictureWidgetState extends State<AgiPictureWidget> {
     final token = ++_loadToken;
     switch (mode) {
       case AgiPictureRenderMode.compositedSlices:
+        targetPic.ensureSlices(undithered: targetPic is SciPic && targetPic.isUndithered);
         await targetPic.preloadGpuTextures();
         break;
       case AgiPictureRenderMode.flatVisual:
