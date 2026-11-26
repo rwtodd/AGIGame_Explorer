@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_agigame/audio/audio_output_sink.dart';
@@ -61,6 +63,116 @@ class RampSource extends PcmSource {
 
 int queuedFrames(NullAudioSink sink) =>
     sink.queuedBuffers.fold(0, (a, b) => a + b.length) ~/ 2;
+
+/// Fake sink modeling the macOS/Windows contract fixed for pause/resume:
+/// `play()` from paused-with-queued-buffers only resumes (no re-prime, no
+/// `playedFrames` reset); `play()` after `flush()` primes fresh (resets
+/// `playedFrames`, moves samples from the ring into the device queue).
+/// Priming moves up to [primeCapacitySamples] ring samples into [primed],
+/// standing in for the native buffer fill. Refill of a live queue is not
+/// modeled -- these tests only exercise prime/pause/resume/seek paths.
+class MacContractFakeSink implements AudioOutputSink {
+  static const int primeCapacitySamples = 256;
+
+  final List<int> ring = [];
+  final List<int> primed = [];
+  int primeCount = 0;
+
+  bool _primed = false;
+  int _playedFrames = 0;
+  final StreamController<AudioPlaybackStatus> _statusController =
+      StreamController<AudioPlaybackStatus>.broadcast();
+
+  @override
+  AudioPlaybackStatus status = AudioPlaybackStatus.uninitialized;
+
+  @override
+  int sampleRate = 44100;
+
+  @override
+  int numChannels = 2;
+
+  @override
+  int get playedFrames => _playedFrames;
+
+  @override
+  Stream<AudioPlaybackStatus> get statusStream => _statusController.stream;
+
+  @override
+  Future<void> initialize({
+    int sampleRate = 44100,
+    int numChannels = 2,
+    int bufferSizeInFrames = 2048,
+  }) async {
+    this.sampleRate = sampleRate;
+    this.numChannels = numChannels;
+    status = AudioPlaybackStatus.stopped;
+    _statusController.add(status);
+  }
+
+  @override
+  void writePcm(Int16List samples) {
+    ring.addAll(samples);
+  }
+
+  @override
+  void play() {
+    if (status == AudioPlaybackStatus.playing && _primed) return;
+    if (status == AudioPlaybackStatus.paused && _primed) {
+      status = AudioPlaybackStatus.playing;
+      _statusController.add(status);
+      return;
+    }
+    // Fresh prime: previous queue content was discarded (flush/stop),
+    // so the played counter restarts like the real sinks do.
+    primeCount++;
+    _playedFrames = 0;
+    _primed = true;
+    final n = min(primeCapacitySamples, ring.length);
+    primed.addAll(ring.sublist(0, n));
+    ring.removeRange(0, n);
+    status = AudioPlaybackStatus.playing;
+    _statusController.add(status);
+  }
+
+  @override
+  void pause() {
+    status = AudioPlaybackStatus.paused;
+    _statusController.add(status);
+  }
+
+  @override
+  void stop() {
+    status = AudioPlaybackStatus.stopped;
+    _primed = false;
+    _playedFrames = 0;
+    ring.clear();
+    primed.clear();
+    _statusController.add(status);
+  }
+
+  @override
+  void flush() {
+    _primed = false;
+    ring.clear();
+    primed.clear();
+  }
+
+  @override
+  void setVolume(double volume) {}
+
+  @override
+  void dispose() {
+    status = AudioPlaybackStatus.uninitialized;
+    ring.clear();
+    primed.clear();
+    _statusController.close();
+  }
+
+  void simulateFramesPlayed(int frames) {
+    _playedFrames += frames;
+  }
+}
 
 void main() {
   group('StreamingPcmPlayer', () {
@@ -312,6 +424,102 @@ void main() {
       expect(sink.status, AudioPlaybackStatus.playing);
       await Future.delayed(const Duration(milliseconds: 60));
       expect(positions.length, greaterThan(positionCount));
+    });
+
+    test('pause/resume does not re-prime or reset playedFrames (sink contract)',
+        () async {
+      final contractSink = MacContractFakeSink();
+      final player = StreamingPcmPlayer(
+        sink: contractSink,
+        blockFrames: 100,
+        lookaheadFrames: 250,
+      );
+      addTearDown(player.dispose);
+
+      await player.playSource(RampSource(5000));
+      expect(contractSink.primeCount, 1);
+      expect(contractSink.primed, isNotEmpty);
+      expect(contractSink.primed[0], RampSource.pattern(0));
+
+      contractSink.simulateFramesPlayed(200);
+      final primedAtPause = List<int>.from(contractSink.primed);
+      final ringAtPause = List<int>.from(contractSink.ring);
+
+      player.pause();
+      // Pause must keep queued device audio and the ring intact.
+      expect(contractSink.primed, primedAtPause);
+      expect(contractSink.ring, ringAtPause);
+
+      player.resume();
+      // Resume must not re-prime (no duplicate sample submission) and
+      // must not reset the played counter the player re-bases on.
+      expect(contractSink.primeCount, 1);
+      expect(contractSink.primed, primedAtPause);
+      expect(contractSink.ring, ringAtPause);
+      expect(contractSink.playedFrames, 200);
+      // The primed+queued stream is still the contiguous ramp from 0.
+      final stream = [...contractSink.primed, ...contractSink.ring];
+      for (var frame = 0; frame < stream.length ~/ 2; frame++) {
+        expect(stream[frame * 2], RampSource.pattern(frame));
+        expect(stream[frame * 2 + 1], -RampSource.pattern(frame));
+      }
+    });
+
+    test('seek while paused then resume primes fresh at the seek offset',
+        () async {
+      final contractSink = MacContractFakeSink();
+      final player = StreamingPcmPlayer(
+        sink: contractSink,
+        blockFrames: 100,
+        lookaheadFrames: 250,
+      );
+      addTearDown(player.dispose);
+
+      await player.playSource(RampSource(5000));
+      contractSink.simulateFramesPlayed(200);
+      player.pause();
+
+      player.seekToFrame(1024);
+      expect(player.isPaused, isTrue);
+      expect(contractSink.primeCount, 1);
+      // Flush discarded the primed queue; nothing plays until resume.
+      expect(contractSink.primed, isEmpty);
+      expect(contractSink.status, AudioPlaybackStatus.paused);
+
+      player.resume();
+      // Resume after a flush must prime fresh (this is the case a plain
+      // paused->play branch would starve), starting at the seek offset.
+      expect(contractSink.primeCount, 2);
+      expect(contractSink.status, AudioPlaybackStatus.playing);
+      expect(contractSink.primed, isNotEmpty);
+      expect(contractSink.primed[0], RampSource.pattern(1024));
+      expect(contractSink.primed[1], -RampSource.pattern(1024));
+      // The stopwatch term may add a frame of real elapsed time.
+      expect(player.audibleFrames, greaterThanOrEqualTo(1024));
+    });
+
+    test('seek while playing re-primes the sink instead of leaving it empty',
+        () async {
+      final contractSink = MacContractFakeSink();
+      final player = StreamingPcmPlayer(
+        sink: contractSink,
+        blockFrames: 100,
+        lookaheadFrames: 250,
+      );
+      addTearDown(player.dispose);
+
+      await player.playSource(RampSource(5000));
+      contractSink.simulateFramesPlayed(200);
+
+      player.seekToFrame(1024);
+      // seekToFrame flushes (draining the queue) and then calls play()
+      // while sink status still reads "playing". The sink must prime
+      // anyway, or no device buffers would carry the new audio.
+      expect(player.isPlaying, isTrue);
+      expect(contractSink.primeCount, 2);
+      expect(contractSink.primed, isNotEmpty);
+      expect(contractSink.primed[0], RampSource.pattern(1024));
+      expect(contractSink.primed[1], -RampSource.pattern(1024));
     });
 
     test('stop clears queued audio and resets position', () async {

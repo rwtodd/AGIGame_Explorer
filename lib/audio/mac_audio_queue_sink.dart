@@ -185,6 +185,15 @@ class MacAudioQueueSink implements AudioOutputSink {
   double _volume = 1.0;
   int _currentEpoch = 0;
 
+  // Whether the queue currently holds buffers enqueued for playback.
+  //
+  // AudioQueuePause leaves enqueued buffers untouched in the queue, so a
+  // plain resume must NOT re-prime (re-filling a still-queued buffer
+  // overwrites samples the OS is about to play, and epoch-bumping drops
+  // their completion callbacks). AudioQueueFlush dequeues all buffers,
+  // so after flush()/stop() the queue is empty and play() must prime.
+  bool _buffersPrimed = false;
+
   AudioPlaybackStatus _status = AudioPlaybackStatus.uninitialized;
   StreamController<AudioPlaybackStatus> _statusController =
       StreamController<AudioPlaybackStatus>.broadcast();
@@ -323,6 +332,7 @@ class MacAudioQueueSink implements AudioOutputSink {
     calloc.free(bufPtr);
 
     setVolume(_volume);
+    _buffersPrimed = false;
     _status = AudioPlaybackStatus.stopped;
     _statusController.add(_status);
   }
@@ -369,10 +379,30 @@ class MacAudioQueueSink implements AudioOutputSink {
     _ringBuffer.write(samples);
   }
 
+  // State machine (driven by [_buffersPrimed], not [_status] alone):
+  //  - playing + primed: play() is a no-op.
+  //  - paused + primed (plain pause/resume): AudioQueueStart only --
+  //    no epoch bump, no playedFrames reset, no re-fill. The enqueued
+  //    buffers and the ring still hold the right samples, and
+  //    StreamingPcmPlayer.resume() re-bases on the untouched playedFrames.
+  //  - otherwise (stopped, or paused/playing after flush()/stop() drained
+  //    the queue): fresh prime -- epoch bump, playedFrames reset, fill
+  //    and enqueue all buffers, then start. Resetting playedFrames here
+  //    is safe because every caller (playSource, seekToFrame, resume)
+  //    re-bases _sinkPlayedBase after play(); the reset only happens
+  //    when the previous queue content was discarded, so the delta
+  //    still measures just the frames played from this prime onwards.
   @override
   void play() {
     if (_audioQueue == null) return;
-    if (_status == AudioPlaybackStatus.playing) return;
+    if (_status == AudioPlaybackStatus.playing && _buffersPrimed) return;
+
+    if (_status == AudioPlaybackStatus.paused && _buffersPrimed) {
+      _startAQ(_audioQueue!, nullptr);
+      _status = AudioPlaybackStatus.playing;
+      _statusController.add(_status);
+      return;
+    }
 
     _currentEpoch++;
     _playedFrames = 0;
@@ -381,6 +411,7 @@ class MacAudioQueueSink implements AudioOutputSink {
     for (final buf in _buffers) {
       _fillAndEnqueueBuffer(buf);
     }
+    _buffersPrimed = true;
 
     _startAQ(_audioQueue!, nullptr);
     _status = AudioPlaybackStatus.playing;
@@ -406,6 +437,7 @@ class MacAudioQueueSink implements AudioOutputSink {
     _stopAQ(_audioQueue!, true);
     _resetAQ(_audioQueue!);
     _ringBuffer.clear();
+    _buffersPrimed = false;
     _playedFrames = 0;
 
     _statusController.add(_status);
@@ -416,6 +448,9 @@ class MacAudioQueueSink implements AudioOutputSink {
     if (_audioQueue == null) return;
     _currentEpoch++;
     _ringBuffer.clear();
+    // AudioQueueFlush dequeues all buffers: the next play() must re-prime
+    // even if [_status] still says paused/playing.
+    _buffersPrimed = false;
     _flushAQ(_audioQueue!);
   }
 
@@ -437,6 +472,7 @@ class MacAudioQueueSink implements AudioOutputSink {
     }
     _buffers.clear();
     _bufferEpoch.clear();
+    _buffersPrimed = false;
     _nativeCallback?.close();
     _nativeCallback = null;
     _ringBuffer.clear();

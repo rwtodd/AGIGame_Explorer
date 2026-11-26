@@ -192,6 +192,15 @@ class WindowsWaveOutSink implements AudioOutputSink {
   double _volume = 1.0;
   int _currentEpoch = 0;
 
+  // Whether the device currently holds headers submitted via waveOutWrite.
+  //
+  // waveOutPause leaves submitted headers untouched, so a plain resume
+  // only needs waveOutRestart -- re-writing headers would resubmit (and
+  // corrupt) audio the device still holds. waveOutReset (flush()/stop())
+  // returns every header, so after those calls play() must submit again
+  // even if [_status] still says paused/playing.
+  bool _buffersPrimed = false;
+
   AudioPlaybackStatus _status = AudioPlaybackStatus.uninitialized;
   StreamController<AudioPlaybackStatus> _statusController =
       StreamController<AudioPlaybackStatus>.broadcast();
@@ -342,6 +351,7 @@ class WindowsWaveOutSink implements AudioOutputSink {
     }
 
     setVolume(_volume);
+    _buffersPrimed = false;
     _status = AudioPlaybackStatus.stopped;
     _statusController.add(_status);
   }
@@ -400,12 +410,21 @@ class WindowsWaveOutSink implements AudioOutputSink {
     _ringBuffer.write(samples);
   }
 
+  // State machine (driven by [_buffersPrimed], not [_status] alone):
+  //  - playing + primed: play() is a no-op.
+  //  - paused + primed (plain pause/resume): waveOutRestart only -- no
+  //    epoch bump, no playedFrames reset, no re-submit of headers.
+  //  - otherwise (stopped, or paused/playing after flush()/stop()
+  //    returned every header via waveOutReset): submit all headers
+  //    fresh. Like the macOS sink, the playedFrames reset is safe
+  //    because every caller re-bases after play(), and the old queue
+  //    content was discarded by the reset.
   @override
   void play() {
     if (_hWaveOut == null) return;
-    if (_status == AudioPlaybackStatus.playing) return;
+    if (_status == AudioPlaybackStatus.playing && _buffersPrimed) return;
 
-    if (_status == AudioPlaybackStatus.paused) {
+    if (_status == AudioPlaybackStatus.paused && _buffersPrimed) {
       _restart(_hWaveOut!);
       _status = AudioPlaybackStatus.playing;
       _statusController.add(_status);
@@ -418,6 +437,7 @@ class WindowsWaveOutSink implements AudioOutputSink {
     for (final hdr in _headers) {
       _fillAndWriteBuffer(hdr);
     }
+    _buffersPrimed = true;
 
     _status = AudioPlaybackStatus.playing;
     _statusController.add(_status);
@@ -441,6 +461,7 @@ class WindowsWaveOutSink implements AudioOutputSink {
     _status = AudioPlaybackStatus.stopped;
     _reset(_hWaveOut!);
     _ringBuffer.clear();
+    _buffersPrimed = false;
     _playedFrames = 0;
 
     _statusController.add(_status);
@@ -451,6 +472,9 @@ class WindowsWaveOutSink implements AudioOutputSink {
     if (_hWaveOut == null) return;
     _currentEpoch++;
     _ringBuffer.clear();
+    // waveOutReset returns every submitted header: the next play() must
+    // re-submit even if [_status] still says paused/playing.
+    _buffersPrimed = false;
     _reset(_hWaveOut!);
   }
 
@@ -478,6 +502,7 @@ class WindowsWaveOutSink implements AudioOutputSink {
       }
       _headers.clear();
       _headerEpoch.clear();
+      _buffersPrimed = false;
       _close(_hWaveOut!);
       _hWaveOut = null;
     }
