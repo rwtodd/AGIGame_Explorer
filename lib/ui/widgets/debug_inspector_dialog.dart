@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/domain/agi_view.dart';
@@ -9,21 +11,24 @@ import 'package:flutter_agigame/ui/screens/browsers/logic_browser_screen.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 import 'package:flutter_agigame/ui/widgets/cel_image_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
+import 'package:flutter_agigame/ui/widgets/renderer_diagnostics.dart';
 import 'package:flutter_agigame/ui/widgets/snapshot_thumbnail_widget.dart';
 
 /// Full-window modal workbench for inspecting live AGI engine state, managing checkpoints (save-states),
 /// generating before/after diffs, and stepping or unpausing with an embedded 1x live screen.
 class DebugInspectorDialog extends StatefulWidget {
   final AgiGameEngine engine;
+  final RendererDiagnostics? rendererDiagnostics;
 
-  const DebugInspectorDialog({super.key, required this.engine});
+  const DebugInspectorDialog({super.key, required this.engine, this.rendererDiagnostics});
 
-  static Future<void> show(BuildContext context, AgiGameEngine engine) {
+  static Future<void> show(BuildContext context, AgiGameEngine engine,
+      {RendererDiagnostics? rendererDiagnostics}) {
     engine.pause();
     return showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.85),
-      builder: (_) => DebugInspectorDialog(engine: engine),
+      builder: (_) => DebugInspectorDialog(engine: engine, rendererDiagnostics: rendererDiagnostics),
     );
   }
 
@@ -100,7 +105,12 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
 
   void _handleCopyCurrentJson() {
     final snap = widget.engine.createSnapshot();
-    final jsonStr = snap.toJsonString(pretty: true, includeThumbnail: false);
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(
+      injectRendererDiagnostics(
+        snap.toJson(includeThumbnail: false),
+        widget.rendererDiagnostics,
+      ),
+    );
     Clipboard.setData(ClipboardData(text: jsonStr));
     _showToast('📋 Current State JSON (no thumbnail) copied to clipboard!');
   }
@@ -388,6 +398,17 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
             _buildHeader(),
             const SizedBox(height: 8),
             const Divider(color: AgiTheme.egaBorder, height: 1),
+            if (widget.rendererDiagnostics != null) ...[
+              const SizedBox(height: 6),
+              SelectableText(
+                widget.rendererDiagnostics!.describe(),
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontSize: 10,
+                  color: AgiTheme.egaMuted,
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             Expanded(
               child: Row(
@@ -1025,9 +1046,11 @@ class _DebugInspectorDialogState extends State<DebugInspectorDialog>
                                   onPressed: () {
                                     Clipboard.setData(
                                       ClipboardData(
-                                        text: snap.toJsonString(
-                                          pretty: true,
-                                          includeThumbnail: false,
+                                        text: const JsonEncoder.withIndent('  ').convert(
+                                          injectRendererDiagnostics(
+                                            snap.toJson(includeThumbnail: false),
+                                            widget.rendererDiagnostics,
+                                          ),
                                         ),
                                       ),
                                     );

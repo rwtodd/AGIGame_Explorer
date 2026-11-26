@@ -707,7 +707,7 @@ void main() {
         tester.widget<GamePlayfieldWidget>(find.byType(GamePlayfieldWidget)).renderMode,
         AgiPictureRenderMode.shaderComposited,
       );
-      expect(find.textContaining('PRIORITY SHADER'), findsOneWidget);
+      expect(find.textContaining('PRIORITY SHADER'), findsNothing);
     });
   });
 }

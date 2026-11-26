@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/screens/browsers/sci_script_browser_screen.dart';
+import 'package:flutter_agigame/ui/widgets/renderer_diagnostics.dart';
 
 /// Modal diagnostic inspector for SCI0 game execution.
 ///
@@ -10,17 +13,19 @@ import 'package:flutter_agigame/ui/screens/browsers/sci_script_browser_screen.da
 /// loaded scripts, playfield actor sprites, and kernel call history.
 class SciDebugInspectorDialog extends StatefulWidget {
   final SciGameEngine engine;
+  final RendererDiagnostics? rendererDiagnostics;
 
-  const SciDebugInspectorDialog({super.key, required this.engine});
+  const SciDebugInspectorDialog({super.key, required this.engine, this.rendererDiagnostics});
 
-  static Future<void> show(BuildContext context, SciGameEngine engine) {
+  static Future<void> show(BuildContext context, SciGameEngine engine,
+      {RendererDiagnostics? rendererDiagnostics}) {
     engine.kernel.captureDebugLogs = true;
     engine.vm.captureDebugLogs = true;
     engine.pause();
     return showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.85),
-      builder: (_) => SciDebugInspectorDialog(engine: engine),
+      builder: (_) => SciDebugInspectorDialog(engine: engine, rendererDiagnostics: rendererDiagnostics),
     );
   }
 
@@ -87,6 +92,19 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
           children: [
             // Header
             _buildHeader(engine, picNum),
+
+            if (widget.rendererDiagnostics != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                child: SelectableText(
+                  widget.rendererDiagnostics!.describe(),
+                  style: const TextStyle(
+                    fontFamily: 'Courier',
+                    fontSize: 10,
+                    color: AgiTheme.egaMuted,
+                  ),
+                ),
+              ),
 
             // Tab Bar
             Container(
@@ -767,7 +785,11 @@ class _SciDebugInspectorDialogState extends State<SciDebugInspectorDialog>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             ),
             onPressed: () {
-              final jsonStr = engine.exportStateJson(pretty: true);
+              final d = widget.rendererDiagnostics;
+              final jsonStr = d == null
+                  ? engine.exportStateJson(pretty: true)
+                  : const JsonEncoder.withIndent('  ')
+                      .convert(injectRendererDiagnostics(engine.exportState(), d));
               Clipboard.setData(ClipboardData(text: jsonStr));
               _showToast('📋 SCI Engine State JSON copied to clipboard!');
             },

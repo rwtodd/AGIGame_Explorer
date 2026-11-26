@@ -13,6 +13,7 @@ import 'package:flutter_agigame/ui/widgets/debug_inspector_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/dialog_box_widget.dart';
 import 'package:flutter_agigame/ui/widgets/game_playfield_widget.dart';
 import 'package:flutter_agigame/ui/widgets/input_prompt_dialog.dart';
+import 'package:flutter_agigame/ui/widgets/renderer_diagnostics.dart';
 import 'package:flutter_agigame/ui/widgets/inventory_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/object_inspection_dialog.dart';
 import 'package:flutter_agigame/ui/widgets/save_load_dialog.dart';
@@ -73,6 +74,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   SidebarPanelTab? _openPanelTab;
   DateTime? _lastDialogDismissTime;
   ProviderSubscription<AgiUserSettings>? _displaySettingsSub;
+  final _rendererDiagnostics = ValueNotifier<RendererDiagnostics?>(null);
 
   @override
   void initState() {
@@ -178,6 +180,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   void dispose() {
+    _rendererDiagnostics.dispose();
     _displaySettingsSub?.close();
     _displaySettingsSub = null;
     _session.onSaveGameRequested = null;
@@ -446,10 +449,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 HardwareKeyboard.instance.isMetaPressed) &&
             event.logicalKey == LogicalKeyboardKey.keyD)) {
       if (agi != null) {
-        DebugInspectorDialog.show(context, agi);
+        DebugInspectorDialog.show(context, agi, rendererDiagnostics: _rendererDiagnostics.value);
         return KeyEventResult.handled;
       } else if (_sciEngine != null) {
-        SciDebugInspectorDialog.show(context, _sciEngine!);
+        SciDebugInspectorDialog.show(context, _sciEngine!, rendererDiagnostics: _rendererDiagnostics.value);
         return KeyEventResult.handled;
       }
     }
@@ -734,6 +737,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             strictIntegerScaling: _strictIntegerScaling,
                             currentInputText: _currentInputText,
                             onCanvasTap: (_) => _gameFocusNode.requestFocus(),
+                            diagnostics: _rendererDiagnostics,
                           ),
                         ),
                       ),
@@ -1183,7 +1187,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
-              onPressed: () => DebugInspectorDialog.show(context, _agiEngine!),
+              onPressed: () => DebugInspectorDialog.show(context, _agiEngine!, rendererDiagnostics: _rendererDiagnostics.value),
               tooltip: 'Debug Inspector & Checkpoints (F12)',
             ),
           ] else if (_sciEngine != null) ...[
@@ -1223,7 +1227,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               icon: const Icon(Icons.bug_report, size: 18, color: AgiTheme.egaGreen),
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
-              onPressed: () => SciDebugInspectorDialog.show(context, _sciEngine!),
+              onPressed: () => SciDebugInspectorDialog.show(context, _sciEngine!, rendererDiagnostics: _rendererDiagnostics.value),
               tooltip: 'SCI Debug Inspector (F12)',
             ),
           ] else
