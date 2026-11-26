@@ -71,6 +71,17 @@ class AgiSoundPlayer {
   final Stopwatch _stopwatch = Stopwatch();
   bool _mutedActive = false;
 
+  // Generic source playback (Stage 6a): when true, [_currentSound] is
+  // null and position/seek rates come from [_activeSourceRate] instead
+  // of [_currentConfig]. AGI paths check [isGenericActive] first.
+  bool _isGenericActive = false;
+  int _activeSourceRate = 44100;
+  PcmSource? _activeGenericSource;
+
+  /// Whether the active playback is a generic [PcmSource] (SCI AdLib)
+  /// rather than an [AgiSound].
+  bool get isGenericActive => _isGenericActive;
+
   bool _isDisposed = false;
 
   void Function()? onFinished;
@@ -182,8 +193,11 @@ class AgiSoundPlayer {
     _stopwatch.reset();
     _stopPositionTimer();
 
+    _isGenericActive = false;
+    _activeGenericSource = null;
     _currentSound = sound;
     if (config != null) _currentConfig = config;
+    _activeSourceRate = _currentConfig.sampleRate;
     _totalTicks = sound.length;
     _startTickOffset = startTick.clamp(0, _totalTicks);
     _isMuted = muted;
@@ -214,6 +228,60 @@ class AgiSoundPlayer {
       _emitPosition();
     } else {
       // No sound-producing source should keep rendering into the sink.
+      _player.stop();
+      _status = SoundPlayerStatus.playing;
+      _stopwatch.start();
+      _startPositionTimer();
+      _emitPosition();
+    }
+  }
+
+  /// Plays a generic pull-based [source] (e.g. SCI AdLib) through the
+  /// same internal [StreamingPcmPlayer] as [play].
+  ///
+  /// [totalTicks] is the tick length used for position/seek math;
+  /// position ticks are computed from [source.sampleRate] (frame ->
+  /// tick: `frames / sampleRate * 60`) rather than from
+  /// [SynthesizerConfig]. [_currentSound] is set to null for generic
+  /// playback: AGI [seekToTick] paths target [currentSound], so generic
+  /// seeks use source-rate frame math instead (see [seekToTick]).
+  /// When [muted] is true, the existing timer-driven muted path runs
+  /// without rendering [source] into the sink, completing at
+  /// [totalTicks] plus the existing tail rule.
+  Future<void> playPcmSource(
+    PcmSource source, {
+    required int totalTicks,
+    int startTick = 0,
+    bool muted = false,
+  }) async {
+    if (_isDisposed) return;
+    _stopwatch.reset();
+    _stopPositionTimer();
+
+    _isGenericActive = true;
+    _activeGenericSource = source;
+    _activeSourceRate = source.sampleRate;
+    _currentSound = null;
+    _totalTicks = totalTicks;
+    _startTickOffset = startTick.clamp(0, _totalTicks);
+    _isMuted = muted;
+    _mutedActive = muted;
+
+    _sink.stop();
+    _sink.flush();
+
+    if (!muted) {
+      _sourceTotalFrames = source.totalFrames ?? 0;
+      _player.looping = _isLooping;
+      _player.muted = false;
+      final startFrame =
+          ((_startTickOffset / 60.0) * source.sampleRate).round();
+      await _player.playSource(source, startFrame: startFrame);
+      if (_isDisposed) return;
+      _sink.setVolume(_volume);
+      _status = SoundPlayerStatus.playing;
+      _emitPosition();
+    } else {
       _player.stop();
       _status = SoundPlayerStatus.playing;
       _stopwatch.start();
@@ -270,11 +338,29 @@ class AgiSoundPlayer {
   }
 
   /// Seeks to a specific [tick] position in the sound.
+  ///
+  /// For generic sources, seeks via [_player.seekToFrame] using the
+  /// source's sample rate; AGI seek paths are untouched.
   Future<void> seekToTick(int tick) async {
     if (_isDisposed) return;
     final targetTick = tick.clamp(0, _totalTicks);
-    final wasPlaying = isPlaying;
 
+    if (_isGenericActive) {
+      if (_mutedActive) {
+        _startTickOffset = targetTick;
+        _stopwatch.reset();
+        _emitPosition();
+      } else {
+        _startTickOffset = targetTick;
+        _player.seekToFrame(
+          ((targetTick / 60.0) * _activeSourceRate).round(),
+        );
+        _emitPosition();
+      }
+      return;
+    }
+
+    final wasPlaying = isPlaying;
     if (_currentSound != null) {
       if (wasPlaying) {
         await play(_currentSound!, config: _currentConfig, startTick: targetTick);
@@ -343,6 +429,15 @@ class AgiSoundPlayer {
     if (elapsedSeconds >= (totalSeconds + tailSeconds)) {
       if (_isLooping && _currentSound != null) {
         play(_currentSound!, config: _currentConfig, startTick: 0);
+      } else if (_isLooping &&
+          _isGenericActive &&
+          _activeGenericSource != null) {
+        playPcmSource(
+          _activeGenericSource!,
+          totalTicks: _totalTicks,
+          startTick: 0,
+          muted: true,
+        );
       } else {
         stop();
         onFinished?.call();
@@ -372,7 +467,8 @@ class AgiSoundPlayer {
       if (_player.looping && _sourceTotalFrames > 0) {
         frames %= _sourceTotalFrames;
       }
-      currentSeconds = (frames / _currentConfig.sampleRate).clamp(0.0, totalSeconds);
+      final rate = _isGenericActive ? _activeSourceRate : _currentConfig.sampleRate;
+      currentSeconds = (frames / rate).clamp(0.0, totalSeconds);
     }
     final currentTick = (currentSeconds * 60.0).round().clamp(0, _totalTicks);
     final progress =
