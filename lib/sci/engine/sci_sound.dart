@@ -1,12 +1,21 @@
-// SCI0 sound slots, cue timelines, and MIDI translation.
+// SCI0 sound slots, cue timelines, and legacy MIDI translation.
 //
-// Translates SCI0 MIDI streams into AgiSound domain models for playback via
-// PcmSynthesizer and AgiSoundPlayer (IBM PC Speaker, Tandy 1000, and Enhanced modes).
+// SCI0 sound resources are parsed losslessly into a [SciMidiTrack] (see
+// sci_midi_parser.dart); [Sci0SoundParser.parseSound] keeps the historical
+// behavior by adapting that model into [AgiSound] notes for the IBM PC
+// Speaker, Tandy 1000, and Enhanced playback modes. The adapter below is a
+// faithful port of the old flattening parser: single active note per
+// channel, header-mask channel selection with the note-occurrence fallback,
+// channel-15 cue/loop extraction, and the silent fallback channel are all
+// preserved intentionally, as legacy behavior, until a real device backend
+// replaces them.
 
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
+import 'package:flutter_agigame/sci/engine/sci_midi_parser.dart';
+import 'package:flutter_agigame/sci/engine/sci_midi_track.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 
 /// SCI0 `Sound` object `state` values (ScummVM `SoundStatus`).
@@ -52,11 +61,16 @@ class SciParsedSound {
   final int? loopTick;
   final int totalTicks;
 
+  /// The lossless track this sound was adapted from, when produced by
+  /// [Sci0SoundParser.parseSound]; null for hand-built instances.
+  final SciMidiTrack? track;
+
   const SciParsedSound({
     required this.sound,
     required this.cues,
     this.loopTick,
     required this.totalTicks,
+    this.track,
   });
 }
 
@@ -104,9 +118,12 @@ class _ActiveNote {
 }
 
 /// Parses SCI0 SOUND resources and translates them to [AgiSound].
+///
+/// Parsing itself is lossless (see [SciMidiParser]); this class only adapts
+/// the resulting [SciMidiTrack] into the legacy note representation.
 class Sci0SoundParser {
   static const int headerEarly = 0x11; // 17 bytes
-  static const int headerLate = 0x21;  // 33 bytes
+  static const int headerLate = 0x21; // 33 bytes
   static const int endOfTrack = 0xFC;
   static const int stretchDelta = 0xF8;
   static const List<int> midiParamCount = [2, 2, 2, 2, 1, 1, 2];
@@ -122,98 +139,53 @@ class Sci0SoundParser {
     PcmPlaybackMode mode = PcmPlaybackMode.tandy3VoiceNoise,
     int? headerSize,
   }) {
-    final cues = <SciSoundCue>[];
-    int? loopTick;
-
     // Detect header size: 0x21 for SCI0_LATE, 0x11 for SCI0_EARLY
     final effectiveHeader = headerSize ??
         (data.length >= headerLate ? headerLate : (data.length >= headerEarly ? headerEarly : data.length));
 
     if (data.length <= effectiveHeader) {
-      cues.add(const SciSoundCue(tick: 0, signal: sciSoundFinished));
       return SciParsedSound(
         sound: AgiSound(voices: [
           ToneChannel(notes: const [
             AgiNote(startTime: 0, duration: 1, frequencyCount: 0, attenuation: 15),
           ]),
         ]),
-        cues: cues,
+        cues: [const SciSoundCue(tick: 0, signal: sciSoundFinished)],
         totalTicks: 0,
       );
     }
 
-    // Determine target hardware mask based on mode
-    final isLate = effectiveHeader >= headerLate;
+    final track = SciMidiParser.parse(data, headerSize: effectiveHeader);
+    final tick = track.totalTicks;
+    final cues = track.cues
+        .map((c) => SciSoundCue(tick: c.tick, signal: c.signal))
+        .toList();
+    final loopTick = track.loopTick;
+
+    // Target channels from header masks. Tandy and Enhanced share the Tandy
+    // bits; PC speaker uses its own bits. maskMatches reproduces the old
+    // late (mask byte) / early (low 3 device bits) checks exactly.
+    final device = mode == PcmPlaybackMode.ibmPcSingleChannel
+        ? SciMidiDevice.pcSpeaker
+        : SciMidiDevice.tandyPcJr;
     final targetChannels = <int>{};
-
-    if (isLate) {
-      for (var ch = 0; ch < 16; ch++) {
-        final mask = data[1 + ch * 2 + 1];
-        if (mode == PcmPlaybackMode.ibmPcSingleChannel) {
-          if ((mask & SciSoundHardwareMask.pcSpeaker) != 0) {
-            targetChannels.add(ch);
-          }
-        } else {
-          // Tandy and Enhanced use Tandy channels
-          if ((mask & SciSoundHardwareMask.tandy) != 0) {
-            targetChannels.add(ch);
-          }
-        }
-      }
-    } else {
-      for (var ch = 0; ch < 16; ch++) {
-        final flags = data[1 + ch] & 0x07;
-        if (mode == PcmPlaybackMode.ibmPcSingleChannel) {
-          if ((flags & 0x04) != 0) {
-            targetChannels.add(ch);
-          }
-        } else {
-          if ((flags & 0x02) != 0) {
-            targetChannels.add(ch);
-          }
-        }
+    for (final init in track.channels) {
+      if (init.maskMatches(track.variant, device)) {
+        targetChannels.add(init.channel);
       }
     }
 
-    // First pass to discover channels if targetChannels is empty
-    final channelsWithNotes = <int>{};
-    {
-      var i = effectiveHeader;
-      var running = 0;
-      while (i < data.length) {
-        final b = data[i++];
-        if (b == endOfTrack) break;
-        if (b == stretchDelta) continue;
-        if (i >= data.length) break;
-        var status = data[i];
-        if (status & 0x80 != 0) {
-          running = status;
-          i++;
-        } else {
-          status = running;
-        }
-        if (status == endOfTrack) break;
-        if (status == 0xF0) {
-          while (i < data.length && data[i] != 0xF7) {
-            i++;
-          }
-          if (i < data.length) i++;
-          continue;
-        }
-        final cmd = (status >> 4) & 0x7;
-        if (cmd >= midiParamCount.length) continue;
-        final n = midiParamCount[cmd];
-        if (i + n > data.length) break;
-        final p2 = (n > 1 && i + 1 < data.length) ? data[i + 1] : 0;
-        i += n;
-        final ch = status & 0x0F;
-        if (ch != 15 && ch != 9 && (cmd == 1 && p2 > 0)) {
-          channelsWithNotes.add(ch);
-        }
-      }
-    }
-
+    // Legacy fallback when no header bits select a channel: the first
+    // channels with note-ons, in first-occurrence order (never 9 or 15).
     if (targetChannels.isEmpty) {
+      final channelsWithNotes = <int>{};
+      for (final e in track.events) {
+        if (e.kind == SciMidiEventKind.noteOn &&
+            e.channel != 15 &&
+            e.channel != 9) {
+          channelsWithNotes.add(e.channel);
+        }
+      }
       if (mode == PcmPlaybackMode.ibmPcSingleChannel) {
         if (channelsWithNotes.isNotEmpty) {
           targetChannels.add(channelsWithNotes.first);
@@ -223,16 +195,13 @@ class Sci0SoundParser {
       }
     }
 
-    // Prepare note accumulation
+    // Single active note per channel (legacy flattening): a note-on finishes
+    // the previous note, a note-off only lands when the number matches.
     final channelNotes = <int, List<AgiNote>>{};
     final activeNotes = <int, _ActiveNote>{};
     for (final ch in targetChannels) {
       channelNotes[ch] = <AgiNote>[];
     }
-
-    var i = effectiveHeader;
-    var tick = 0;
-    var running = 0;
 
     void finishNote(int ch, int endTick) {
       final active = activeNotes[ch];
@@ -254,75 +223,19 @@ class Sci0SoundParser {
       activeNotes.remove(ch);
     }
 
-    while (i < data.length) {
-      final b = data[i++];
-      if (b == endOfTrack) {
-        cues.add(SciSoundCue(tick: tick, signal: sciSoundFinished));
-        break;
-      }
-      if (b == stretchDelta) {
-        tick += 240;
-        continue;
-      }
-      tick += b;
-      if (i >= data.length) break;
-
-      var status = data[i];
-      if (status & 0x80 != 0) {
-        running = status;
-        i++;
-      } else {
-        status = running;
-      }
-
-      if (status == endOfTrack) {
-        cues.add(SciSoundCue(tick: tick, signal: sciSoundFinished));
-        break;
-      }
-      if (status == 0xF0) {
-        while (i < data.length && data[i] != 0xF7) {
-          i++;
-        }
-        if (i < data.length) i++;
-        continue;
-      }
-
-      final cmd = (status >> 4) & 0x7;
-      if (cmd >= midiParamCount.length) continue;
-      final n = midiParamCount[cmd];
-      if (i + n > data.length) break;
-      final p1 = data[i];
-      final p2 = n > 1 ? data[i + 1] : 0;
-      i += n;
-
-      final channel = status & 0x0F;
-
-      // Channel 15 cues
-      if (channel == 0x0F && cmd == 4) {
-        if (p1 == kSetSignalLoop) {
-          loopTick = tick;
-        } else {
-          cues.add(SciSoundCue(tick: tick, signal: p1));
-        }
-      }
-
-      // Target note events
-      if (targetChannels.contains(channel)) {
-        final isNoteOn = (cmd == 1 && p2 > 0);
-        final isNoteOff = (cmd == 0 || (cmd == 1 && p2 == 0));
-
-        if (isNoteOn) {
-          finishNote(channel, tick);
-          activeNotes[channel] = _ActiveNote(
-            startTick: tick,
-            noteNumber: p1,
-            velocity: p2,
-          );
-        } else if (isNoteOff) {
-          final active = activeNotes[channel];
-          if (active != null && active.noteNumber == p1) {
-            finishNote(channel, tick);
-          }
+    for (final e in track.events) {
+      if (e.channel < 0 || !targetChannels.contains(e.channel)) continue;
+      if (e.kind == SciMidiEventKind.noteOn) {
+        finishNote(e.channel, e.tick);
+        activeNotes[e.channel] = _ActiveNote(
+          startTick: e.tick,
+          noteNumber: e.data1,
+          velocity: e.data2,
+        );
+      } else if (e.kind == SciMidiEventKind.noteOff) {
+        final active = activeNotes[e.channel];
+        if (active != null && active.noteNumber == e.data1) {
+          finishNote(e.channel, e.tick);
         }
       }
     }
@@ -332,7 +245,8 @@ class Sci0SoundParser {
       finishNote(ch, tick);
     }
 
-    // Ensure cues list ends with sciSoundFinished
+    // Ensure cues list ends with sciSoundFinished. The track's totalTicks is
+    // the end-of-track tick when present, matching the old break-at-EOT.
     if (cues.isEmpty || cues.last.signal != sciSoundFinished) {
       cues.add(SciSoundCue(tick: tick, signal: sciSoundFinished));
     }
@@ -373,6 +287,7 @@ class Sci0SoundParser {
       cues: cues,
       loopTick: loopTick,
       totalTicks: tick,
+      track: track,
     );
   }
 }
