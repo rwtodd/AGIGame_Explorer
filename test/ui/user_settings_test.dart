@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/settings_provider.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -55,6 +56,34 @@ void main() {
       expect(restored.audio.enableReverb, isTrue);
       expect(restored.audio.reverbMix, 0.35);
       expect(restored.audio.masterVolume, 0.90);
+    });
+
+    test('sciMusicDevice defaults to legacyPsg, round-trips, and is'
+        ' tolerant of old/unknown JSON', () {
+      expect(const AgiUserSettings().audio.sciMusicDevice, SciMusicDevice.legacyPsg);
+
+      const original = AgiAudioSettings(sciMusicDevice: SciMusicDevice.adLibOpl2);
+      final json = original.toJson();
+      expect(json['sciMusicDevice'], 'adLibOpl2');
+      expect(
+        AgiAudioSettings.fromJson(json).sciMusicDevice,
+        SciMusicDevice.adLibOpl2,
+      );
+
+      // Pre-Stage-6b settings file: key missing -> legacy default.
+      final legacyJson = Map<String, dynamic>.from(json)..remove('sciMusicDevice');
+      expect(
+        AgiAudioSettings.fromJson(legacyJson).sciMusicDevice,
+        SciMusicDevice.legacyPsg,
+      );
+
+      // Unknown value from a newer build -> legacy default.
+      final unknownJson = Map<String, dynamic>.from(json)
+        ..['sciMusicDevice'] = 'adLibOpl3';
+      expect(
+        AgiAudioSettings.fromJson(unknownJson).sciMusicDevice,
+        SciMusicDevice.legacyPsg,
+      );
     });
 
     test('toSynthesizerConfig maps sound modes and DSP correctly', () {

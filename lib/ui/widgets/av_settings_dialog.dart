@@ -7,6 +7,7 @@ import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/engine/ai/local_command_translator.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/settings_provider.dart';
@@ -574,6 +575,34 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
           _buildReverbPresets(audio, notifier),
         ],
 
+        const SizedBox(height: 18),
+        const Divider(color: AgiTheme.egaBorder),
+        const SizedBox(height: 14),
+        _buildSectionHeader('SCI MUSIC DEVICE'),
+        const SizedBox(height: 4),
+        const Text(
+          'Only affects SCI games. Takes effect on the next sound.',
+          style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted),
+        ),
+        const SizedBox(height: 10),
+        _buildSciMusicDeviceOption(
+          device: SciMusicDevice.legacyPsg,
+          title: 'Legacy PSG (Tandy/PC Speaker)',
+          subtitle: 'Historical translated playback (default)',
+          icon: Icons.volume_up,
+          isSelected: audio.sciMusicDevice == SciMusicDevice.legacyPsg,
+          onTap: () => notifier.setSciMusicDevice(SciMusicDevice.legacyPsg),
+        ),
+        const SizedBox(height: 8),
+        _buildSciMusicDeviceOption(
+          device: SciMusicDevice.adLibOpl2,
+          title: 'AdLib (OPL2 FM)',
+          subtitle: 'Sierra AdLib FM through the game patch bank',
+          icon: Icons.graphic_eq,
+          isSelected: audio.sciMusicDevice == SciMusicDevice.adLibOpl2,
+          onTap: () => notifier.setSciMusicDevice(SciMusicDevice.adLibOpl2),
+        ),
+
         const SizedBox(height: 20),
         const Divider(color: AgiTheme.egaBorder),
         const SizedBox(height: 14),
@@ -599,8 +628,41 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
     );
   }
 
+  Widget _buildSciMusicDeviceOption({
+    required SciMusicDevice device,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return _buildOptionRow(
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      isSelected: isSelected,
+      onTap: onTap,
+    );
+  }
+
   Widget _buildSoundModeOption({
     required AgiSoundMode mode,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return _buildOptionRow(
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      isSelected: isSelected,
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildOptionRow({
     required String title,
     required String subtitle,
     required IconData icon,

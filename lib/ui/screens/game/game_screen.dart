@@ -133,6 +133,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         if (initSettings != null) {
           sci.setSoundMode(initSettings.audio.soundMode);
           sci.setSynthesizerConfig(initSettings.audio.toSynthesizerConfig());
+          sci.setSciMusicDevice(initSettings.audio.sciMusicDevice);
           sci.setUnditheredPictures(!initSettings.display.sciEnableDithering);
         }
       }
@@ -157,6 +158,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           });
           if (previous?.display.sciEnableDithering != next.display.sciEnableDithering) {
             _sciEngine?.setUnditheredPictures(!next.display.sciEnableDithering);
+          }
+          // Live device toggle (next-sound semantics in the kernel).
+          if (previous?.audio.sciMusicDevice != next.audio.sciMusicDevice) {
+            _sciEngine?.setSciMusicDevice(next.audio.sciMusicDevice);
           }
         },
       );

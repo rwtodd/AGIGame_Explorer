@@ -3,6 +3,9 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/audio/opl/sci_adlib_driver.dart';
+import 'package:flutter_agigame/audio/opl/sci_adlib_patch.dart';
+import 'package:flutter_agigame/audio/opl/sci_adlib_pcm_source.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
@@ -169,6 +172,77 @@ class SciKernel {
   SynthesizerConfig synthesizerConfig = const SynthesizerConfig();
   SciReg? _activePlayingObj;
 
+  // --- SCI music device (Stage 6b) ---
+  //
+  // Legacy PSG is the default (bit-for-bit today's behavior). AdLib is
+  // opt-in via [sciMusicDevice]. Device switching is next-sound only:
+  // assigning this field never swaps a playing source, it takes effect
+  // on the next slot-audio start (see [_startSlotAudio]).
+  SciMusicDevice sciMusicDevice = SciMusicDevice.legacyPsg;
+
+  /// The currently playing AdLib PCM source, or null when legacy (or no
+  /// sound) is active. Exposed for tests and the debug UI.
+  SciAdLibPcmSource? _activeAdLibSource;
+  SciAdLibPcmSource? get activeAdLibSource => _activeAdLibSource;
+
+  /// Cached AdLib bank load, keyed by [volumeManager] identity: reloaded
+  /// lazily on the first AdLib play and whenever the volume-manager
+  /// instance changes (e.g. a new game). Never loaded for legacy playback.
+  SciAdlibLoadResult? _adLibBankCache;
+  SciVolumeManager? _adLibBankCacheFor;
+
+  /// Provenance of the cached bank load (null before the first AdLib
+  /// play attempt). `unavailable` means the last attempt found no bank.
+  SciAdlibBankProvenance? get adLibBankProvenance => _adLibBankCache?.provenance;
+
+  /// Reason the last AdLib attempt fell back to legacy (bank unavailable
+  /// or the parsed sound has no lossless track), or null when AdLib
+  /// started (or was never attempted). Cleared on a successful AdLib
+  /// start; otherwise sticky for the debug UI.
+  String? _adLibFallbackReason;
+  String? get adLibFallbackReason => _adLibFallbackReason;
+
+  /// True while player-level volume carries the user's own gain while an
+  /// AdLib source is active (see [_startSlotAudio] volume resolution).
+  bool _adLibAppliedUserVolume = false;
+
+  SciAdlibLoadResult _ensureAdLibBank() {
+    final vol = volumeManager;
+    if (vol == null) {
+      return const SciAdlibLoadResult(
+        bank: null,
+        provenance: SciAdlibBankProvenance.unavailable,
+        reason: 'No SCI volume manager attached to the kernel',
+      );
+    }
+    if (_adLibBankCache != null && identical(_adLibBankCacheFor, vol)) {
+      return _adLibBankCache!;
+    }
+    final result = sciLoadAdlibBank(vol);
+    _adLibBankCache = result;
+    _adLibBankCacheFor = vol;
+    return result;
+  }
+
+  /// Disposes and clears the active AdLib source (volume handling: see
+  /// [_restoreLegacyPlayerVolume]).
+  void _clearActiveAdLibSource() {
+    _activeAdLibSource?.dispose();
+    _activeAdLibSource = null;
+    _restoreLegacyPlayerVolume();
+  }
+
+  /// Restores player-level volume to the legacy invariant (SCI master
+  /// volume component), after AdLib playback redirected it to the user's
+  /// own gain. No-op when AdLib never redirected it.
+  void _restoreLegacyPlayerVolume() {
+    if (!_adLibAppliedUserVolume) return;
+    _adLibAppliedUserVolume = false;
+    if (soundPlayer != null) {
+      soundPlayer!.setVolume(_masterVolume / 15.0);
+    }
+  }
+
   // --- Parser, Vocabulary & Status (Stage 11) ---
   SciVocab? vocab;
   SciReg? parserEvent;
@@ -235,6 +309,7 @@ class SciKernel {
     gameIsRestarting = 0;
     _soundSlots.clear();
     _activePlayingObj = null;
+    _clearActiveAdLibSource();
     soundPlayer?.stop();
     recentCallLogs.clear();
     initPriorityBands();
@@ -440,6 +515,7 @@ class SciKernel {
   }
 
   void dispose() {
+    _clearActiveAdLibSource();
     pruneCelCache(clearAll: true);
     _viewCache.clear();
   }
@@ -2579,7 +2655,14 @@ class SciKernel {
         final prev = _masterVolume;
         if (rest.isNotEmpty) {
           _masterVolume = rest[0].toSint16().clamp(0, 15);
-          soundPlayer?.setVolume(_masterVolume / 15.0);
+          final adLib = _activeAdLibSource;
+          if (adLib != null) {
+            // SCI master volume is applied inside the AdLib driver;
+            // the player-level volume carries the user's own gain.
+            adLib.setMasterVolume(_masterVolume);
+          } else {
+            soundPlayer?.setVolume(_masterVolume / 15.0);
+          }
         }
         return SciReg.fromInt(prev);
       case _sndUpdate:
@@ -2588,13 +2671,18 @@ class SciKernel {
         if (rest.isNotEmpty) _soundStop(vm, rest[0]);
         return vm.acc;
       case _sndPolyphony:
-        final poly = soundMode == PcmPlaybackMode.ibmPcSingleChannel
-            ? 1
-            : (soundMode == PcmPlaybackMode.tandy3VoiceNoise ? 3 : 16);
+        // A YM3812 is a 9-voice device; the legacy translation reports
+        // its voice count per sound mode (unchanged).
+        final poly = sciMusicDevice == SciMusicDevice.adLibOpl2
+            ? 9
+            : (soundMode == PcmPlaybackMode.ibmPcSingleChannel
+                ? 1
+                : (soundMode == PcmPlaybackMode.tandy3VoiceNoise ? 3 : 16));
         return SciReg.fromInt(poly);
       case _sndStopAll:
         soundPlayer?.stop();
         _activePlayingObj = null;
+        _clearActiveAdLibSource();
         for (final obj in _soundSlots.keys.toList()) {
           _soundStop(vm, obj);
         }
@@ -2650,12 +2738,70 @@ class SciKernel {
     // Audio output via soundPlayer
     if (soundPlayer != null && slot.parsedSound != null) {
       _activePlayingObj = obj;
-      soundPlayer!.play(
-        slot.parsedSound!.sound,
-        config: synthesizerConfig,
-        muted: _soundMuted,
-      );
+      _startSlotAudio(slot.parsedSound!);
     }
+  }
+
+  /// Starts slot audio for [parsed] through the selected music device.
+  ///
+  /// This is the single audio-start path for [_soundPlay] and both
+  /// loop-replay branches in [updateSci0Cues]; the legacy branch preserves
+  /// the historical behavior exactly (same call, same config, same muted
+  /// flag). Device choice happens here, so a device switch only affects
+  /// the next sound start, never a playing source.
+  ///
+  /// Volume resolution: legacy gains multiply — the user's own
+  /// [SynthesizerConfig.masterVolume] is applied inside the legacy
+  /// renderer, and the SCI master volume (0..15) is applied at the
+  /// player level by [_sndMasterVolume]. The AdLib source has no
+  /// user-gain input of its own, so while AdLib plays, the player-level
+  /// volume is redirected to the user's gain
+  /// ([SynthesizerConfig.masterVolume]) and the SCI master volume moves
+  /// into the driver via [SciAdLibPcmSource.setMasterVolume]: each
+  /// component applied exactly once. [_restoreLegacyPlayerVolume]
+  /// restores the legacy invariant when AdLib playback ends.
+  ///
+  /// Muted playback always takes the legacy timer path (inaudible either
+  /// way, identical timing) and never touches the AdLib device.
+  void _startSlotAudio(SciParsedSound parsed) {
+    final player = soundPlayer;
+    if (player == null) return;
+    final track = parsed.track;
+    if (sciMusicDevice == SciMusicDevice.adLibOpl2 && !_soundMuted && track != null) {
+      final load = _ensureAdLibBank();
+      final bank = load.bank;
+      if (bank != null) {
+        // Dispose any previous source first (loop replay recreates it).
+        _clearActiveAdLibSource();
+        _adLibFallbackReason = null;
+        final source = SciAdLibPcmSource(
+          track,
+          bank,
+          outputSampleRate: synthesizerConfig.sampleRate,
+          masterVolume: _masterVolume,
+          profile: volumeManager?.isEarlySci0 == true
+              ? SciAdlibProfile.sci0Early
+              : SciAdlibProfile.sci0Late,
+        );
+        _activeAdLibSource = source;
+        // Redirect player-level volume to the user's gain; the SCI
+        // master component is already inside [source].
+        player.setVolume(synthesizerConfig.masterVolume);
+        _adLibAppliedUserVolume = true;
+        player.playPcmSource(source, totalTicks: parsed.totalTicks);
+        return;
+      }
+      _adLibFallbackReason = load.reason ?? 'AdLib bank unavailable';
+    } else if (sciMusicDevice == SciMusicDevice.adLibOpl2 && !_soundMuted && track == null) {
+      _adLibFallbackReason = 'Parsed sound has no lossless track for AdLib playback';
+    }
+    // Legacy path (also the AdLib fallback and the muted path).
+    _clearActiveAdLibSource();
+    player.play(
+      parsed.sound,
+      config: synthesizerConfig,
+      muted: _soundMuted,
+    );
   }
 
   void _soundStop(SciVM vm, SciReg obj, {bool dispose = false}) {
@@ -2668,6 +2814,7 @@ class SciKernel {
     if (_activePlayingObj == obj) {
       soundPlayer?.stop();
       _activePlayingObj = null;
+      _clearActiveAdLibSource();
     }
     _writeSoundProp(vm, obj, 'state', SciSoundStatus.stopped);
     _writeSoundProp(vm, obj, 'signal', sciSoundFinished);
@@ -2705,11 +2852,7 @@ class SciKernel {
             slot.startTick = now;
             slot.nextCue = 0;
             if (_activePlayingObj == slot.obj && slot.parsedSound != null) {
-              soundPlayer?.play(
-                slot.parsedSound!.sound,
-                config: synthesizerConfig,
-                muted: _soundMuted,
-              );
+              _startSlotAudio(slot.parsedSound!);
             }
             break;
           } else if (slot.loop == -1) {
@@ -2717,11 +2860,7 @@ class SciKernel {
             slot.startTick = now;
             slot.nextCue = 0;
             if (_activePlayingObj == slot.obj && slot.parsedSound != null) {
-              soundPlayer?.play(
-                slot.parsedSound!.sound,
-                config: synthesizerConfig,
-                muted: _soundMuted,
-              );
+              _startSlotAudio(slot.parsedSound!);
             }
             break;
           }
@@ -2738,6 +2877,7 @@ class SciKernel {
           if (_activePlayingObj == slot.obj) {
             soundPlayer?.stop();
             _activePlayingObj = null;
+            _clearActiveAdLibSource();
           }
         }
       }

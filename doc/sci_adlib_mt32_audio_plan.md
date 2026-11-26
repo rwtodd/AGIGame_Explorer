@@ -1,10 +1,24 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **stages 0–5 landed 2026-11-26 (stage 5 listening sign-off
-pending); stage 6 is next.**
+Status: **stages 0–6 landed 2026-11-26 (stage 5/6 listening sign-off
+pending; AdLib is opt-in, legacy PSG still default); stage 7 is next.**
 Date: 2026-11-22.
 
-Progress: stage 5 landed the Sierra AdLib driver
+Progress: stage 6 landed streaming SCI integration:
+`SciAdLibPcmSource` (track → driver → chip → linear resampler at the
+sink rate, sample-identical to the offline renderer at 49,716 Hz),
+`AgiSoundPlayer.playPcmSource`, kernel device routing with lazy bank
+cache and legacy fallback with a recorded reason, the
+`SciMusicDevice` setting (persisted, applied live by GameScreen with
+next-sound semantics, toggle in the AV settings dialog), and AdLib
+polyphony 9. End-to-end corpus gate: PQ2 title under AdLib reaches the
+title pic, advances IntroScript (cues intact), and streams non-silent
+FM PCM (captured peak 19226). SCI master volume is applied exactly
+once per path (driver for AdLib, player for legacy). Remaining
+listening gates: timbre comparison vs ScummVM, mix headroom in loud
+passages, default-patch-13 programming question, resampler quality
+measurement (linear is the labelled stage-6 choice).
+Stage 5 landed the Sierra AdLib driver
 (`lib/audio/opl/sci_adlib_driver.dart`: initTrack voice assignment,
 round-robin allocation with oldest-voice stealing, sustain, pitch bend
 at Sierra's ±12-semitone scale, CC 0x4B voice mapping, SCI0 velocity

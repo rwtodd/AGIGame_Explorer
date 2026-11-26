@@ -1,5 +1,6 @@
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
 /// User display preferences for video rendering and scaling.
@@ -86,12 +87,16 @@ class AgiAudioSettings {
   final double reverbMix;
   final double masterVolume;
 
+  /// SCI music-output device (legacy PSG by default; AdLib is opt-in).
+  final SciMusicDevice sciMusicDevice;
+
   const AgiAudioSettings({
     this.soundMode = AgiSoundMode.pcJr,
     this.waveform = WaveformType.square,
     this.enableReverb = false,
     this.reverbMix = 0.0,
     this.masterVolume = 0.75,
+    this.sciMusicDevice = SciMusicDevice.legacyPsg,
   });
 
   AgiAudioSettings copyWith({
@@ -100,6 +105,7 @@ class AgiAudioSettings {
     bool? enableReverb,
     double? reverbMix,
     double? masterVolume,
+    SciMusicDevice? sciMusicDevice,
   }) {
     return AgiAudioSettings(
       soundMode: soundMode ?? this.soundMode,
@@ -107,6 +113,7 @@ class AgiAudioSettings {
       enableReverb: enableReverb ?? this.enableReverb,
       reverbMix: reverbMix ?? this.reverbMix,
       masterVolume: masterVolume ?? this.masterVolume,
+      sciMusicDevice: sciMusicDevice ?? this.sciMusicDevice,
     );
   }
 
@@ -132,6 +139,7 @@ class AgiAudioSettings {
         'enableReverb': enableReverb,
         'reverbMix': reverbMix,
         'masterVolume': masterVolume,
+        'sciMusicDevice': sciMusicDevice.name,
       };
 
   factory AgiAudioSettings.fromJson(Map<String, dynamic>? json) {
@@ -155,12 +163,24 @@ class AgiAudioSettings {
       );
     }
 
+    // Tolerant of pre-Stage-6b settings files (missing key) and of
+    // unknown values from a newer build: both fall back to legacy.
+    SciMusicDevice sciMusicDevice = SciMusicDevice.legacyPsg;
+    final deviceStr = json['sciMusicDevice'] as String?;
+    if (deviceStr != null) {
+      sciMusicDevice = SciMusicDevice.values.firstWhere(
+        (d) => d.name == deviceStr,
+        orElse: () => SciMusicDevice.legacyPsg,
+      );
+    }
+
     return AgiAudioSettings(
       soundMode: soundMode,
       waveform: waveform,
       enableReverb: json['enableReverb'] as bool? ?? false,
       reverbMix: (json['reverbMix'] as num?)?.toDouble() ?? 0.0,
       masterVolume: (json['masterVolume'] as num?)?.toDouble() ?? 0.75,
+      sciMusicDevice: sciMusicDevice,
     );
   }
 }

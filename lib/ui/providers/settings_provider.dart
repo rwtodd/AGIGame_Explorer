@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
 
@@ -146,6 +147,14 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
   void setSoundMode(AgiSoundMode mode) {
     state = state.copyWith(
       audio: state.audio.copyWith(soundMode: mode),
+    );
+    _saveSettings();
+  }
+
+  /// Updates the SCI music-output device.
+  void setSciMusicDevice(SciMusicDevice device) {
+    state = state.copyWith(
+      audio: state.audio.copyWith(sciMusicDevice: device),
     );
     _saveSettings();
   }

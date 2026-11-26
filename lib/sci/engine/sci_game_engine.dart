@@ -18,6 +18,7 @@ import 'package:flutter_agigame/picture/picture_slicer.dart';
 import 'package:flutter_agigame/sci/engine/sci_game_state_serializer.dart';
 import 'package:flutter_agigame/sci/engine/sci_kernel.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
@@ -44,9 +45,23 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   final bool _ownsSoundPlayer;
   AgiSoundMode _soundMode = AgiSoundMode.pcJr;
   final bool _isSoundOn = true;
+  SciMusicDevice _sciMusicDevice = SciMusicDevice.legacyPsg;
 
   @override
   AgiSoundMode get soundMode => _soundMode;
+
+  /// Selected SCI music device. Takes effect on the next sound start;
+  /// never swaps a playing source. Independent of [soundMode], which
+  /// still selects the legacy translation and mute behavior.
+  SciMusicDevice get sciMusicDevice => _sciMusicDevice;
+
+  /// Forwards the SCI music device choice to the kernel and notifies
+  /// listeners. Mirrors the [setSoundMode] style.
+  void setSciMusicDevice(SciMusicDevice device) {
+    _sciMusicDevice = device;
+    kernel.sciMusicDevice = device;
+    notifyListeners();
+  }
 
   @override
   bool get isSoundOn => _soundMode != AgiSoundMode.off && _isSoundOn;
