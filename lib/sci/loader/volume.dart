@@ -7,7 +7,7 @@ import 'package:flutter_agigame/sci/loader/decompressor_lzw.dart';
 import 'package:flutter_agigame/sci/loader/resource_map.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/sci_exceptions.dart';
-import 'package:flutter_agigame/sci/script/sci_script_parser.dart';
+import 'package:flutter_agigame/sci/script/sci_script_header.dart';
 
 /// LRU Memory Cache for decompressed resource buffers.
 class _SciLruCache<K, V> {
@@ -96,7 +96,7 @@ class SciVolumeManager {
     if (_isEarlySci0 != null) return _isEarlySci0!;
     try {
       final script0Bytes = getResource(SciResourceType.script, 0);
-      _isEarlySci0 = SciScriptParser.hasOldScriptHeader(script0Bytes);
+      _isEarlySci0 = hasOldSci0ScriptHeader(script0Bytes);
     } catch (_) {
       _isEarlySci0 = false;
     }
