@@ -2782,6 +2782,9 @@ class SciKernel {
           profile: volumeManager?.isEarlySci0 == true
               ? SciAdlibProfile.sci0Early
               : SciAdlibProfile.sci0Late,
+          // ScummVM-style dual-OPL2 stereo for game playback (pan CC
+          // driven; not OPL3 native panning).
+          stereoDualOpl2: true,
         );
         _activeAdLibSource = source;
         // Redirect player-level volume to the user's gain; the SCI

@@ -54,6 +54,47 @@ final class Opl2ChipRegisterSink implements OplRegisterSink {
   void reset() => chip.reset();
 }
 
+/// Stereo sink: layered on [OplRegisterSink] with per-side register writes.
+///
+/// ScummVM-style dual-OPL2 enhancement: most writes go to both chips,
+/// while velocity (0x40) writes may differ per side via pan scaling.
+/// This is not OPL3 native panning and not strict single-YM3812 mono
+/// hardware behavior.
+abstract class StereoOplRegisterSink extends OplRegisterSink {
+  /// Writes [leftValue] to the left chip and [rightValue] to the right
+  /// chip at [address].
+  void writeRegisterStereo(int address, int leftValue, int rightValue);
+}
+
+/// [StereoOplRegisterSink] wrapping two [Opl2Chip] instances (dual OPL2).
+final class DualOpl2ChipRegisterSink implements StereoOplRegisterSink {
+  /// Left chip.
+  final Opl2Chip leftChip;
+
+  /// Right chip.
+  final Opl2Chip rightChip;
+
+  DualOpl2ChipRegisterSink(this.leftChip, this.rightChip);
+
+  @override
+  void writeRegister(int address, int value) {
+    leftChip.writeRegister(address, value);
+    rightChip.writeRegister(address, value);
+  }
+
+  @override
+  void writeRegisterStereo(int address, int leftValue, int rightValue) {
+    leftChip.writeRegister(address, leftValue);
+    rightChip.writeRegister(address, rightValue);
+  }
+
+  @override
+  void reset() {
+    leftChip.reset();
+    rightChip.reset();
+  }
+}
+
 /// SCI0 driver profile: decides the physical voice cap.
 enum SciAdlibProfile {
   /// Early SCI0 games: 8 voices.
@@ -411,8 +452,8 @@ final class SciAdLibDriver {
         c.volume = value >> 1;
         _renewNotes(channel, true);
       case 0x0A:
-        // Pan is stored for future stereo; the mono chip has no audible
-        // pan, but the renewal keeps observable state consistent.
+        // Pan (CC 0x0A) is used by the dual-OPL2 stereo path to scale
+        // per-side velocity registers; mono sinks ignore it audibly.
         c.pan = value;
         _renewNotes(channel, true);
       case 0x40:
@@ -648,6 +689,28 @@ final class SciAdLibDriver {
   void _setVelocity(int voice) {
     final instrument = _instrumentFor(_voices[voice].patch);
     final base = _registerOffsets[voice];
+    final s = sink;
+    if (s is StereoOplRegisterSink) {
+      final carrier = _stereoVelocityRegValues(
+        voice,
+        1,
+        instrument.operator1.kbScaleLevel,
+      );
+      s.writeRegisterStereo(0x40 + base + 3, carrier.left, carrier.right);
+      if (instrument.modulator.algorithm == 1) {
+        final modulator = _stereoVelocityRegValues(
+          voice,
+          0,
+          instrument.operator0.kbScaleLevel,
+        );
+        s.writeRegisterStereo(
+          0x40 + base,
+          modulator.left,
+          modulator.right,
+        );
+      }
+      return;
+    }
     sink.writeRegister(
       0x40 + base + 3,
       _velocityRegValue(voice, 1, instrument.operator1.kbScaleLevel),
@@ -664,5 +727,35 @@ final class SciAdLibDriver {
     var velocity = _calcVelocity(voice, op);
     if (!_playEnabled) velocity = 0;
     return (kbScaleLevel << 6) | (63 - velocity);
+  }
+
+  /// ScummVM-style dual-OPL2 pan scaling for velocity registers.
+  ///
+  /// Computes the velocity once via [_calcVelocity]/[_playEnabled], then
+  /// scales per side by channel pan (CC 0x0A): center 64 is equal;
+  /// pan < 64 attenuates right by pan/64; pan > 64 attenuates left by
+  /// (127-pan)/63. Register value is (kbScaleLevel<<6)|(63-scaled).
+  ({int left, int right}) _stereoVelocityRegValues(
+    int voice,
+    int op,
+    int kbScaleLevel,
+  ) {
+    var velocity = _calcVelocity(voice, op);
+    if (!_playEnabled) velocity = 0;
+    final channel = _voices[voice].channel;
+    var pan = 64;
+    if (channel >= 0 && channel < 16) pan = _channels[channel].pan;
+    pan = pan.clamp(0, 127);
+    var leftVelocity = velocity;
+    var rightVelocity = velocity;
+    if (pan < 64) {
+      rightVelocity = velocity * pan ~/ 64;
+    } else if (pan > 64) {
+      leftVelocity = velocity * (127 - pan) ~/ 63;
+    }
+    return (
+      left: (kbScaleLevel << 6) | (63 - leftVelocity),
+      right: (kbScaleLevel << 6) | (63 - rightVelocity),
+    );
   }
 }

@@ -374,6 +374,31 @@ void main() {
     });
   });
 
+  group('stereo dual-OPL2 render', () {
+    test('stereo reports channels=2 and interleaved pcm', () {
+      final result =
+          sciAdLibRenderTrack(sustainedA4Track(), makeSineBank(), stereo: true);
+      expect(result.channels, 2);
+      expect(result.pcm.length, result.totalFrames * 2);
+      expect(peakAbsOf(result.pcm), greaterThan(1000));
+    });
+
+    test('mono default reports channels=1', () {
+      final result = sciAdLibRenderTrack(sustainedA4Track(), makeSineBank());
+      expect(result.channels, 1);
+      expect(result.pcm.length, result.totalFrames);
+    });
+
+    test('WAV encodes 2 channels for stereo render', () {
+      final result =
+          sciAdLibRenderTrack(sustainedA4Track(), makeSineBank(), stereo: true);
+      final wav = sciAdLibRenderToWav(result);
+      final bd = ByteData.sublistView(wav);
+      expect(bd.getUint16(22, Endian.little), 2);
+      expect(bd.getUint32(40, Endian.little), result.pcm.length * 2);
+    });
+  });
+
   group('WAV helper', () {
     test('RIFF header with 49716 Hz mono and matching data size', () {
       final result = sciAdLibRenderTrack(sustainedA4Track(), makeSineBank());

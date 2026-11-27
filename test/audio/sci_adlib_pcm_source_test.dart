@@ -62,6 +62,7 @@ SciMidiEvent noteOnEv(int tick, int channel, int note, int velocity) =>
     SciMidiEvent(tick: tick, kind: SciMidiEventKind.noteOn, channel: channel, status: 0x90 | channel, data1: note, data2: velocity);
 SciMidiEvent noteOffEv(int tick, int channel, int note) => SciMidiEvent(tick: tick, kind: SciMidiEventKind.noteOff, channel: channel, status: 0x80 | channel, data1: note, data2: 0);
 SciMidiEvent programEv(int tick, int channel, int program) => SciMidiEvent(tick: tick, kind: SciMidiEventKind.programChange, channel: channel, status: 0xC0 | channel, data1: program);
+SciMidiEvent ccEv(int tick, int channel, int controller, int value) => SciMidiEvent(tick: tick, kind: SciMidiEventKind.controlChange, channel: channel, status: 0xB0 | channel, data1: controller, data2: value);
 SciMidiEvent endEv(int tick) => SciMidiEvent(tick: tick, kind: SciMidiEventKind.endOfTrack, channel: -1, status: 0xFC);
 
 SciMidiTrack makeRendererTrack({required List<SciMidiEvent> events, required int totalTicks, int channel = 0, bool masked = true}) {
@@ -234,6 +235,77 @@ void main() {
       final loudSecondHalf = Int16List.sublistView(loud, 4410 * 2);
       final quietSecondHalf = Int16List.sublistView(combined, 4410 * 2);
       expect(rmsOf(quietSecondHalf), lessThan(rmsOf(loudSecondHalf)));
+    });
+
+    double channelRms(Int16List interleaved, int ch) {
+      var sum = 0.0;
+      var count = 0;
+      for (var i = ch; i < interleaved.length; i += 2) {
+        final s = interleaved[i].toDouble();
+        sum += s * s;
+        count++;
+      }
+      return math.sqrt(sum / math.max(1, count));
+    }
+
+    SciMidiTrack pannedTrack(int pan) => makeRendererTrack(
+          totalTicks: 120,
+          events: [
+            programEv(0, 0, 5),
+            ccEv(0, 0, 0x0A, pan),
+            noteOnEv(0, 0, 69, 100),
+            noteOffEv(120, 0, 69),
+            endEv(120),
+          ],
+        );
+
+    test('stereoDualOpl2 pans hard-left to left channel', () {
+      final out = drainSource(
+        SciAdLibPcmSource(pannedTrack(0), makeSineBank(),
+            outputSampleRate: 49716, stereoDualOpl2: true),
+        1024,
+      );
+      final left = channelRms(out, 0);
+      final right = channelRms(out, 1);
+      expect(left, greaterThan(100));
+      expect(right, lessThan(left * 0.5));
+    });
+
+    test('stereoDualOpl2 pans hard-right to right channel', () {
+      final out = drainSource(
+        SciAdLibPcmSource(pannedTrack(127), makeSineBank(),
+            outputSampleRate: 49716, stereoDualOpl2: true),
+        1024,
+      );
+      final left = channelRms(out, 0);
+      final right = channelRms(out, 1);
+      expect(right, greaterThan(100));
+      expect(left, lessThan(right * 0.5));
+    });
+
+    test('default mono source duplicates sample-for-sample', () {
+      final src = SciAdLibPcmSource(sustainedA4Track(), makeSineBank(),
+          outputSampleRate: 49716);
+      expect(src.stereoDualOpl2, isFalse);
+      final out = drainSource(src, 1024);
+      for (var i = 0; i < out.length; i += 2) {
+        expect(out[i], equals(out[i + 1]));
+      }
+    });
+
+    test('stereo center pan matches mono energy on both channels', () {
+      final mono = drainSource(
+        SciAdLibPcmSource(pannedTrack(64), makeSineBank(),
+            outputSampleRate: 49716),
+        1024,
+      );
+      final stereo = drainSource(
+        SciAdLibPcmSource(pannedTrack(64), makeSineBank(),
+            outputSampleRate: 49716, stereoDualOpl2: true),
+        1024,
+      );
+      // Center-panned stereo should equal mono duplicated output.
+      expect(stereo, equals(mono));
     });
 
     test('destination too small throws', () {

@@ -56,6 +56,59 @@ final class RecordingSink implements OplRegisterSink {
   }
 }
 
+/// Recording stereo sink: tracks both shared and per-side writes.
+final class RecordingStereoSink extends StereoOplRegisterSink {
+  final List<int> addresses = [];
+  final List<int> values = [];
+  final List<int> stereoAddresses = [];
+  final List<int> stereoLeft = [];
+  final List<int> stereoRight = [];
+
+  @override
+  void writeRegister(int address, int value) {
+    addresses.add(address);
+    values.add(value);
+  }
+
+  @override
+  void writeRegisterStereo(int address, int leftValue, int rightValue) {
+    stereoAddresses.add(address);
+    stereoLeft.add(leftValue);
+    stereoRight.add(rightValue);
+  }
+
+  @override
+  void reset() {
+    addresses.clear();
+    values.clear();
+    stereoAddresses.clear();
+    stereoLeft.clear();
+    stereoRight.clear();
+  }
+
+  int? lastStereoLeft(int address) {
+    for (var i = stereoAddresses.length - 1; i >= 0; i--) {
+      if (stereoAddresses[i] == address) return stereoLeft[i];
+    }
+    return null;
+  }
+
+  int? lastStereoRight(int address) {
+    for (var i = stereoAddresses.length - 1; i >= 0; i--) {
+      if (stereoAddresses[i] == address) return stereoRight[i];
+    }
+    return null;
+  }
+
+  void clear() {
+    addresses.clear();
+    values.clear();
+    stereoAddresses.clear();
+    stereoLeft.clear();
+    stereoRight.clear();
+  }
+}
+
 /// One 28-byte instrument record built from decoded-field values.
 Uint8List makeRecord({
   required int kb0,
@@ -894,6 +947,83 @@ void main() {
       final (:driver, :sink) = lateDriverWithVoices();
       driver.handleEvent(noteOnEv(0, 15, 69, 100));
       expect(sink.writeCount, 0);
+    });
+  });
+
+  group('dual OPL2 stereo panning', () {
+    ({SciAdLibDriver driver, RecordingStereoSink sink}) stereoDriver() {
+      final sink = RecordingStereoSink();
+      final driver = SciAdLibDriver(bank: makeBank(), sink: sink);
+      driver.open();
+      final channels = silentChannels16();
+      channels[0] = chLate(0, voices: 1, mask: 0x04);
+      driver.initTrack(makeTrack(
+          variant: SciMidiHeaderVariant.late, channels: channels));
+      sink.clear();
+      return (driver: driver, sink: sink);
+    }
+
+    test('center pan gives equal L/R velocity regs', () {
+      final (:driver, :sink) = stereoDriver();
+      driver.handleEvent(programEv(0, 0, kSpecialFm));
+      driver.handleEvent(ccEv(0, 0, 0x0A, 64));
+      sink.clear();
+      driver.handleEvent(noteOnEv(0, 0, 69, 100));
+      // Carrier velocity for specialFm: (1<<6)|(63-53).
+      expect(sink.lastStereoLeft(0x43), (1 << 6) | (63 - 53));
+      expect(sink.lastStereoRight(0x43), (1 << 6) | (63 - 53));
+    });
+
+    test('pan 0 attenuates right to max (63 low bits), left normal', () {
+      final (:driver, :sink) = stereoDriver();
+      driver.handleEvent(programEv(0, 0, kSpecialFm));
+      driver.handleEvent(ccEv(0, 0, 0x0A, 0));
+      sink.clear();
+      driver.handleEvent(noteOnEv(0, 0, 69, 100));
+      expect(sink.lastStereoLeft(0x43), (1 << 6) | (63 - 53));
+      expect(sink.lastStereoRight(0x43), (1 << 6) | 63);
+    });
+
+    test('pan 127 attenuates left to max, right normal', () {
+      final (:driver, :sink) = stereoDriver();
+      driver.handleEvent(programEv(0, 0, kSpecialFm));
+      driver.handleEvent(ccEv(0, 0, 0x0A, 127));
+      sink.clear();
+      driver.handleEvent(noteOnEv(0, 0, 69, 100));
+      expect(sink.lastStereoLeft(0x43), (1 << 6) | 63);
+      expect(sink.lastStereoRight(0x43), (1 << 6) | (63 - 53));
+    });
+
+    test('pan CC renews note and updates stereo velocity regs', () {
+      final (:driver, :sink) = stereoDriver();
+      driver.handleEvent(programEv(0, 0, kSpecialFm));
+      driver.handleEvent(noteOnEv(0, 0, 69, 100));
+      expect(sink.lastStereoLeft(0x43), (1 << 6) | (63 - 53));
+      sink.clear();
+      driver.handleEvent(ccEv(1, 0, 0x0A, 0));
+      expect(sink.lastStereoLeft(0x43), (1 << 6) | (63 - 53));
+      expect(sink.lastStereoRight(0x43), (1 << 6) | 63);
+    });
+
+    test('additive mode scales modulator velocity per side too', () {
+      final (:driver, :sink) = stereoDriver();
+      driver.handleEvent(programEv(0, 0, kSpecialAdditive));
+      driver.handleEvent(ccEv(0, 0, 0x0A, 0));
+      sink.clear();
+      driver.handleEvent(noteOnEv(0, 0, 69, 100));
+      // Modulator (0x40): kb0=0, base velocity 63 -> left (63-63)=0,
+      // right scaled to 0 -> 63.
+      expect(sink.lastStereoLeft(0x40), 0);
+      expect(sink.lastStereoRight(0x40), 63);
+    });
+
+    test('mono recording sink behavior unchanged by pan', () {
+      final (:driver, :sink) = lateDriverWithVoices(voices: 1);
+      driver.handleEvent(programEv(0, 0, kSpecialFm));
+      driver.handleEvent(ccEv(0, 0, 0x0A, 0));
+      sink.clear();
+      driver.handleEvent(noteOnEv(0, 0, 69, 100));
+      expect(sink.lastWrite(0x43), (1 << 6) | (63 - 53));
     });
   });
 

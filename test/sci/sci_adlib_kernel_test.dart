@@ -191,6 +191,7 @@ void main() {
       await settle();
       alignSlotClock();
       expect(kernel.activeAdLibSource, isNotNull);
+      expect(kernel.activeAdLibSource?.stereoDualOpl2, isTrue);
       expect(kernel.adLibBankProvenance, SciAdlibBankProvenance.loosePatch);
       expect(kernel.adLibFallbackReason, isNull);
       expect(player.isGenericActive, isTrue);

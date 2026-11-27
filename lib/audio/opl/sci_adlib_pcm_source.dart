@@ -11,8 +11,11 @@
 // resampler is a true identity and output equals the offline renderer
 // sample-for-sample (duplicated to stereo).
 //
-// Channels = 2: the OPL2 chip is mono; the mono sample is duplicated to
-// L/R (authentic single-OPL2). No stereo widening.
+// Channels = 2. Default: the OPL2 chip is mono; the mono sample is
+// duplicated to L/R (authentic single-OPL2). With [stereoDualOpl2] the
+// source instead runs two chips via [DualOpl2ChipRegisterSink]
+// (ScummVM-style dual-OPL2 enhancement using source pan CCs, not OPL3
+// native panning) and interleaves true L/R samples.
 //
 // Resampler: LINEAR INTERPOLATION from 49716 to outputSampleRate. This
 // is the Stage 6 initial resampler — the plan requires the quality
@@ -47,6 +50,10 @@ class SciAdLibPcmSource extends PcmSource {
   final int outputSampleRate;
   final int tailTicks;
   final SciAdlibProfile? profile;
+
+  /// When true, use dual-OPL2 stereo (two chips, pan-scaled velocities).
+  /// Default false preserves single-chip duplicated-mono behavior.
+  final bool stereoDualOpl2;
   int _masterVolume;
 
   late final SciAdlibProfile _profile;
@@ -58,6 +65,7 @@ class SciAdLibPcmSource extends PcmSource {
   late final int _totalFrames;
 
   late Opl2Chip _chip;
+  Opl2Chip? _chipRight;
   late SciAdLibDriver _driver;
 
   int _position = 0;
@@ -68,8 +76,11 @@ class SciAdLibPcmSource extends PcmSource {
   int _bufLen = 0;
   int _prevLast = 0;
   bool _prevValid = false;
+  int _prevLastRight = 0;
+  bool _prevValidRight = false;
 
   final Int16List _nativeBuf = Int16List(_kNativeBlockFrames);
+  final Int16List _nativeBufRight = Int16List(_kNativeBlockFrames);
   Int16List _discard = Int16List(0);
 
   double get _step => kOpl2SampleRate / outputSampleRate.toDouble();
@@ -81,6 +92,7 @@ class SciAdLibPcmSource extends PcmSource {
     int masterVolume = 15,
     SciAdlibProfile? profile,
     this.tailTicks = 30,
+    this.stereoDualOpl2 = false,
   })  : _masterVolume = masterVolume.clamp(0, 15),
         profile = profile {
     if (tailTicks < 0) {
@@ -133,12 +145,24 @@ class SciAdLibPcmSource extends PcmSource {
     _bufLen = 0;
     _prevValid = false;
     _prevLast = 0;
+    _prevValidRight = false;
+    _prevLastRight = 0;
     _chip = Opl2Chip();
-    _driver = SciAdLibDriver(
-      bank: bank,
-      sink: Opl2ChipRegisterSink(_chip),
-      profile: _profile,
-    );
+    if (stereoDualOpl2) {
+      _chipRight = Opl2Chip();
+      _driver = SciAdLibDriver(
+        bank: bank,
+        sink: DualOpl2ChipRegisterSink(_chip, _chipRight!),
+        profile: _profile,
+      );
+    } else {
+      _chipRight = null;
+      _driver = SciAdLibDriver(
+        bank: bank,
+        sink: Opl2ChipRegisterSink(_chip),
+        profile: _profile,
+      );
+    }
     _driver.open();
     _driver.setMasterVolume(_masterVolume);
     _driver.initTrack(track);
@@ -176,37 +200,52 @@ class SciAdLibPcmSource extends PcmSource {
     for (var i = 0; i < n; i++) {
       final pos = (_position + i) * step;
       final int sample;
+      final int sampleRight;
       if (identity) {
         final idx = _position + i;
         _ensureAvail(idx);
         sample = _totalNativeFrames == 0 ? 0 : _readNative(idx);
+        sampleRight = stereoDualOpl2 && _totalNativeFrames != 0
+            ? _readNative(idx, right: true)
+            : sample;
       } else {
         final double p = pos;
         final int i0 = p.floor();
         final int i1 = i0 + 1;
         if (_totalNativeFrames == 0) {
           sample = 0;
+          sampleRight = 0;
         } else {
           _ensureAvail(i1 < _totalNativeFrames ? i1 : _totalNativeFrames - 1);
           int s0;
           int s1;
+          int r0;
+          int r1;
           if (i0 >= _totalNativeFrames) {
             s0 = _readNative(_totalNativeFrames - 1);
             s1 = s0;
+            r0 = _readNative(_totalNativeFrames - 1, right: true);
+            r1 = r0;
           } else {
             s0 = _readNative(i0);
+            r0 = _readNative(i0, right: true);
             if (i1 >= _totalNativeFrames) {
               s1 = s0;
+              r1 = r0;
             } else {
               s1 = _readNative(i1);
+              r1 = _readNative(i1, right: true);
             }
           }
           final frac = p - i0;
           sample = (s0 + (s1 - s0) * frac).round().clamp(-32768, 32767);
+          sampleRight = stereoDualOpl2
+              ? (r0 + (r1 - r0) * frac).round().clamp(-32768, 32767)
+              : sample;
         }
       }
-      interleaved[( _position + i - _position) * 2] = sample;
-      interleaved[i * 2 + 1] = sample;
+      interleaved[i * 2] = sample;
+      interleaved[i * 2 + 1] = sampleRight;
     }
     _position += n;
     return n;
@@ -214,7 +253,14 @@ class SciAdLibPcmSource extends PcmSource {
 
   // --- native generation ---
 
-  int _readNative(int idx) {
+  int _readNative(int idx, {bool right = false}) {
+    if (right) {
+      if (idx < _bufStart) {
+        // Previous block's last sample (or 0 for first block edge).
+        return _prevValidRight ? _prevLastRight : 0;
+      }
+      return _nativeBufRight[idx - _bufStart];
+    }
     if (idx < _bufStart) {
       // Previous block's last sample (or 0 for first block edge).
       return _prevValid ? _prevLast : 0;
@@ -237,6 +283,10 @@ class SciAdLibPcmSource extends PcmSource {
     if (_bufLen > 0) {
       _prevLast = _nativeBuf[_bufLen - 1];
       _prevValid = true;
+      if (stereoDualOpl2) {
+        _prevLastRight = _nativeBufRight[_bufLen - 1];
+        _prevValidRight = true;
+      }
     }
     _bufStart = _generated;
     _bufLen = 0;
@@ -270,6 +320,12 @@ class SciAdLibPcmSource extends PcmSource {
         Int16List.sublistView(_nativeBuf, offset, offset + n),
         n,
       );
+      if (stereoDualOpl2) {
+        _chipRight!.generate(
+          Int16List.sublistView(_nativeBufRight, offset, offset + n),
+          n,
+        );
+      }
       _generated += n;
       _bufLen = _generated - _bufStart;
     }
@@ -280,6 +336,8 @@ class SciAdLibPcmSource extends PcmSource {
     _driver.setMasterVolume(_masterVolume);
   }
 
+  /// Left-chip snapshot; in stereo-dual mode the right chip is not
+  /// separately exposed here.
   OplDebugSnapshot debugSnapshot() => _chip.snapshot();
 
   @override

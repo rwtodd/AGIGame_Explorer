@@ -56,15 +56,19 @@ final class SciAdLibRenderResult {
   /// (`min(track.totalTicks, maxTicks?)`).
   final int renderedTicks;
 
-  /// Total rendered frames: `pcm.length`, i.e.
+  /// Total rendered frames: `pcm.length / channels`, i.e.
   /// `((renderedTicks + tailTicks) * kOpl2SampleRate / 60).round()`.
   final int totalFrames;
+
+  /// Channel count (1 mono, 2 stereo-dual-OPL2). Defaults to 1.
+  final int channels;
 
   const SciAdLibRenderResult({
     required this.pcm,
     required this.sampleRate,
     required this.renderedTicks,
     required this.totalFrames,
+    this.channels = 1,
   });
 
   /// Peak absolute sample value (0 for silence).
@@ -96,6 +100,7 @@ SciAdLibRenderResult sciAdLibRenderTrack(
   int tailTicks = 30,
   int masterVolume = 15,
   SciAdlibProfile? profile,
+  bool stereo = false,
 }) {
   if (tailTicks < 0) {
     throw ArgumentError('tailTicks must be >= 0: $tailTicks');
@@ -108,19 +113,24 @@ SciAdLibRenderResult sciAdLibRenderTrack(
       : (track.totalTicks < maxTicks ? track.totalTicks : maxTicks);
   final totalFrames = _frameForTick(endTick + tailTicks);
   final endFrame = _frameForTick(endTick);
-  final output = Int16List(totalFrames);
+  final channels = stereo ? 2 : 1;
+  final output = Int16List(totalFrames * channels);
   if (totalFrames == 0) {
     return SciAdLibRenderResult(
       pcm: output,
       sampleRate: kOpl2SampleRate,
       renderedTicks: endTick,
       totalFrames: totalFrames,
+      channels: channels,
     );
   }
   final chip = Opl2Chip();
+  final chipRight = stereo ? Opl2Chip() : null;
   final driver = SciAdLibDriver(
     bank: bank,
-    sink: Opl2ChipRegisterSink(chip),
+    sink: stereo
+        ? DualOpl2ChipRegisterSink(chip, chipRight!)
+        : Opl2ChipRegisterSink(chip),
     profile: profile ??
         (track.variant == SciMidiHeaderVariant.early
             ? SciAdlibProfile.sci0Early
@@ -134,12 +144,21 @@ SciAdLibRenderResult sciAdLibRenderTrack(
   final block = Int16List(sciAdLibRenderBlockFrames);
   var cursor = 0;
 
+  final blockRight = Int16List(sciAdLibRenderBlockFrames);
   void renderUntil(int target) {
     final t = target.clamp(0, totalFrames);
     while (cursor < t) {
       final n = (t - cursor).clamp(1, sciAdLibRenderBlockFrames);
       chip.generate(block, n);
-      output.setRange(cursor, cursor + n, block);
+      if (stereo) {
+        chipRight!.generate(blockRight, n);
+        for (var i = 0; i < n; i++) {
+          output[(cursor + i) * 2] = block[i];
+          output[(cursor + i) * 2 + 1] = blockRight[i];
+        }
+      } else {
+        output.setRange(cursor, cursor + n, block);
+      }
       cursor += n;
     }
   }
@@ -163,6 +182,7 @@ SciAdLibRenderResult sciAdLibRenderTrack(
     sampleRate: kOpl2SampleRate,
     renderedTicks: endTick,
     totalFrames: totalFrames,
+    channels: channels,
   );
 }
 
@@ -202,6 +222,7 @@ SciAdLibVolumeRenderResult sciAdLibRenderSound(
   int tailTicks = 30,
   int masterVolume = 15,
   SciAdlibProfile? profile,
+  bool stereo = false,
 }) {
   late final Uint8List soundBytes;
   try {
@@ -245,17 +266,18 @@ SciAdLibVolumeRenderResult sciAdLibRenderSound(
       tailTicks: tailTicks,
       masterVolume: masterVolume,
       profile: profile,
+      stereo: stereo,
     ),
     provenance: bankResult.provenance,
     unavailableReason: null,
   );
 }
 
-/// Encodes a render result as a mono 49,716 Hz WAV file.
+/// Encodes a render result as a 49,716 Hz WAV file using its channel count.
 Uint8List sciAdLibRenderToWav(SciAdLibRenderResult result) =>
     WavEncoder.encode(
       samples: result.pcm,
       sampleRate: result.sampleRate,
-      numChannels: 1,
+      numChannels: result.channels,
     );
 
