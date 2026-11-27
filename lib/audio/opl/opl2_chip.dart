@@ -495,7 +495,11 @@ final class Opl2Chip {
 
     var att = _tl[idx] * 0.75 + _envDb[idx] + _kslDb(idx, fnum, block);
     if (_am[idx]) {
-      final depth = _amDepth ? 4.8 : 1.0;
+      // Datasheet AM depths (1.0 / 4.8 dB) are peak-to-peak; the sine
+      // modulation amplitude is half that. Calibration capture
+      // (2026-11-26) measured ~1.08 dB p-p at the shallow setting
+      // vs 2.00 dB p-p with the previous ±1.0 dB interpretation.
+      final depth = _amDepth ? 2.4 : 0.5;
       att += depth * amSin;
       if (att < 0.0) att = 0.0;
     }
@@ -562,19 +566,15 @@ final class Opl2Chip {
         return s * amp;
       case 2: // Abs sine.
         return s * amp;
-      default: // Waveform 3: positive half-sine arch repeated twice per
-        // phase cycle. Measured black-box (ScummVM/Nuked calibration
-        // capture, 2026-11-26, phase-folded at the note frequency): an
-        // arch occupying the first quarter of each half-cycle, silence in
-        // the second quarter of each half-cycle, never negative. The arch
-        // is sin(pi*frac) over the quarter, so fold the quarter table at
-        // its midpoint (up then down within the quarter).
+      default: // Waveform 3: rising quarter-sine repeated twice per
+        // phase cycle, silence in the second quarter of each half-cycle,
+        // never negative. The quarter table is read rising (no mirror)
+        // in even quarters and the output drops abruptly to zero for odd
+        // quarters. Candidate-shape simulation against the ScummVM/Nuked
+        // calibration capture (2026-11-26) favored this construction
+        // over a symmetric arch (which phase-fold smearing had suggested).
         if (quarter.isOdd) return 0.0;
-        final quarterSize = 1 << (_phaseBits - 2);
-        final pos = inQuarter < (quarterSize >> 1)
-            ? inQuarter
-            : quarterSize - inQuarter;
-        var idx = (pos * _sineTableLen) >> (_phaseBits - 3);
+        var idx = (inQuarter * _sineTableLen) >> (_phaseBits - 2);
         if (idx >= _sineTableLen) idx = _sineTableLen - 1;
         return _sineTable[idx] * amp;
     }

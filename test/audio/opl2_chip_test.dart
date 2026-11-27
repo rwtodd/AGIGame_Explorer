@@ -476,7 +476,7 @@ void main() {
     expect(minV, greaterThan(-50));
   });
 
-  test('waveform 3 is a positive arch repeated twice per cycle (2f energy)',
+  test('waveform 3 is a rising quarter repeated twice per cycle (2f energy)',
       () {
     final chip = Opl2Chip();
     programChannel(chip, carWave: 3, modTl: 63, carAr: 15, carDr: 0,
@@ -491,8 +491,8 @@ void main() {
     expect(minV, greaterThan(-50));
     expect(peak(out), greaterThan(500));
     // Fundamental carrier: fnum 0x200, block 4 => 388.4 Hz. Waveform 3
-    // repeats the arch twice per phase cycle, so energy at 2f exceeds
-    // energy at f. (Old shape yielded a dominant f component.)
+    // repeats the rising quarter twice per phase cycle, so energy at 2f
+    // exceeds energy at f. (Old shapes yielded a dominant f component.)
     const f = 388.4;
     final a1 = goertzelAmp(out, 10000, 40000, f);
     final a2 = goertzelAmp(out, 10000, 40000, f * 2);
