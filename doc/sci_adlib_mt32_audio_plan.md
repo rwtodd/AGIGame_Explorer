@@ -771,6 +771,34 @@ They are listening oracles only; do not add their output or game patch bytes
 as golden files to git. For synthetic sequences, PCM hashes and RMS/peak
 checks are appropriate once our own renderer is intentionally frozen.
 
+#### Capturing a ScummVM reference recording (macOS)
+
+SDL's `disk` audio driver writes ScummVM's raw mixed output to a file —
+no loopback device or screen recorder needed. Recipe used 2026-11-26
+for the PQ2 title reference (`pq2_start.flac`, kept out of git):
+
+```sh
+SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE=/tmp/scumm.raw \
+  /Applications/ScummVM.app/Contents/MacOS/scummvm \
+  -e adlib --opl-driver=nuked --output-rate=44100 -m 255 -s 0 -r 0 <target>
+
+ffmpeg -f s16le -ar 44100 -ac 2 -i /tmp/scumm.raw scummvm_ref.flac
+```
+
+Notes:
+
+- `<target>` is the ScummVM target id (e.g. from `scummvm --list-targets`).
+- `-e adlib` selects the AdLib music driver; `--opl-driver=nuked` picks
+  the Nuked OPL core (the accuracy reference); `-m 255` maxes music
+  volume, `-s 0` silences SFX, `-r 0` silences speech, so the capture is
+  music-only. The SCI AdLib driver runs dual-OPL2, so the capture is
+  stereo — downmix before comparing against our mono chip output.
+- The raw file is headerless `s16le` at `--output-rate`; it grows for as
+  long as ScummVM runs — quit ScummVM to stop the capture, then convert.
+- Reference captures are game audio: keep them in `/tmp` or another
+  uncommitted location, never in git. Only measurements derived from
+  them (frequencies, times, ratios) belong in docs and tests.
+
 Performance gates should report Dart generation time for ten seconds of
 audio, allocations after warm-up, underruns at the chosen lookahead, and
 end-to-end CPU in a profile build. The relevant comparison is current
