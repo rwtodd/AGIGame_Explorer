@@ -237,10 +237,12 @@ void main() {
     expect(dropDb, inInclusiveRange(3.5 * 0.65, 3.5 * 1.35));
   });
 
-  // Attack anchor: AR=6 (eff=26) reaches -3 dB of peak in ~67 ms
-  // (tau~=2685 samples, t(-3dB)=1.23*tau) and -20 dB in <=20 ms
-  // (measured: -20/-6/-3 dB at ~10/44/67 ms, ratio ~6.7).
-  test('anchor: attack at eff=26 reaches -3 dB in 45..95 ms, -20 dB <=20 ms',
+  // Attack anchor (geometric-in-dB, calibration): AR=6 (eff=26) reaches
+  // -3 dB of peak in ~42 ms (tau=608 samples, t(-3dB)=tau*ln(96/3)) and
+  // -20 dB in ~19 ms (ratio ~2; calibration AR=1: 658/1357 ms, AR=6:
+  // 15/40 ms). The earlier amplitude-domain anchors (45..95 ms) came from
+  // a confounded two-operator band measurement, superseded by calibration.
+  test('anchor: attack at eff=26 reaches -3 dB in 30..60 ms, -20 dB in 10..30 ms',
       () {
     final chip = Opl2Chip();
     programChannel(chip,
@@ -266,8 +268,8 @@ void main() {
     final t20 = timeTo(-20.0);
     expect(t3, greaterThan(0));
     expect(t20, greaterThan(0));
-    expect(t3, inInclusiveRange(45.0, 95.0));
-    expect(t20, lessThanOrEqualTo(20.0));
+    expect(t3, inInclusiveRange(30.0, 60.0));
+    expect(t20, inInclusiveRange(10.0, 30.0));
   });
 
   // Release anchor: RR=6 (eff=26) shares the decay curve,
@@ -363,6 +365,23 @@ void main() {
     final ratio = hi0 / lo0;
     expect(ratio, greaterThan(0.9));
     expect(ratio, lessThan(1.1));
+    // Calibration order (2026-11-26, programs 39-42): slopes are 1 and 2
+    // swapped (KSL=1 ~3 dB/oct, KSL=2 ~1.5 dB/oct) with pivot 2.0. At a
+    // mid/high note (block 6, octave 6.5, 4.5 above pivot):
+    // KSL2 (6.75 dB) > KSL1 (13.5 dB) > KSL3 (27 dB).
+    final hiK0 = steadyRms(6, 0);
+    final hiK1 = steadyRms(6, 1);
+    final hiK2 = steadyRms(6, 2);
+    final hiK3 = steadyRms(6, 3);
+    expect(hiK0, greaterThan(hiK2));
+    expect(hiK2, greaterThan(hiK1));
+    expect(hiK1, greaterThan(hiK3));
+    // Near/below pivot (block 1, octave 1.5 < 2.0): KSL3 has ~no
+    // attenuation, so it nearly equals the KSL0 level (within a few dB).
+    final pivotK0 = steadyRms(1, 0);
+    final pivotK3 = steadyRms(1, 3);
+    expect(pivotK3, greaterThan(pivotK0 * 0.7));
+    expect(pivotK3, lessThan(pivotK0 * 1.05));
   });
 
   test('percussive envelope decays past SL to silence (mid SL)', () {
@@ -457,6 +476,29 @@ void main() {
     expect(minV, greaterThan(-50));
   });
 
+  test('waveform 3 is a positive arch repeated twice per cycle (2f energy)',
+      () {
+    final chip = Opl2Chip();
+    programChannel(chip, carWave: 3, modTl: 63, carAr: 15, carDr: 0,
+        carSl: 0, modAr: 15, modDr: 15);
+    final out = Int16List(49716);
+    chip.generate(out, out.length);
+    // Never negative (old waveform 3 had a negative sine quarter).
+    var minV = 0;
+    for (final v in out) {
+      if (v < minV) minV = v;
+    }
+    expect(minV, greaterThan(-50));
+    expect(peak(out), greaterThan(500));
+    // Fundamental carrier: fnum 0x200, block 4 => 388.4 Hz. Waveform 3
+    // repeats the arch twice per phase cycle, so energy at 2f exceeds
+    // energy at f. (Old shape yielded a dominant f component.)
+    const f = 388.4;
+    final a1 = goertzelAmp(out, 10000, 40000, f);
+    final a2 = goertzelAmp(out, 10000, 40000, f * 2);
+    expect(a2, greaterThan(a1));
+  });
+
   test('feedback changes output measurably; additive differs from FM', () {
     Int16List render({int fb = 0, int conn = 0}) {
       final chip = Opl2Chip();
@@ -524,10 +566,12 @@ void main() {
   });
 
   // PM must not drift or shift pitch over time: zero-crossing rate in an
-  // early and a late post-attack window agree within 2%, and equal
-  // 2x the carrier (with ~2.2 rad index the PM phase is non-monotonic,
-  // giving two zero crossings per carrier period). The accumulating bug
-  // settled at ~437 Hz in this same setup.
+  // early and a late post-attack window agree within 2%, and equal the
+  // carrier (one up-crossing per carrier period). With ~2.2 rad index the
+  // PM phase is non-monotonic; at the calibrated x2 feedback gains the
+  // modulator self-modulation keeps the carrier waveform's up-crossing
+  // rate at 1x (previously, at 1x feedback gains, it was 2x). The
+  // accumulating bug settled at ~437 Hz in this same setup.
   test('FM pitch does not drift (early vs late windows)', () {
     const fnum = 0x300;
     const block = 5;
@@ -542,7 +586,7 @@ void main() {
     final early = measuredFreqHz(Int16List.sublistView(out, 5000, 20000));
     final late = measuredFreqHz(Int16List.sublistView(out, 20000, 40000));
     expect(late, closeTo(early, early * 0.02));
-    expect(late, closeTo(expected * 2, expected * 2 * 0.03));
+    expect(late, closeTo(expected, expected * 0.03));
   });
 
   test('AM modulates amplitude over time; VIB varies instantaneous rate', () {

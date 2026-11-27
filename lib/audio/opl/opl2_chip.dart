@@ -62,16 +62,22 @@ const List<double> _multScale = [
 const int _fmDeviationScale = 1 << 22;
 
 /// Feedback gains (dimensionless, includes the pi factor documented in the
-/// datasheet: pi/32, pi/16, pi/8, pi/4, pi/2, pi, 2pi).
+/// datasheet: pi/16, pi/8, pi/4, pi/2, pi, 2pi, 4pi). Calibrated black-box
+/// against a ScummVM/Nuked capture of the synthetic calibration kit
+/// (2026-11-26): a joint PM/feedback simulation fit against the feedback
+/// ladder (programs 12-19 harmonic stacks) minimized error with the
+/// post-attenuation avg-of-previous-two tap and deviation scale of 4 cycles,
+/// but with feedback gains TWICE the datasheet table (mean log-harmonic
+/// error 0.100 at x2 vs best alternatives >=0.177 at other scalings).
 const List<double> _feedbackGains = [
   0.0,
-  math.pi / 32,
   math.pi / 16,
   math.pi / 8,
   math.pi / 4,
   math.pi / 2,
   math.pi,
   2 * math.pi,
+  4 * math.pi,
 ];
 
 /// Modulator offsets indexed by channel (datasheet channel->operator map).
@@ -122,9 +128,6 @@ final class Opl2Chip {
   // Per-operator live state (SoA, size 18).
   final Int32List _phase = Int32List(kOpl2Operators);
   final Float64List _envDb = Float64List(kOpl2Operators);
-  // Attack envelope amplitude (linear, 0..1); _envDb is derived from it
-  // during the attack segment.
-  final Float64List _envAmp = Float64List(kOpl2Operators);
   final Int32List _seg = Int32List(kOpl2Operators);
   final Float64List _prevOut = Float64List(kOpl2Operators);
   final Float64List _prevPrevOut = Float64List(kOpl2Operators);
@@ -195,7 +198,6 @@ final class Opl2Chip {
       _wave[i] = 0;
       _phase[i] = 0;
       _envDb[i] = _silenceDb;
-      _envAmp[i] = 0.0;
       _seg[i] = _segSilent;
       _prevOut[i] = 0.0;
       _prevPrevOut[i] = 0.0;
@@ -328,8 +330,6 @@ final class Opl2Chip {
     for (final idx in [m, c]) {
       _phase[idx] = 0;
       _envDb[idx] = _silenceDb;
-      // Linear attack amplitude starts from the current attenuation.
-      _envAmp[idx] = math.pow(10.0, -_silenceDb / 20.0).toDouble();
       _prevOut[idx] = 0.0;
       _prevPrevOut[idx] = 0.0;
       // Instant attack (eff >= 60) is handled at envelope advance time
@@ -519,21 +519,25 @@ final class Opl2Chip {
     return (fnum * doubledMult << block) ~/ 2;
   }
 
-  /// Key-scale attenuation slopes in dB per octave for KSL = 0..3, from the
-  /// documented key-scale behavior (higher pitch => more attenuation).
-  static const List<double> _kslSlopesDbPerOctave = [0.0, 1.5, 3.0, 6.0];
+  /// Key-scale attenuation slopes in dB per octave for KSL = 0..3. Measured
+  /// black-box on calibration programs 39-42 (notes 36..96, all C's,
+  /// fnum=345) against a ScummVM/Nuked capture (2026-11-26): KSL=1
+  /// attenuates ~3.1 dB/octave, KSL=2 ~1.65 dB/octave, KSL=3 ~6.2 dB/octave.
+  /// Values 1 and 2 are swapped relative to the naive datasheet order, so
+  /// the table is [0, 3.0, 1.5, 6.0], not [0, 1.5, 3.0, 6.0].
+  static const List<double> _kslSlopesDbPerOctave = [0.0, 3.0, 1.5, 6.0];
 
   /// Approximation of the documented key-scale level curve (not a copy of
-  /// any emulator table): attenuation is 0 for KSL=0 and at the lowest
-  /// octave (block 0, fnum 0), rises by the KSL slope (0/1.5/3/6 dB per
-  /// octave) with pitch (block plus the fnum fraction within a block),
-  /// and is never negative.
+  /// any emulator table): attenuation fits
+  /// att = slope * max(0, (block + fnum/1024) - 2.0) on the calibration
+  /// capture (pivot 2.0 fit within ~0.3 dB at both ends for KSL=3);
+  /// never negative.
   double _kslDb(int idx, int fnum, int block) {
     final ksl = _ksl[idx];
     if (ksl == 0) return 0.0;
     final slope = _kslSlopesDbPerOctave[ksl];
     final octave = block + fnum / 1024.0; // ~0 (lowest) .. ~8 (highest)
-    final att = slope * octave;
+    final att = slope * (octave - 2.0);
     return att < 0.0 ? 0.0 : att;
   }
 
@@ -558,9 +562,21 @@ final class Opl2Chip {
         return s * amp;
       case 2: // Abs sine.
         return s * amp;
-      default: // Quarter/pulse sine: 2nd and 4th quarters = 0.
-        if (quarter == 1 || quarter == 3) return 0.0;
-        return phase > half ? -s * amp : s * amp;
+      default: // Waveform 3: positive half-sine arch repeated twice per
+        // phase cycle. Measured black-box (ScummVM/Nuked calibration
+        // capture, 2026-11-26, phase-folded at the note frequency): an
+        // arch occupying the first quarter of each half-cycle, silence in
+        // the second quarter of each half-cycle, never negative. The arch
+        // is sin(pi*frac) over the quarter, so fold the quarter table at
+        // its midpoint (up then down within the quarter).
+        if (quarter.isOdd) return 0.0;
+        final quarterSize = 1 << (_phaseBits - 2);
+        final pos = inQuarter < (quarterSize >> 1)
+            ? inQuarter
+            : quarterSize - inQuarter;
+        var idx = (pos * _sineTableLen) >> (_phaseBits - 3);
+        if (idx >= _sineTableLen) idx = _sineTableLen - 1;
+        return _sineTable[idx] * amp;
     }
   }
 
@@ -577,26 +593,21 @@ final class Opl2Chip {
       if (eff >= 60) {
         // Instant attack (measured fast attack at AR=15 high-ksn rates).
         level = 0.0;
-        _envAmp[idx] = 1.0;
       } else {
-        // Amplitude-domain exponential approach: A(t) = 1 - exp(-t/tau).
-        // Measured 440 Hz band envelope (PQ2 patch 19 op1, AR=6 KSR=0,
-        // note 69 -> eff=26): -20 dB at ~10 ms, -6 dB at ~44 ms,
-        // -3 dB at ~67 ms (ratio t(-3)/t(-20) ~= 6.7). The prior
-        // geometric-in-dB attack gave ratio ~2.2 and -3 dB in ~29 ms;
-        // the amplitude-domain approach gives ratio ~11.7 in theory
-        // (measurement windows smear ratios toward 1) and fits far
-        // better. tau(eff) = 243000 * 2^(-eff/4); eff=26 -> tau ~2685
-        // samples (~54 ms) -> t(-3 dB) = 1.23*tau ~66 ms.
+        // Geometric-in-dB attack: att(t) = att0 * exp(-t/tau), i.e.
+        // level *= exp(-1/tau) per sample. Measured black-box on
+        // calibration attack programs against a ScummVM/Nuked capture
+        // (2026-11-26): AR=1 (eff=6) t(-20dB)=658 ms, t(-3dB)=1357 ms
+        // (ratio 2.06); AR=4: 75/170; AR=6: 15/40. The ratio ~2 matches
+        // geometric-in-dB, not the amplitude-domain approach (ratio ~11).
+        // tau(eff) = 55000 * 2^(-eff/4) samples: eff=6 -> tau=19455
+        // samples = 391 ms, t(-3dB)=tau*ln(96/3)=1357 ms; eff=26 ->
+        // tau=608 samples, t(-3dB)=42 ms. Note: an earlier band-envelope
+        // measurement that suggested the amplitude-domain shape (PQ2
+        // patch 19) was confounded by two-operator/accompaniment content
+        // and is superseded by these calibration anchors.
         final tau = _attackTau(eff);
-        final k = 1.0 - math.exp(-1.0 / tau);
-        var amp = _envAmp[idx];
-        amp += (1.0 - amp) * k;
-        if (amp > 1.0) amp = 1.0;
-        _envAmp[idx] = amp;
-        level = amp <= 0.0
-            ? _silenceDb
-            : -8.686 * math.log(amp); // -20*log10(amp)
+        level *= math.exp(-1.0 / tau);
         if (level <= 0.01) {
           level = 0.0;
           seg = _segDecay;
@@ -648,24 +659,20 @@ final class Opl2Chip {
     }
   }
 
-  /// Attack time constant in samples for the amplitude-domain approach
-  /// A(t) = 1 - exp(-t/tau).
-  ///
-  /// Black-box measurement against a Nuked OPL reference capture,
-  /// 2026-11-26 (PQ2 patch 19 op1, AR=6 KSR=0, note 69 -> eff=26,
-  /// 440 Hz band envelope): -20 dB at ~10 ms, -6 dB at ~44 ms,
-  /// -3 dB at ~67 ms (t(-3)/t(-20) ~= 6.7). Amplitude-domain approach
-  /// gives ratio ~11.7 in theory and fits far better than the prior
-  /// geometric-in-dB attack (ratio ~2.2, -3 dB in ~29 ms). With this
-  /// shape t(-3 dB) = 1.23*tau, so tau(26) ~= 54 ms ~= 2685 samples.
-  /// tau doubles every 4 eff steps downward, i.e.
-  /// tau(eff) = 243000 * 2^(-eff/4) samples (2685 at eff=26).
-  /// This is a measured anchor, not a datasheet table.
+  /// Attack time constant in samples for the geometric-in-dB attack
+  /// att(t) = att0 * exp(-t/tau). Measured black-box on calibration attack
+  /// programs against a ScummVM/Nuked capture (2026-11-26): AR=1 (eff=6)
+  /// t(-20dB)=658 ms, t(-3dB)=1357 ms; AR=4: 75/170; AR=6: 15/40, i.e.
+  /// t(-3)/t(-20) ~= 2.06, matching geometric-in-dB. tau doubles every 4
+  /// eff steps downward: tau(eff) = 55000 * 2^(-eff/4) samples, so eff=6 ->
+  /// tau=19455 samples (391 ms) and eff=26 -> tau=608 samples with
+  /// t(-3dB)=tau*ln(96/3)=42 ms. This is a measured anchor, not a
+  /// datasheet table.
   double _attackTau(int eff) {
     var e = eff;
     if (e < 0) e = 0;
     if (e > 75) e = 75;
-    return 243000.0 * math.pow(2.0, -e / 4.0).toDouble();
+    return 55000.0 * math.pow(2.0, -e / 4.0).toDouble();
   }
 
   /// Decay/release ramp in dB per sample.
