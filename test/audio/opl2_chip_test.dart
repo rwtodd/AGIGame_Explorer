@@ -26,6 +26,8 @@ void programChannel(
   int carSl = 8,
   int carRr = 10,
   bool egType = true,
+  bool modKsr = false,
+  bool carKsr = false,
   bool modAm = false,
   bool modVib = false,
   bool carAm = false,
@@ -40,10 +42,16 @@ void programChannel(
 }) {
   const offsets = [0, 1, 2, 8, 9, 10, 16, 17, 18];
   final base = offsets[channel];
-  int op20(int mult, bool am, bool vib, bool eg) =>
-      (am ? 0x80 : 0) | (vib ? 0x40 : 0) | (eg ? 0x20 : 0) | mult;
-  chip.writeRegister(0x20 + base, op20(modMult, modAm, modVib, egType));
-  chip.writeRegister(0x23 + base, op20(carMult, carAm, carVib, egType));
+  int op20(int mult, bool am, bool vib, bool eg, bool ksr) =>
+      (am ? 0x80 : 0) |
+      (vib ? 0x40 : 0) |
+      (eg ? 0x20 : 0) |
+      (ksr ? 0x10 : 0) |
+      mult;
+  chip.writeRegister(
+      0x20 + base, op20(modMult, modAm, modVib, egType, modKsr));
+  chip.writeRegister(
+      0x23 + base, op20(carMult, carAm, carVib, egType, carKsr));
   chip.writeRegister(0x40 + base, (modKsl << 6) | modTl);
   chip.writeRegister(0x43 + base, (carKsl << 6) | carTl);
   chip.writeRegister(0x60 + base, (modAr << 4) | modDr);
@@ -736,5 +744,82 @@ void main() {
     print('Opl2 5s render: $ms ms');
     expect(ms, lessThan(5000));
     expect(peak(out), greaterThan(0));
+  });
+
+  // Rate 0 freezes the segment regardless of key-scale offset (Yamaha
+  // semantics). High note (block 7, fnum 0x200) + KSR on => ksn=15,
+  // rateOffset=15, so old eff = 4*0+15 gave a fast spurious rate.
+  test('AR=0 with KSR on at high note stays silent', () {
+    final chip = Opl2Chip();
+    programChannel(chip,
+        fnum: 0x200, block: 7, modKsr: true, carKsr: true,
+        carAr: 0, modAr: 0, carDr: 15, modDr: 15, connection: 1);
+    final out = Int16List(49716 ~/ 2); // 0.5 s
+    chip.generate(out, out.length);
+    expect(peak(out), lessThan(5));
+    expect(rms(out, 0, out.length), lessThan(5));
+  });
+
+  test('DR=0 with KSR on holds sustained level', () {
+    final chip = Opl2Chip();
+    // Carrier-only observable: modulator TL=63 (silent), additive.
+    programChannel(chip,
+        fnum: 0x200, block: 7, modKsr: true, carKsr: true,
+        modTl: 63, carTl: 0, carAr: 15, carDr: 0, carSl: 15,
+        modAr: 15, modDr: 15, connection: 1, egType: true);
+    final out = Int16List(49716); // 1 s
+    chip.generate(out, out.length);
+    final early = rms(out, 5000, 15000);
+    final late = rms(out, 39796, 49716); // 0.8-1.0 s
+    expect(early, greaterThan(1000));
+    expect(late, greaterThan(early * 0.8));
+  });
+
+  test('RR=0 after key-off holds level; RR>0 control decays', () {
+    double postOffRms(int rr) {
+      final chip = Opl2Chip();
+      programChannel(chip,
+          fnum: 0x200, block: 7, modKsr: true, carKsr: true,
+          modTl: 63, carTl: 0, carAr: 15, carDr: 0, carSl: 0,
+          carRr: rr, modAr: 15, modDr: 15, modRr: rr, connection: 1,
+          egType: true);
+      final on = Int16List(4972);
+      chip.generate(on, on.length);
+      final pre = rms(on, 2000, 4972);
+      expect(pre, greaterThan(1000));
+      chip.writeRegister(0xB0, (7 << 2) | 0x02); // block 7, key off
+      final off = Int16List(49716 ~/ 2); // 0.5 s
+      chip.generate(off, off.length);
+      // Window 0.3-0.5 s after key-off.
+      return rms(off, 14914, off.length) / pre;
+    }
+
+    expect(postOffRms(0), greaterThan(0.5));
+    expect(postOffRms(10), lessThan(0.5));
+  });
+
+  test('key-on during release re-attacks from current envelope level', () {
+    // Hardware retrigger behavior: attack resumes from wherever the
+    // release had reached, it does not restart from silence. Dense
+    // arpeggios on one voice depend on this for their percussive ping.
+    final chip = Opl2Chip();
+    // Carrier-only observable; slow-ish attack, no decay, slow release.
+    programChannel(chip,
+        fnum: 0x200, block: 4, modTl: 63, carTl: 0,
+        carAr: 4, carDr: 0, carSl: 0, carRr: 1,
+        modAr: 15, modDr: 15, connection: 1, egType: true);
+    final first = Int16List(49716); // 1 s: reach sustain
+    chip.generate(first, first.length);
+    final firstOnset = rms(first, 0, 497); // first 10 ms from silence
+    chip.writeRegister(0xB0, (4 << 2) | 0x02); // key off
+    final rel = Int16List(4972); // 0.1 s of slow release
+    chip.generate(rel, rel.length);
+    chip.writeRegister(0xB0, 0x20 | (4 << 2) | 0x02); // retrigger
+    final second = Int16List(4972);
+    chip.generate(second, second.length);
+    final secondOnset = rms(second, 0, 497);
+    // From silence the AR=4 attack is barely audible after 10 ms; from a
+    // partially released level it is nearly full level immediately.
+    expect(secondOnset, greaterThan(firstOnset * 3));
   });
 }

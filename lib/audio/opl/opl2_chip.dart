@@ -329,7 +329,11 @@ final class Opl2Chip {
     final c = ch * 2 + 1;
     for (final idx in [m, c]) {
       _phase[idx] = 0;
-      _envDb[idx] = _silenceDb;
+      // Envelope level is intentionally NOT reset: a key-on during
+      // release re-enters attack from the current attenuation (hardware
+      // retrigger behavior). Dense arpeggios depend on this; restarting
+      // from silence makes every retrigger swell instead of ping.
+      // _envDb at chip reset is already the silence floor.
       _prevOut[idx] = 0.0;
       _prevPrevOut[idx] = 0.0;
       // Instant attack (eff >= 60) is handled at envelope advance time
@@ -589,6 +593,12 @@ final class Opl2Chip {
     var level = _envDb[idx];
 
     if (seg == _segAttack) {
+      // Yamaha semantics: raw rate 0 freezes the segment regardless of
+      // the key-scale offset (AR=0 never attacks).
+      if (_ar[idx] == 0) {
+        _envDb[idx] = level;
+        return;
+      }
       final eff = 4 * _ar[idx] + rateOffset;
       if (eff >= 60) {
         // Instant attack (measured fast attack at AR=15 high-ksn rates).
@@ -623,6 +633,10 @@ final class Opl2Chip {
     }
 
     if (seg == _segDecay) {
+      if (_dr[idx] == 0) {
+        _envDb[idx] = level;
+        return;
+      }
       final eff = 4 * _dr[idx] + rateOffset;
       level += _decayRateDbPerSample(eff);
       final slDb = _sl[idx] * 3.0;
@@ -648,6 +662,10 @@ final class Opl2Chip {
     }
 
     if (seg == _segRelease) {
+      if (_rr[idx] == 0) {
+        _envDb[idx] = level;
+        return;
+      }
       final eff = 4 * _rr[idx] + rateOffset;
       // Release uses the same rate curve as decay (no separate factor).
       level += _decayRateDbPerSample(eff);
