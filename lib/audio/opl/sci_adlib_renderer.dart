@@ -245,11 +245,16 @@ SciAdLibVolumeRenderResult sciAdLibRenderSound(
   }
   late final SciMidiTrack track;
   try {
+    final isSci1 = volumes.usesPostSci01Compression;
     track = SciMidiParser.parse(
       soundBytes,
-      headerSize: volumes.isEarlySci0
-          ? SciMidiParser.headerEarly
-          : SciMidiParser.headerLate,
+      headerSize: isSci1
+          ? null
+          : (volumes.isEarlySci0
+              ? SciMidiParser.headerEarly
+              : SciMidiParser.headerLate),
+      soundFormat:
+          isSci1 ? SciMidiSoundFormat.sci1MultiTrack : SciMidiSoundFormat.sci0,
     );
   } on FormatException catch (e) {
     return SciAdLibVolumeRenderResult(

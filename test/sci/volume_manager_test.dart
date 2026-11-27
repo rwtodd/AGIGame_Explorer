@@ -181,6 +181,120 @@ void main() {
     });
   });
 
+  group('Post-SCI01 compression flavor (synthetic)', () {
+    late Directory tempDir;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('sci_volume_flavor_');
+    });
+
+    tearDown(() {
+      try {
+        tempDir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    /// Writes a RESOURCE.MAP + RESOURCE.000 holding [records] concatenated
+    /// in order, each as an 8-byte volume header plus its payload.
+    void writeMulti(
+      List<({
+        SciResourceType type,
+        int number,
+        int method,
+        int decompSize,
+        List<int> payload,
+      })>
+          records,
+    ) {
+      final volBytes = BytesBuilder();
+      final offsets = <int>[];
+      for (final r in records) {
+        offsets.add(volBytes.length);
+        final rec = Uint8List(8 + r.payload.length);
+        final bd = ByteData.sublistView(rec);
+        bd.setUint16(
+            0, (r.type.typeCode << 11) | r.number, Endian.little);
+        bd.setUint16(2, r.payload.length + 4, Endian.little);
+        bd.setUint16(4, r.decompSize, Endian.little);
+        bd.setUint16(6, r.method, Endian.little);
+        rec.setRange(8, 8 + r.payload.length, r.payload);
+        volBytes.add(rec);
+      }
+      File('${tempDir.path}/RESOURCE.000').writeAsBytesSync(volBytes.toBytes());
+
+      final mapData = Uint8List((records.length + 1) * 6);
+      final mbd = ByteData.sublistView(mapData);
+      for (var i = 0; i < records.length; i++) {
+        final r = records[i];
+        mbd.setUint16(i * 6, (r.type.typeCode << 11) | r.number, Endian.little);
+        mbd.setUint32(i * 6 + 2, offsets[i], Endian.little); // volume 0
+      }
+      mbd.setUint32(records.length * 6 + 2, 0xFFFFFFFF, Endian.little);
+      File('${tempDir.path}/RESOURCE.MAP').writeAsBytesSync(mapData);
+    }
+
+    test('view method 2 detects post-SCI01; text method 2 decodes as MSB LZW1',
+        () {
+      // Text payload: 'A', 'B' literals + terminator as 9-bit MSB codes.
+      final writer = _TestBitWriterMSB();
+      writer.writeBits(0x41, 9);
+      writer.writeBits(0x42, 9);
+      writer.writeBits(257, 9);
+      final payload = writer.toBytes();
+
+      writeMulti([
+        (
+          type: SciResourceType.view,
+          number: 0,
+          method: 2,
+          decompSize: 4,
+          payload: [1, 2, 3, 4],
+        ),
+        (
+          type: SciResourceType.text,
+          number: 0,
+          method: 2,
+          decompSize: 2,
+          payload: payload,
+        ),
+      ]);
+
+      final vm = SciVolumeManager.fromDirectory(tempDir.path);
+      addTearDown(vm.close);
+
+      expect(vm.usesPostSci01Compression, isTrue);
+      expect(vm.getResource(SciResourceType.text, 0), equals([65, 66]));
+    });
+
+    test('view method 1 stays SCI0; legacy LSB LZW decode is unchanged', () {
+      // Legacy LSB stream for 'A', 'B' + terminator (see decompressor tests).
+      const lsbPayload = [0x41, 0x84, 0x04, 0x04];
+
+      writeMulti([
+        (
+          type: SciResourceType.view,
+          number: 0,
+          method: 1,
+          decompSize: 4,
+          payload: [1, 2, 3, 4],
+        ),
+        (
+          type: SciResourceType.text,
+          number: 0,
+          method: 1,
+          decompSize: 2,
+          payload: lsbPayload,
+        ),
+      ]);
+
+      final vm = SciVolumeManager.fromDirectory(tempDir.path);
+      addTearDown(vm.close);
+
+      expect(vm.usesPostSci01Compression, isFalse);
+      expect(vm.getResource(SciResourceType.text, 0), equals([65, 66]));
+    });
+  });
+
   group('Police Quest 2 Real Game Tests', () {
     const pq2Path = 'reference_games/police-quest-2';
 
@@ -223,4 +337,51 @@ void main() {
       expect(decompressedCount, equals(map.length));
     });
   });
+
+  group('Quest for Glory 2 Real Game Tests', () {
+    const qfg2Path = 'reference_games/quest-for-glory-2';
+
+    test('detects post-SCI01 compression and decompresses view/sound', () {
+      if (skipIfPathMissing(qfg2Path)) return;
+
+      final vm = SciVolumeManager.fromDirectory(qfg2Path);
+      addTearDown(vm.close);
+
+      expect(vm.usesPostSci01Compression, isTrue);
+      expect(
+        vm.resourceMap.entriesForType(SciResourceType.view).isNotEmpty,
+        isTrue,
+      );
+      // View.0 and sound.10 are raw method 2 (MSB early-change LZW1).
+      expect(vm.getResource(SciResourceType.view, 0), isNotEmpty);
+      expect(vm.getResource(SciResourceType.sound, 10), isNotEmpty);
+    });
+  });
+}
+
+/// MSB-first bit writer mirroring [_TestBitWriterLSB] in the decompressor
+/// tests: codes are emitted as their big-endian bit sequence.
+class _TestBitWriterMSB {
+  final List<int> _bytes = [];
+  int _buffer = 0;
+  int _bits = 0;
+
+  void writeBits(int value, int count) {
+    _buffer = (_buffer << count) | (value & ((1 << count) - 1));
+    _bits += count;
+    while (_bits >= 8) {
+      final shift = _bits - 8;
+      _bytes.add((_buffer >> shift) & 0xFF);
+      _bits -= 8;
+    }
+  }
+
+  Uint8List toBytes() {
+    if (_bits > 0) {
+      _bytes.add((_buffer << (8 - _bits)) & 0xFF);
+      _buffer = 0;
+      _bits = 0;
+    }
+    return Uint8List.fromList(_bytes);
+  }
 }

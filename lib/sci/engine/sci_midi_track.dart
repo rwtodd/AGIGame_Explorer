@@ -15,6 +15,11 @@ import 'dart:typed_data';
 /// byte, late packs a voice-count byte plus a play-mask byte per channel.
 enum SciMidiHeaderVariant { early, late }
 
+/// Sound resource layout: the SCI0 single-stream form, or the SCI1
+/// multi-track form (a device-track header table with one opcode stream
+/// per descriptor, merged in tick order).
+enum SciMidiSoundFormat { sci0, sci1MultiTrack }
+
 /// Device classes whose play bits are decoded from the header records.
 enum SciMidiDevice { adLib, tandyPcJr, pcSpeaker, mt32 }
 
@@ -286,10 +291,15 @@ class SciMidiTrack {
   final bool isTruncated;
   final Uint8List truncatedTail;
 
+  /// Sound resource layout (SCI0 single stream or SCI1 multi-track).
+  /// Defaults to [SciMidiSoundFormat.sci0] so SCI0 call sites are unchanged.
+  final SciMidiSoundFormat soundFormat;
+
   const SciMidiTrack({
     required this.variant,
     required this.headerSize,
     required this.flagsByte,
+    this.soundFormat = SciMidiSoundFormat.sci0,
     required this.hasDigitalSample,
     required this.sampleFlagSetButNoData,
     required this.sample,

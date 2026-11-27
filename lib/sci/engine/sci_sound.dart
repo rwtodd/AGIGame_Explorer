@@ -144,21 +144,36 @@ class Sci0SoundParser {
   static const List<int> midiParamCount = [2, 2, 2, 2, 1, 1, 2];
 
   /// Returns cue points plus a finished-song terminator.
-  static List<SciSoundCue> parse(Uint8List data, {int? headerSize}) {
-    return parseSound(data, headerSize: headerSize).cues;
+  static List<SciSoundCue> parse(
+    Uint8List data, {
+    int? headerSize,
+    SciMidiSoundFormat soundFormat = SciMidiSoundFormat.sci0,
+  }) {
+    return parseSound(
+      data,
+      headerSize: headerSize,
+      soundFormat: soundFormat,
+    ).cues;
   }
 
-  /// Parses an SCI0 sound resource and translates the MIDI events for [mode].
+  /// Parses a sound resource and translates the MIDI events for [mode].
+  ///
+  /// [soundFormat] selects the SCI0 single-stream layout (default) or the
+  /// SCI1 multi-track layout. SCI1 bypasses the SCI0 header-length gate and
+  /// passes its format through to [SciMidiParser.parse]; a [FormatException]
+  /// from the SCI1 parser propagates (callers such as the kernel catch it).
   static SciParsedSound parseSound(
     Uint8List data, {
     PcmPlaybackMode mode = PcmPlaybackMode.tandy3VoiceNoise,
     int? headerSize,
+    SciMidiSoundFormat soundFormat = SciMidiSoundFormat.sci0,
   }) {
+    final isSci1 = soundFormat == SciMidiSoundFormat.sci1MultiTrack;
     // Detect header size: 0x21 for SCI0_LATE, 0x11 for SCI0_EARLY
     final effectiveHeader = headerSize ??
         (data.length >= headerLate ? headerLate : (data.length >= headerEarly ? headerEarly : data.length));
 
-    if (data.length <= effectiveHeader) {
+    if (!isSci1 && data.length <= effectiveHeader) {
       return SciParsedSound(
         sound: AgiSound(voices: [
           ToneChannel(notes: const [
@@ -170,7 +185,11 @@ class Sci0SoundParser {
       );
     }
 
-    final track = SciMidiParser.parse(data, headerSize: effectiveHeader);
+    final track = SciMidiParser.parse(
+      data,
+      headerSize: isSci1 ? null : effectiveHeader,
+      soundFormat: soundFormat,
+    );
     final tick = track.totalTicks;
     final cues = track.cues
         .map((c) => SciSoundCue(tick: c.tick, signal: c.signal))

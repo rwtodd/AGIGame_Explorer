@@ -76,16 +76,20 @@ class SciVolumeRecordHeader {
       'compSize: $compSize, decompSize: $decompSize, method: $method)';
 }
 
-/// Disk-backed volume manager for SCI0 games.
+/// Disk-backed volume manager for SCI0/SCI1 games.
 ///
 /// Loads `RESOURCE.MAP`, accesses `RESOURCE.000`–`RESOURCE.003`, detects loose
-/// patch files, and decompresses resources via LZW (method 1) or Huffman (method 2).
+/// patch files, and decompresses resources. SCI0 volumes map raw method 1 to
+/// LSB LZW and raw method 2 to Huffman. Post-SCI01 volumes (detected via
+/// [usesPostSci01Compression]) invert the flavor: raw method 1 is Huffman and
+/// raw method 2 is MSB early-change LZW1.
 class SciVolumeManager {
   final String gameDirectory;
   final SciResourceMap resourceMap;
   final Map<int, RandomAccessFile> _openVolumes = {};
   final _SciLruCache<SciResourceId, Uint8List> _cache;
   bool? _isEarlySci0;
+  bool? _usesPostSci01Compression;
 
   /// True if this volume uses the early SCI0 script format (e.g. King's Quest IV SCI).
   bool get isEarlySci0 {
@@ -97,6 +101,48 @@ class SciVolumeManager {
       _isEarlySci0 = false;
     }
     return _isEarlySci0!;
+  }
+
+  /// Whether volume resources use the post-SCI01 compression flavor.
+  ///
+  /// This mirrors the preliminary view-compression detection concept (the
+  /// first compressed view not interpreted as old LZW means post-SCI01) and
+  /// is only a compression-format signal, not full game-version detection:
+  /// scan the volume-backed (non-patch) view entries in resource-number
+  /// order (up to 10), read each raw header, and let the first entry with a
+  /// nonzero raw method decide (1 => old/SCI0 mapping, any other nonzero
+  /// => post-SCI01 mapping). When no examined view is compressed, or no
+  /// volumes/headers can be read, this defaults to false, which preserves
+  /// every existing SCI0 and synthetic behavior.
+  bool get usesPostSci01Compression {
+    if (_usesPostSci01Compression != null) {
+      return _usesPostSci01Compression!;
+    }
+    var result = false;
+    try {
+      final views = resourceMap
+          .entriesForType(SciResourceType.view)
+          .where((entry) => !entry.isPatch);
+      var examined = 0;
+      for (final entry in views) {
+        if (examined >= 10) break;
+        examined++;
+        try {
+          final header = readHeader(entry);
+          if (header.method != 0) {
+            result = header.method != 1;
+            break;
+          }
+        } catch (_) {
+          // Skip an unreadable view header; the post-SCI01 decision needs
+          // one readable compressed view.
+        }
+      }
+    } catch (_) {
+      result = false;
+    }
+    _usesPostSci01Compression = result;
+    return result;
   }
 
   SciVolumeManager._({
@@ -253,6 +299,33 @@ class SciVolumeManager {
         'Premature end of volume reading resource ${entry.id}: '
         'read ${payload.length} bytes, expected ${header.payloadSize}',
       );
+    }
+
+    if (usesPostSci01Compression) {
+      switch (header.method) {
+        case 0: // Uncompressed
+          return payload;
+        case 1: // Post-SCI01 Huffman
+          return SciDecompressorHuffman.decompress(payload, header.decompSize);
+        case 2: // Post-SCI01 LZW1 (MSB-first, early-change)
+          return SciDecompressorLZW.decompress(
+            payload,
+            header.decompSize,
+            msb: true,
+            earlyChange: true,
+          );
+        case 3:
+        case 4:
+          throw SciDecompressionException(
+            'SCI1 view/pic compressed resource ${entry.id} uses compression '
+            'method ${header.method}, which needs view/pic post-processing '
+            'decompression that is not supported yet',
+          );
+        default:
+          throw SciDecompressionException(
+            'Unsupported compression method ${header.method} for resource ${entry.id}',
+          );
+      }
     }
 
     switch (header.method) {

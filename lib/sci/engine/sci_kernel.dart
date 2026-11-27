@@ -9,6 +9,7 @@ import 'package:flutter_agigame/audio/opl/sci_adlib_pcm_source.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/sci/engine/sci_seg_manager.dart';
 import 'package:flutter_agigame/sci/engine/sci_selectors.dart';
+import 'package:flutter_agigame/sci/engine/sci_midi_track.dart';
 import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 import 'package:flutter_agigame/sci/engine/sci_vm.dart';
@@ -2833,12 +2834,18 @@ class SciKernel {
     }
     try {
       final bytes = vol.getResource(SciResourceType.sound, number);
+      final isSci1 = vol.usesPostSci01Compression;
       return Sci0SoundParser.parseSound(
         bytes,
         mode: soundMode,
-        headerSize: vol.isEarlySci0
-            ? Sci0SoundParser.headerEarly
-            : Sci0SoundParser.headerLate,
+        headerSize: isSci1
+            ? null
+            : (vol.isEarlySci0
+                ? Sci0SoundParser.headerEarly
+                : Sci0SoundParser.headerLate),
+        soundFormat: isSci1
+            ? SciMidiSoundFormat.sci1MultiTrack
+            : SciMidiSoundFormat.sci0,
       );
     } catch (_) {
       return null;
