@@ -78,6 +78,26 @@ const int kChannelA = 1;
 /// Second MIDI channel used by the kit (index 2; header voices 2, AdLib).
 const int kChannelB = 2;
 
+/// Which calibration kit generation to build.
+///
+/// v1 is the original kit and remains the default; its outputs are
+/// unchanged. v2 is opt-in via `--kit v2` and shares the same record
+/// encoding, loose-patch wrapper, sound header/event machinery, and
+/// manifest/README conventions.
+enum CalibrationKitVersion { v1, v2 }
+
+/// Parses a `--kit` value case-insensitively (`v1`/`v2`).
+///
+/// Throws [FormatException] for any other value; the CLI maps that to
+/// usage + exit code 2.
+CalibrationKitVersion parseCalibrationKitVersion(String value) {
+  return switch (value.toLowerCase()) {
+    'v1' => CalibrationKitVersion.v1,
+    'v2' => CalibrationKitVersion.v2,
+    _ => throw FormatException('unknown kit version: $value'),
+  };
+}
+
 /// SCI0 sound header format.
 enum SoundHeaderFormat {
   /// 17-byte early header: one byte per channel, `(voices << 4) | deviceBits`.
@@ -185,6 +205,9 @@ final class CalibrationKit {
   /// Human-readable manifest (`MANIFEST.md` contents).
   final String manifestMarkdown;
 
+  /// Kit generation this kit was built from (`v1` by default).
+  final CalibrationKitVersion kitVersion;
+
   const CalibrationKit({
     required this.files,
     required this.segments,
@@ -192,6 +215,7 @@ final class CalibrationKit {
     required this.format,
     required this.ninetySix,
     required this.manifestMarkdown,
+    this.kitVersion = CalibrationKitVersion.v1,
   });
 
   /// Total duration of one resource's track, if present.
@@ -378,17 +402,134 @@ Uint8List _buildInstrument(int program) {
   return _buildRecord(mod: mod, carrier: carrier, feedback: feedback, algorithm: algorithm);
 }
 
+Uint8List _buildInstrumentV2(int program) {
+  final mod = _OpSpec();
+  final carrier = _OpSpec();
+  var feedback = 0;
+  var algorithm = 0;
+
+  if (program == 0) {
+    // Reference sine: same as v1 program 0.
+    mod.tl = 63;
+    carrier.tl = 12;
+  } else if (program == 1) {
+    // Waveform-3 carrier, mod silent.
+    mod.tl = 63;
+    carrier.tl = 12;
+    carrier.wave = 3;
+  } else if (program == 2) {
+    // Waveform-3 modulator + sine carrier (FM, mod TL16, fb0).
+    mod.tl = 16;
+    mod.wave = 3;
+    carrier.tl = 12;
+  } else if (program >= 3 && program <= 8) {
+    // Feedback x modulator-TL matrix: fb {5,6,7} x mod TL {8,24}.
+    const fbs = [5, 6, 7];
+    const modTls = [8, 24];
+    final i = program - 3;
+    feedback = fbs[i ~/ 2];
+    mod.tl = modTls[i % 2];
+    carrier.tl = 12;
+  } else if (program >= 9 && program <= 14) {
+    // Attack fill-in AR = 2,3,5,7,9,11 (carrier-only, EG1, DR0 SL0 RR8).
+    const ar = [2, 3, 5, 7, 9, 11];
+    mod.tl = 63;
+    carrier.ar = ar[program - 9];
+    carrier.dr = 0;
+    carrier.sl = 0;
+    carrier.eg = 1;
+    carrier.rr = 8;
+    carrier.tl = 12;
+  } else if (program >= 15 && program <= 20) {
+    // Decay fill-in DR = 2,3,5,6,7,9 (AR15, SL12, EG1, RR8).
+    const dr = [2, 3, 5, 6, 7, 9];
+    mod.tl = 63;
+    carrier.ar = 15;
+    carrier.dr = dr[program - 15];
+    carrier.sl = 12;
+    carrier.eg = 1;
+    carrier.rr = 8;
+    carrier.tl = 12;
+  } else if (program >= 21 && program <= 26) {
+    // Percussive RR fine ladder RR = 2,3,4,5,6,8 (AR15, DR12, SL0, EG0).
+    const rr = [2, 3, 4, 5, 6, 8];
+    mod.tl = 63;
+    carrier.ar = 15;
+    carrier.dr = 12;
+    carrier.sl = 0;
+    carrier.eg = 0;
+    carrier.rr = rr[program - 21];
+    carrier.tl = 12;
+  } else if (program >= 27 && program <= 30) {
+    // Key-off release RR = 2,5,7,10 (AR15, DR0, SL0, EG1).
+    const rr = [2, 5, 7, 10];
+    mod.tl = 63;
+    carrier.ar = 15;
+    carrier.dr = 0;
+    carrier.sl = 0;
+    carrier.eg = 1;
+    carrier.rr = rr[program - 27];
+    carrier.tl = 12;
+  } else if (program >= 31 && program <= 42) {
+    // Carrier MULT ladder, mod silent: registers 0,1,2,3,4,5,6,8,10,12,14,15.
+    const mults = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 15];
+    mod.tl = 63;
+    carrier.mult = mults[program - 31];
+    carrier.tl = 12;
+  } else if (program == 43) {
+    // AM on (carrier AM=1, sustained), sine carrier, mod silent.
+    mod.tl = 63;
+    carrier.tl = 12;
+    carrier.am = 1;
+  } else if (program == 44) {
+    // VIB on (carrier VIB=1), sine carrier, mod silent.
+    mod.tl = 63;
+    carrier.tl = 12;
+    carrier.vib = 1;
+  } else if (program == 45) {
+    // AM+VIB on, sine carrier, mod silent.
+    mod.tl = 63;
+    carrier.tl = 12;
+    carrier.am = 1;
+    carrier.vib = 1;
+  } else if (program == 46) {
+    // Velocity/pan reference: same spec as v1 program 45.
+    feedback = 2;
+    mod.tl = 16;
+    carrier.tl = 0;
+    mod.eg = 1;
+    carrier.eg = 1;
+  } else if (program == 47) {
+    // Silent control: both TL63.
+    mod.tl = 63;
+    carrier.tl = 63;
+  } else {
+    throw ArgumentError.value(program, 'program', 'must be 0..47');
+  }
+
+  return _buildRecord(mod: mod, carrier: carrier, feedback: feedback, algorithm: algorithm);
+}
+
 /// Builds the raw patch-bank payload (without the loose-patch wrapper).
 ///
 /// `instrumentCount` must be 48 (1344 bytes) or 96 (2690 bytes). The 96 form
 /// is the 48 records, two separator bytes (0, 0), then the same 48 records
 /// again for programs 48..95.
-Uint8List buildBankPayload({required int instrumentCount}) {
+///
+/// [kitVersion] selects the v1 (default) or v2 instrument bank; the v1
+/// bank is byte-identical regardless of this parameter's default.
+Uint8List buildBankPayload({
+  required int instrumentCount,
+  CalibrationKitVersion kitVersion = CalibrationKitVersion.v1,
+}) {
   if (instrumentCount != 48 && instrumentCount != 96) {
     throw ArgumentError.value(
         instrumentCount, 'instrumentCount', 'must be 48 or 96');
   }
-  final first = <Uint8List>[for (var p = 0; p < 48; p++) _buildInstrument(p)];
+  final builderFor = kitVersion == CalibrationKitVersion.v2
+      ? _buildInstrumentV2
+      : _buildInstrument;
+  final first = <Uint8List>[for (var p = 0; p < 48; p++) builderFor(p)];
   final builder = BytesBuilder(copy: false);
   if (instrumentCount == 48) {
     for (final record in first) {
@@ -845,11 +986,418 @@ SoundResourceData _buildSound993(SoundHeaderFormat format,
   );
 }
 
+SoundResourceData _buildSound990V2(SoundHeaderFormat format,
+    {int tickOffset = 0, _SoundWriter? writer, bool terminate = true}) {
+  const resource = 990;
+  final segments = <CalibrationSegment>[];
+  final w = writer ?? _SoundWriter(_buildHeader(format));
+  if (writer == null) _initialControllers(w);
+  var start = tickOffset;
+  var index = 0;
+
+  void addNote({
+    required int program,
+    required int note,
+    required int hold,
+    required int gap,
+    required String purpose,
+  }) {
+    final end = start + hold + gap;
+    w.program(start, kChannelA, program);
+    w.noteOn(start, kChannelA, note, 96);
+    w.noteOff(start + hold, kChannelA, note);
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: start,
+      endTick: end,
+      program: program,
+      channel: '1',
+      note: '$note',
+      purpose: purpose,
+    ));
+    start = end;
+  }
+
+  // Programs 1..2: wave3 carrier / wave3 modulator, notes held 60 + 20 gap.
+  const waveNotes = [45, 57, 69, 81, 93];
+  for (final p in [1, 2]) {
+    for (final note in waveNotes) {
+      addNote(
+        program: p,
+        note: note,
+        hold: 60,
+        gap: 20,
+        purpose:
+            'wave3 ${p == 1 ? 'carrier' : 'modulator'} prog $p note $note',
+      );
+    }
+  }
+  // Feedback matrix 3..8: note 69 held 120+30, then note 57 held 120+30.
+  for (var p = 3; p <= 8; p++) {
+    addNote(
+      program: p,
+      note: 69,
+      hold: 120,
+      gap: 30,
+      purpose: 'feedback matrix prog $p note 69',
+    );
+    addNote(
+      program: p,
+      note: 57,
+      hold: 120,
+      gap: 30,
+      purpose: 'feedback matrix prog $p note 57',
+    );
+  }
+
+  final total = terminate
+      ? w.finish(trailingTicks: start - w.currentTick)
+      : start;
+  return SoundResourceData(
+    payload: w.bytes(),
+    segments: segments,
+    totalTicks: total,
+    headerSize: format == SoundHeaderFormat.early ? 17 : 33,
+  );
+}
+
+SoundResourceData _buildSound991V2(SoundHeaderFormat format,
+    {int tickOffset = 0, _SoundWriter? writer, bool terminate = true}) {
+  const resource = 991;
+  final segments = <CalibrationSegment>[];
+  final w = writer ?? _SoundWriter(_buildHeader(format));
+  if (writer == null) _initialControllers(w);
+  var start = tickOffset;
+  var index = 0;
+
+  void addSegment({
+    required int program,
+    required int hold,
+    required int gap,
+    required String purpose,
+    required int gate,
+  }) {
+    final noteOffTick = start + gate;
+    final end = start + hold + gap;
+    w.program(start, kChannelA, program);
+    w.noteOn(start, kChannelA, 69, 96);
+    w.noteOff(noteOffTick, kChannelA, 69);
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: start,
+      endTick: end,
+      program: program,
+      channel: '1',
+      note: '69',
+      purpose: purpose,
+    ));
+    start = end;
+  }
+
+  const attackAr = [2, 3, 5, 7, 9, 11];
+  for (var i = 0; i < 6; i++) {
+    addSegment(
+      program: 9 + i,
+      hold: 210,
+      gap: 30,
+      gate: 210,
+      purpose: 'attack AR=${attackAr[i]}',
+    );
+  }
+  const decayDr = [2, 3, 5, 6, 7, 9];
+  for (var i = 0; i < 6; i++) {
+    addSegment(
+      program: 15 + i,
+      hold: 270,
+      gap: 30,
+      gate: 270,
+      purpose: 'decay-to-sustain DR=${decayDr[i]} SL=12',
+    );
+  }
+  const percRr = [2, 3, 4, 5, 6, 8];
+  for (var i = 0; i < 6; i++) {
+    addSegment(
+      program: 21 + i,
+      hold: 210,
+      gap: 30,
+      gate: 210,
+      purpose: 'percussive EG0 RR=${percRr[i]}',
+    );
+  }
+  const relRr = [2, 5, 7, 10];
+  for (var i = 0; i < 4; i++) {
+    addSegment(
+      program: 27 + i,
+      hold: 30,
+      gap: 150,
+      gate: 30,
+      purpose: 'release RR=${relRr[i]} gate 30',
+    );
+  }
+
+  final total = terminate
+      ? w.finish(trailingTicks: start - w.currentTick)
+      : start;
+  return SoundResourceData(
+    payload: w.bytes(),
+    segments: segments,
+    totalTicks: total,
+    headerSize: format == SoundHeaderFormat.early ? 17 : 33,
+  );
+}
+
+SoundResourceData _buildSound992V2(SoundHeaderFormat format,
+    {int tickOffset = 0, _SoundWriter? writer, bool terminate = true}) {
+  const resource = 992;
+  final segments = <CalibrationSegment>[];
+  final w = writer ?? _SoundWriter(_buildHeader(format));
+  if (writer == null) _initialControllers(w);
+  var start = tickOffset;
+  var index = 0;
+
+  void addNote({
+    required int program,
+    required int note,
+    required int hold,
+    required int gap,
+    required String purpose,
+  }) {
+    final end = start + hold + gap;
+    w.program(start, kChannelA, program);
+    w.noteOn(start, kChannelA, note, 96);
+    w.noteOff(start + hold, kChannelA, note);
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: start,
+      endTick: end,
+      program: program,
+      channel: '1',
+      note: '$note',
+      purpose: purpose,
+    ));
+    start = end;
+  }
+
+  // MULT ladder 31..42: each note 60 held 60 + 15 gap.
+  const mults = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 15];
+  for (var p = 31; p <= 42; p++) {
+    addNote(
+      program: p,
+      note: 60,
+      hold: 60,
+      gap: 15,
+      purpose: 'MULT=${mults[p - 31]} note 60',
+    );
+  }
+  // Program 0 pitch-boundary ladder: notes held 45 + 15 gap.
+  const boundaryNotes = [35, 36, 47, 48, 59, 60, 71, 72, 83, 84, 95, 96];
+  for (final note in boundaryNotes) {
+    addNote(
+      program: 0,
+      note: note,
+      hold: 45,
+      gap: 15,
+      purpose: 'pitch boundary note $note',
+    );
+  }
+  // Bend steps: program 0, note 69 held 270 with pitch-bend every 30
+  // ticks; the first bend is set BEFORE the note onset (so a capture
+  // sees the value in force for the whole step).
+  const bendValues = [
+    0, 2048, 4096, 6144, 8192, 10240, 12288, 14336, 16383
+  ];
+  {
+    final noteStart = start;
+    w.program(noteStart, kChannelA, 0);
+    w.pitchBend(noteStart, kChannelA, bendValues[0]);
+    w.noteOn(noteStart, kChannelA, 69, 96);
+    for (var step = 0; step < bendValues.length; step++) {
+      final stepStart = noteStart + step * 30;
+      if (step > 0) {
+        w.pitchBend(stepStart, kChannelA, bendValues[step]);
+      }
+      segments.add(CalibrationSegment(
+        resourceNumber: resource,
+        segmentIndex: index++,
+        startTick: stepStart,
+        endTick: stepStart + 30,
+        program: 0,
+        channel: '1',
+        note: '69',
+        purpose: 'bend ${bendValues[step]}',
+      ));
+    }
+    w.noteOff(noteStart + 270, kChannelA, 69);
+    start = noteStart + 270;
+  }
+
+  final total = terminate
+      ? w.finish(trailingTicks: start - w.currentTick)
+      : start;
+  return SoundResourceData(
+    payload: w.bytes(),
+    segments: segments,
+    totalTicks: total,
+    headerSize: format == SoundHeaderFormat.early ? 17 : 33,
+  );
+}
+
+SoundResourceData _buildSound993V2(SoundHeaderFormat format,
+    {int tickOffset = 0, _SoundWriter? writer, bool terminate = true}) {
+  const resource = 993;
+  final segments = <CalibrationSegment>[];
+  final w = writer ?? _SoundWriter(_buildHeader(format));
+  if (writer == null) _initialControllers(w);
+  var start = tickOffset;
+  var index = 0;
+
+  // LFO programs 43..45: note 69 held 300 each.
+  const lfoPurposes = {
+    43: 'AM on',
+    44: 'VIB on',
+    45: 'AM+VIB on',
+  };
+  for (final p in [43, 44, 45]) {
+    final end = start + 300;
+    w.program(start, kChannelA, p);
+    w.noteOn(start, kChannelA, 69, 96);
+    w.noteOff(start + 300, kChannelA, 69);
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: start,
+      endTick: end,
+      program: p,
+      channel: '1',
+      note: '69',
+      purpose: lfoPurposes[p]!,
+    ));
+    start = end;
+  }
+
+  // (a) Polyphony chord: 10 notes same tick, held 120.
+  {
+    const notes = [60, 64, 67, 72, 76, 79, 84, 88, 91, 96];
+    final end = start + 120;
+    w.program(start, kChannelA, 46);
+    for (final note in notes) {
+      w.noteOn(start, kChannelA, note, 96);
+    }
+    for (final note in notes) {
+      w.noteOff(start + 120, kChannelA, note);
+    }
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: start,
+      endTick: end,
+      program: 46,
+      channel: '1',
+      note: notes.join('/'),
+      purpose: 'polyphony chord (10 notes) held 120',
+    ));
+    start = end;
+  }
+  // (b) Same-tick triplet repeated 4x every 30 ticks (notes 69,76,81).
+  {
+    const notes = [69, 76, 81];
+    for (var rep = 0; rep < 4; rep++) {
+      final end = start + 30;
+      w.program(start, kChannelA, 46);
+      for (final note in notes) {
+        w.noteOn(start, kChannelA, note, 96);
+      }
+      for (final note in notes) {
+        w.noteOff(start + 30, kChannelA, note);
+      }
+      segments.add(CalibrationSegment(
+        resourceNumber: resource,
+        segmentIndex: index++,
+        startTick: start,
+        endTick: end,
+        program: 46,
+        channel: '1',
+        note: notes.join('/'),
+        purpose: 'polyphony triplet rep $rep',
+      ));
+      start = end;
+    }
+  }
+  // (c) Rapid retrigger note 69 every 8 ticks x16 (gate 6).
+  for (var rep = 0; rep < 16; rep++) {
+    final end = start + 8;
+    w.program(start, kChannelA, 46);
+    w.noteOn(start, kChannelA, 69, 96);
+    w.noteOff(start + 6, kChannelA, 69);
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: start,
+      endTick: end,
+      program: 46,
+      channel: '1',
+      note: '69',
+      purpose: 'rapid retrigger rep $rep gate 6',
+    ));
+    start = end;
+  }
+  // (d) Pedal stack: CC64=127, notes 60,64,67,72,76,79,84 each gate 20
+  // stagger 25, then CC64=0. One segment covering the whole stack.
+  {
+    const notes = [60, 64, 67, 72, 76, 79, 84];
+    final stackStart = start;
+    w.control(stackStart, kChannelA, 64, 127);
+    w.program(stackStart, kChannelA, 46);
+    for (final note in notes) {
+      w.noteOn(start, kChannelA, note, 96);
+      w.noteOff(start + 20, kChannelA, note);
+      start += 25;
+    }
+    // start now sits one stagger slot past the last onset; release
+    // the pedal there, 5 ticks after the last noteOff.
+    w.control(start, kChannelA, 64, 0);
+    segments.add(CalibrationSegment(
+      resourceNumber: resource,
+      segmentIndex: index++,
+      startTick: stackStart,
+      endTick: start,
+      program: 46,
+      channel: '1',
+      note: notes.join('/'),
+      purpose: 'pedal stack CC64=127 notes ${notes.join('/')} gate 20 stagger 25 CC64=0',
+    ));
+  }
+
+  final total = terminate
+      ? w.finish(trailingTicks: start - w.currentTick)
+      : start;
+  return SoundResourceData(
+    payload: w.bytes(),
+    segments: segments,
+    totalTicks: total,
+    headerSize: format == SoundHeaderFormat.early ? 17 : 33,
+  );
+}
+
 /// Builds one calibration sound resource payload and its segments.
 SoundResourceData buildSoundResource({
   required int resourceNumber,
   required SoundHeaderFormat format,
+  CalibrationKitVersion kitVersion = CalibrationKitVersion.v1,
 }) {
+  if (kitVersion == CalibrationKitVersion.v2) {
+    return switch (resourceNumber) {
+      990 => _buildSound990V2(format),
+      991 => _buildSound991V2(format),
+      992 => _buildSound992V2(format),
+      993 => _buildSound993V2(format),
+      _ => throw ArgumentError.value(
+          resourceNumber, 'resourceNumber', 'must be 990..993'),
+    };
+  }
   return switch (resourceNumber) {
     990 => _buildSound990(format),
     991 => _buildSound991(format),
@@ -868,21 +1416,33 @@ SoundResourceData buildSoundResource({
 /// keep their original resource numbers with offset absolute ticks.
 SoundResourceData buildCombinedSoundResource({
   required SoundHeaderFormat format,
+  CalibrationKitVersion kitVersion = CalibrationKitVersion.v1,
 }) {
   final w = _SoundWriter(_buildHeader(format));
   _initialControllers(w, includeChannelB: true);
   final segments = <CalibrationSegment>[];
   var offset = 0;
-  final parts = <SoundResourceData Function(int, _SoundWriter)>[
-    (o, writer) => _buildSound990(format,
-        tickOffset: o, writer: writer, terminate: false),
-    (o, writer) => _buildSound991(format,
-        tickOffset: o, writer: writer, terminate: false),
-    (o, writer) => _buildSound992(format,
-        tickOffset: o, writer: writer, terminate: false),
-    (o, writer) => _buildSound993(format,
-        tickOffset: o, writer: writer, terminate: false),
-  ];
+  final parts = kitVersion == CalibrationKitVersion.v2
+      ? <SoundResourceData Function(int, _SoundWriter)>[
+          (o, writer) => _buildSound990V2(format,
+              tickOffset: o, writer: writer, terminate: false),
+          (o, writer) => _buildSound991V2(format,
+              tickOffset: o, writer: writer, terminate: false),
+          (o, writer) => _buildSound992V2(format,
+              tickOffset: o, writer: writer, terminate: false),
+          (o, writer) => _buildSound993V2(format,
+              tickOffset: o, writer: writer, terminate: false),
+        ]
+      : <SoundResourceData Function(int, _SoundWriter)>[
+          (o, writer) => _buildSound990(format,
+              tickOffset: o, writer: writer, terminate: false),
+          (o, writer) => _buildSound991(format,
+              tickOffset: o, writer: writer, terminate: false),
+          (o, writer) => _buildSound992(format,
+              tickOffset: o, writer: writer, terminate: false),
+          (o, writer) => _buildSound993(format,
+              tickOffset: o, writer: writer, terminate: false),
+        ];
   for (var i = 0; i < parts.length; i++) {
     final part = parts[i](offset, w);
     segments.addAll(part.segments);
@@ -909,18 +1469,22 @@ SoundResourceData buildCombinedSoundResource({
 CalibrationKit buildKit({
   required SoundHeaderFormat format,
   required bool ninetySix,
+  CalibrationKitVersion kitVersion = CalibrationKitVersion.v1,
 }) {
-  final bank = buildBankPayload(instrumentCount: ninetySix ? 96 : 48);
+  final bank = buildBankPayload(
+      instrumentCount: ninetySix ? 96 : 48, kitVersion: kitVersion);
   final files = <String, Uint8List>{};
   files['PATCH.003'] = wrapLoosePatch(typeCode: kPatchTypeCode, payload: bank);
   final segments = <CalibrationSegment>[];
   for (var n = kFirstSound; n <= kLastSound; n++) {
-    final data = buildSoundResource(resourceNumber: n, format: format);
+    final data = buildSoundResource(
+        resourceNumber: n, format: format, kitVersion: kitVersion);
     files['SOUND.$n'] =
         wrapLoosePatch(typeCode: kSoundTypeCode, payload: data.payload);
     segments.addAll(data.segments);
   }
-  final combined = buildCombinedSoundResource(format: format);
+  final combined =
+      buildCombinedSoundResource(format: format, kitVersion: kitVersion);
   files[kCombinedSoundFile] =
       wrapLoosePatch(typeCode: kSoundTypeCode, payload: combined.payload);
   final manifest = buildManifestMarkdown(
@@ -929,6 +1493,7 @@ CalibrationKit buildKit({
     combinedTotalTicks: combined.totalTicks,
     format: format,
     ninetySix: ninetySix,
+    kitVersion: kitVersion,
   );
   return CalibrationKit(
     files: files,
@@ -937,6 +1502,7 @@ CalibrationKit buildKit({
     format: format,
     ninetySix: ninetySix,
     manifestMarkdown: manifest,
+    kitVersion: kitVersion,
   );
 }
 
@@ -960,11 +1526,16 @@ String buildManifestMarkdown({
   int combinedTotalTicks = 0,
   required SoundHeaderFormat format,
   required bool ninetySix,
+  CalibrationKitVersion kitVersion = CalibrationKitVersion.v1,
 }) {
   final b = StringBuffer();
   b.writeln('# OPL calibration kit — segment manifest');
   b.writeln();
   b.writeln('Format: ${_formatName(format, ninetySix)}.');
+  if (kitVersion == CalibrationKitVersion.v2) {
+    b.writeln();
+    b.writeln('Kit version: v2 (opt-in via --kit v2).');
+  }
   b.writeln();
   if (format == SoundHeaderFormat.early) {
     b.writeln(
@@ -1032,21 +1603,36 @@ String buildManifestMarkdown({
     }
     b.writeln();
   }
-  b.writeln('Bank: 48 distinct synthetic instruments (programs 0..47); '
-      'programs in order: 0 reference sine FM, 1 additive sine, 2..4 carrier '
-      'waveforms, 5..11 PM-depth ladder, 12..19 feedback ladder, 20..26 '
-      'attack, 27..30 decay-to-sustain, 31..34 percussive, 35..38 release, '
-      '39..42 KSL, 43 KSR off, 44 KSR on, 45 velocity/pan, 46 brass-ish, '
-      '47 silent control.');
+  if (kitVersion == CalibrationKitVersion.v2) {
+    b.writeln('Bank: 48 distinct synthetic instruments (programs 0..47); '
+        'programs in order: 0 reference sine, 1 wave3 carrier, 2 wave3 '
+        'modulator, 3..8 feedback x mod-TL matrix, 9..14 attack fill-in, '
+        '15..20 decay fill-in, 21..26 percussive RR ladder, 27..30 key-off '
+        'release, 31..42 carrier MULT ladder, 43 AM on, 44 VIB on, '
+        '45 AM+VIB on, 46 velocity/pan reference, 47 silent control.');
+  } else {
+    b.writeln('Bank: 48 distinct synthetic instruments (programs 0..47); '
+        'programs in order: 0 reference sine FM, 1 additive sine, 2..4 carrier '
+        'waveforms, 5..11 PM-depth ladder, 12..19 feedback ladder, 20..26 '
+        'attack, 27..30 decay-to-sustain, 31..34 percussive, 35..38 release, '
+        '39..42 KSL, 43 KSR off, 44 KSR on, 45 velocity/pan, 46 brass-ish, '
+        '47 silent control.');
+  }
   b.writeln();
   return b.toString();
 }
 
 /// Builds the root `README.md` explaining how to use the kit.
-String buildReadmeMarkdown() {
+String buildReadmeMarkdown({
+  CalibrationKitVersion kitVersion = CalibrationKitVersion.v1,
+}) {
   final b = StringBuffer();
   b.writeln('# OPL calibration kit (SCI0)');
   b.writeln();
+  if (kitVersion == CalibrationKitVersion.v2) {
+    b.writeln('Kit version: v2 (opt-in via --kit v2).');
+    b.writeln();
+  }
   b.writeln('Synthetic AdLib patch bank + labeled sound resources for '
       'ScummVM reference captures. All instruments and segments are '
       'synthetic; no game patch bytes are included.');
@@ -1130,7 +1716,7 @@ String buildReadmeMarkdown() {
 // ---------------------------------------------------------------------------
 
 const String _usage =
-    'Usage: dart tool/generate_opl_calibration.dart --out <dir>';
+    'Usage: dart tool/generate_opl_calibration.dart --out <dir> [--kit v1|v2]';
 
 Future<void> main(List<String> args) async {
   if (args.isEmpty || args.contains('--help') || args.contains('-h')) {
@@ -1141,9 +1727,26 @@ Future<void> main(List<String> args) async {
     return;
   }
   String? outDir;
+  var kitVersion = CalibrationKitVersion.v1;
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--out' && i + 1 < args.length) {
       outDir = args[++i];
+    } else if (args[i] == '--kit' && i + 1 < args.length) {
+      try {
+        kitVersion = parseCalibrationKitVersion(args[++i]);
+      } on FormatException {
+        stderr.writeln(_usage);
+        exitCode = 2;
+        return;
+      }
+    } else if (args[i].startsWith('--kit=')) {
+      try {
+        kitVersion = parseCalibrationKitVersion(args[i].substring(6));
+      } on FormatException {
+        stderr.writeln(_usage);
+        exitCode = 2;
+        return;
+      }
     } else {
       stderr.writeln(_usage);
       exitCode = 2;
@@ -1160,9 +1763,18 @@ Future<void> main(List<String> args) async {
   root.createSync(recursive: true);
 
   final kits = <String, CalibrationKit>{
-    'early': buildKit(format: SoundHeaderFormat.early, ninetySix: false),
-    'late48': buildKit(format: SoundHeaderFormat.late, ninetySix: false),
-    'late96': buildKit(format: SoundHeaderFormat.late, ninetySix: true),
+    'early': buildKit(
+        format: SoundHeaderFormat.early,
+        ninetySix: false,
+        kitVersion: kitVersion),
+    'late48': buildKit(
+        format: SoundHeaderFormat.late,
+        ninetySix: false,
+        kitVersion: kitVersion),
+    'late96': buildKit(
+        format: SoundHeaderFormat.late,
+        ninetySix: true,
+        kitVersion: kitVersion),
   };
 
   for (final entry in kits.entries) {
@@ -1178,6 +1790,7 @@ Future<void> main(List<String> args) async {
         'wrote ${entry.value.files.length} files + MANIFEST.md -> ${dir.path}');
   }
   File('${root.path}/README.md')
-      .writeAsStringSync(buildReadmeMarkdown(), flush: true);
+      .writeAsStringSync(buildReadmeMarkdown(kitVersion: kitVersion),
+          flush: true);
   stdout.writeln('wrote README.md -> ${root.path}/README.md');
 }

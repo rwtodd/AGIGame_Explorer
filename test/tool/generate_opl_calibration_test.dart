@@ -392,6 +392,240 @@ void main() {
       expect(result.bank!.instruments[19].modulator.feedback, 7);
     });
   });
+
+  group('v2 kit', () {
+    test('parser is case-insensitive, rejects unknown', () {
+      expect(calib.parseCalibrationKitVersion('v1'),
+          calib.CalibrationKitVersion.v1);
+      expect(calib.parseCalibrationKitVersion('V1'),
+          calib.CalibrationKitVersion.v1);
+      expect(calib.parseCalibrationKitVersion('v2'),
+          calib.CalibrationKitVersion.v2);
+      expect(calib.parseCalibrationKitVersion('V2'),
+          calib.CalibrationKitVersion.v2);
+      expect(() => calib.parseCalibrationKitVersion('v3'),
+          throwsFormatException);
+      expect(() => calib.parseCalibrationKitVersion(''),
+          throwsFormatException);
+    });
+
+    test('bank spot-checks (feedback matrix, wave3, MULT ladder)', () {
+      final bank = SciAdlibBank.fromBytes(calib.buildBankPayload(
+          instrumentCount: 48,
+          kitVersion: calib.CalibrationKitVersion.v2));
+      expect(bank.instrumentCount, 48);
+      // Reference sine same as v1 program 0.
+      expect(bank.instruments[0].operator0.totalLevel, 63);
+      expect(bank.instruments[0].operator1.totalLevel, 12);
+      expect(bank.instruments[0].operator1.waveForm, 0);
+      // Wave3 programs.
+      expect(bank.instruments[1].operator1.waveForm, 3);
+      expect(bank.instruments[1].operator0.waveForm, 0);
+      expect(bank.instruments[1].operator0.totalLevel, 63);
+      expect(bank.instruments[2].operator0.waveForm, 3);
+      expect(bank.instruments[2].operator1.waveForm, 0);
+      expect(bank.instruments[2].operator0.totalLevel, 16);
+      expect(bank.instruments[2].modulator.feedback, 0);
+      expect(bank.instruments[2].modulator.algorithm, 0);
+      // Feedback x mod-TL matrix: fb {5,6,7} x TL {8,24}.
+      const fbs = [5, 6, 7];
+      const tls = [8, 24];
+      for (var p = 3; p <= 8; p++) {
+        final i = p - 3;
+        final inst = bank.instruments[p];
+        expect(inst.modulator.feedback, fbs[i ~/ 2],
+            reason: 'feedback prog $p');
+        expect(inst.operator0.totalLevel, tls[i % 2],
+            reason: 'mod TL prog $p');
+        expect(inst.operator1.totalLevel, 12);
+        expect(inst.operator0.frequencyMult, 1);
+        expect(inst.operator1.frequencyMult, 1);
+        expect(inst.modulator.algorithm, 0);
+      }
+      // Feedback matrix differs only in feedback/mod TL as intended.
+      // Programs with same fb share feedback; same TL share TL; operator
+      // debug strings equal otherwise (excluding TL/feedback already).
+      {
+        final a = bank.instruments[3];
+        final b = bank.instruments[4];
+        expect(a.modulator.feedback, b.modulator.feedback);
+        expect(a.operator1.debugString(), b.operator1.debugString());
+        for (var byte = 0; byte < 28; byte++) {
+          if (byte == 2 || byte == 8) continue;
+          expect(a.rawBytes[byte], b.rawBytes[byte],
+              reason: 'matrix byte $byte');
+        }
+      }
+      // MULT ladder.
+      const mults = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 15];
+      for (var p = 31; p <= 42; p++) {
+        expect(bank.instruments[p].operator1.frequencyMult,
+            mults[p - 31],
+            reason: 'MULT prog $p');
+        expect(bank.instruments[p].operator0.totalLevel, 63);
+      }
+      // AM/VIB.
+      expect(bank.instruments[43].operator1.amplitudeMod, 1);
+      expect(bank.instruments[43].operator1.vibrato, 0);
+      expect(bank.instruments[44].operator1.amplitudeMod, 0);
+      expect(bank.instruments[44].operator1.vibrato, 1);
+      expect(bank.instruments[45].operator1.amplitudeMod, 1);
+      expect(bank.instruments[45].operator1.vibrato, 1);
+      expect(bank.instruments[47].operator0.totalLevel, 63);
+      expect(bank.instruments[47].operator1.totalLevel, 63);
+    });
+
+    for (final format in [
+      calib.SoundHeaderFormat.early,
+      calib.SoundHeaderFormat.late
+    ]) {
+      final label =
+          format == calib.SoundHeaderFormat.early ? 'early' : 'late';
+      test('sounds parse ($label)', () {
+        final expectedTotals = {990: 2600, 991: 5400, 992: 1890, 993: 1443};
+        final expectedSegs = {990: 22, 991: 22, 992: 33, 993: 25};
+        for (final n in [990, 991, 992, 993]) {
+          final data = calib.buildSoundResource(
+              resourceNumber: n,
+              format: format,
+              kitVersion: calib.CalibrationKitVersion.v2);
+          expect(data.totalTicks, expectedTotals[n],
+              reason: 'resource $n total');
+          expect(data.segments.length, expectedSegs[n],
+              reason: 'resource $n segment count');
+          final track = SciMidiParser.parse(data.payload,
+              headerSize: data.headerSize);
+          expect(track.variant,
+              format == calib.SoundHeaderFormat.early
+                  ? SciMidiHeaderVariant.early
+                  : SciMidiHeaderVariant.late);
+          expect(track.isTruncated, isFalse);
+          expect(track.hasEndOfTrack, isTrue);
+          expect(track.totalTicks, data.totalTicks);
+        }
+        // 990: wave3 programs then matrix programs.
+        final d990 = calib.buildSoundResource(
+            resourceNumber: 990,
+            format: format,
+            kitVersion: calib.CalibrationKitVersion.v2);
+        expect(d990.segments.map((s) => s.program).toList(),
+            [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8]);
+        // 991: programs 9..30.
+        final d991 = calib.buildSoundResource(
+            resourceNumber: 991,
+            format: format,
+            kitVersion: calib.CalibrationKitVersion.v2);
+        expect(d991.segments.map((s) => s.program).toList(),
+            [for (var p = 9; p <= 30; p++) p]);
+        // 992: MULT ladder + boundary ladder + 9 bend steps.
+        final d992 = calib.buildSoundResource(
+            resourceNumber: 992,
+            format: format,
+            kitVersion: calib.CalibrationKitVersion.v2);
+        expect(
+            d992.segments.take(12).map((s) => s.program).toList(),
+            [for (var p = 31; p <= 42; p++) p]);
+        expect(d992.segments.skip(12).take(12).map((s) => s.note).toList(),
+            ['35', '36', '47', '48', '59', '60', '71', '72', '83', '84', '95', '96']);
+        final bends = d992.segments.where((s) => s.purpose.startsWith('bend')).toList();
+        expect(bends, hasLength(9));
+        expect(bends.map((s) => s.purpose).toList(),
+            [0, 2048, 4096, 6144, 8192, 10240, 12288, 14336, 16383].map((v) => 'bend $v').toList());
+        final t992 = SciMidiParser.parse(d992.payload,
+            headerSize: d992.headerSize);
+        final bendEvents = t992.events
+            .where((e) => e.kind == SciMidiEventKind.pitchBend)
+            .toList();
+        expect(bendEvents.map((e) => e.pitchBendValue).toList(),
+            [0, 2048, 4096, 6144, 8192, 10240, 12288, 14336, 16383]);
+        // First bend is before the note onset at the same tick: a bend
+        // and a noteOn share the bend-step start tick, bend first.
+        expect(bendEvents.first.tick,
+            bends.first.startTick);
+        // 993: LFO + polyphony.
+        final d993 = calib.buildSoundResource(
+            resourceNumber: 993,
+            format: format,
+            kitVersion: calib.CalibrationKitVersion.v2);
+        expect(d993.segments.take(3).map((s) => s.program).toList(), [43, 44, 45]);
+        expect(d993.segments[3].purpose, contains('chord'));
+        final t993 = SciMidiParser.parse(d993.payload,
+            headerSize: d993.headerSize);
+        expect(t993.isTruncated, isFalse);
+        expect(t993.hasEndOfTrack, isTrue);
+        // Pedal events present (CC64 127 then 0).
+        final pedals = t993.events
+            .where((e) => e.kind == SciMidiEventKind.controlChange && e.data1 == 64)
+            .toList();
+        expect(pedals.map((e) => e.data2).toList(), containsAllInOrder([127, 0]));
+      });
+
+      test('combined v2 totalTicks = sum + 3*60, first 991 offset ($label)',
+          () {
+        final combined = calib.buildCombinedSoundResource(
+            format: format, kitVersion: calib.CalibrationKitVersion.v2);
+        var expected = 0;
+        for (var n = 990; n <= 993; n++) {
+          expected += calib
+              .buildSoundResource(
+                  resourceNumber: n,
+                  format: format,
+                  kitVersion: calib.CalibrationKitVersion.v2)
+              .totalTicks;
+        }
+        expected += 3 * calib.kCombinedGapTicks;
+        expect(combined.totalTicks, expected);
+        expect(combined.segments.last.endTick, combined.totalTicks);
+        final total990 = calib
+            .buildSoundResource(
+                resourceNumber: 990,
+                format: format,
+                kitVersion: calib.CalibrationKitVersion.v2)
+            .totalTicks;
+        final first991 = combined.segments
+            .firstWhere((s) => s.resourceNumber == 991);
+        expect(first991.startTick, total990 + calib.kCombinedGapTicks);
+        final track = SciMidiParser.parse(combined.payload,
+            headerSize: combined.headerSize);
+        expect(track.isTruncated, isFalse);
+        expect(track.hasEndOfTrack, isTrue);
+        expect(track.totalTicks, combined.totalTicks);
+      });
+    }
+
+    test('kit file sets include SOUND.001 for v2; manifest states v2', () {
+      final early = calib.buildKit(
+          format: calib.SoundHeaderFormat.early,
+          ninetySix: false,
+          kitVersion: calib.CalibrationKitVersion.v2);
+      final late96 = calib.buildKit(
+          format: calib.SoundHeaderFormat.late,
+          ninetySix: true,
+          kitVersion: calib.CalibrationKitVersion.v2);
+      for (final kit in [early, late96]) {
+        expect(kit.kitVersion, calib.CalibrationKitVersion.v2);
+        expect(
+            kit.files.keys,
+            containsAll([
+              'PATCH.003',
+              'SOUND.990',
+              'SOUND.991',
+              'SOUND.992',
+              'SOUND.993',
+              'SOUND.001'
+            ]));
+        expect(kit.files, hasLength(6));
+        expect(kit.manifestMarkdown, contains('Kit version: v2'));
+      }
+      expect(calib.buildReadmeMarkdown(kitVersion: calib.CalibrationKitVersion.v2),
+          contains('Kit version: v2'));
+      // v1 manifest/readme unchanged (no v2 stamp).
+      final v1kit = calib.buildKit(
+          format: calib.SoundHeaderFormat.early, ninetySix: false);
+      expect(v1kit.manifestMarkdown, isNot(contains('Kit version: v2')));
+      expect(calib.buildReadmeMarkdown(), isNot(contains('Kit version: v2')));
+    });
+  });
 }
 
 
