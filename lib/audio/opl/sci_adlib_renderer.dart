@@ -224,7 +224,12 @@ SciAdLibVolumeRenderResult sciAdLibRenderSound(
   }
   late final SciMidiTrack track;
   try {
-    track = SciMidiParser.parse(soundBytes);
+    track = SciMidiParser.parse(
+      soundBytes,
+      headerSize: volumes.isEarlySci0
+          ? SciMidiParser.headerEarly
+          : SciMidiParser.headerLate,
+    );
   } on FormatException catch (e) {
     return SciAdLibVolumeRenderResult(
       render: null,

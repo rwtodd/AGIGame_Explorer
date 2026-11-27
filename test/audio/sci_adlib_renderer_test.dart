@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/audio/opl/opl2_chip.dart';
 import 'package:flutter_agigame/audio/opl/sci_adlib_patch.dart';
 import 'package:flutter_agigame/audio/opl/sci_adlib_renderer.dart';
+import 'package:flutter_agigame/sci/engine/sci_midi_parser.dart';
 import 'package:flutter_agigame/sci/engine/sci_midi_track.dart';
 import 'package:flutter_agigame/sci/loader/resource_type.dart';
 import 'package:flutter_agigame/sci/loader/volume.dart';
@@ -435,6 +436,32 @@ void main() {
       print('KQ4 sound.$number peak=${result.render!.peakAbs} '
           'rms=${rmsOf(result.render!).toStringAsFixed(1)} '
           'provenance=${result.provenance}');
+    });
+
+    test('KQ4 sound 2 parses as early variant with loud render', () {
+      if (skipIfReferenceGameMissing('kings-quest-4-sci')) return;
+      final vm = SciVolumeManager.fromDirectory(
+          referenceGamePath('kings-quest-4-sci'));
+      addTearDown(vm.close);
+      expect(vm.isEarlySci0, isTrue);
+      final bytes = vm.getResource(SciResourceType.sound, 2);
+      final track = SciMidiParser.parse(
+        bytes,
+        headerSize:
+            vm.isEarlySci0 ? SciMidiParser.headerEarly : SciMidiParser.headerLate,
+      );
+      expect(track.variant, SciMidiHeaderVariant.early);
+      final mask = track.channelMaskFor(SciMidiDevice.adLib);
+      final hasProgramChangeOnAdLib = track.events.any(
+        (e) =>
+            e.kind == SciMidiEventKind.programChange &&
+            e.channel >= 0 &&
+            mask.contains(e.channel),
+      );
+      expect(hasProgramChangeOnAdLib, isTrue);
+      final result = sciAdLibRenderSound(vm, 2, maxTicks: 300);
+      expect(result.isAvailable, isTrue);
+      expect(result.render!.peakAbs, greaterThan(2000));
     });
 
     test('SQ3: an early sound renders non-silent via AdLib', () {

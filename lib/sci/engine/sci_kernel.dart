@@ -2830,7 +2830,13 @@ class SciKernel {
     }
     try {
       final bytes = vol.getResource(SciResourceType.sound, number);
-      return Sci0SoundParser.parseSound(bytes, mode: soundMode);
+      return Sci0SoundParser.parseSound(
+        bytes,
+        mode: soundMode,
+        headerSize: vol.isEarlySci0
+            ? Sci0SoundParser.headerEarly
+            : Sci0SoundParser.headerLate,
+      );
     } catch (_) {
       return null;
     }
