@@ -185,13 +185,31 @@ final class Opl2Chip {
 
   int _frameIndex = 0;
 
+  /// Maximum captured write records (ring capacity, Stage 7).
+  static const int writeLogCapacity = 4096;
+
   /// Optional write-log capture (off by default).
   bool writeLogEnabled = false;
-  final List<OplWriteRecord> _writeLog = <OplWriteRecord>[];
 
-  /// Captured write records (unmodifiable view copied on read for tests;
-  /// use [clearWriteLog] to drain).
-  List<OplWriteRecord> get writeLog => List<OplWriteRecord>.of(_writeLog);
+  /// Bounded ring buffer: [_writeRing] holds the newest
+  /// [writeLogCapacity] records; [_writeLogStart] is the slot of the
+  /// oldest record and [_writeLogCount] how many are held. Appends are
+  /// O(1) once full (overwrite the oldest slot), never [List.removeAt].
+  final List<OplWriteRecord?> _writeRing =
+      List<OplWriteRecord?>.filled(writeLogCapacity, null);
+  int _writeLogStart = 0;
+  int _writeLogCount = 0;
+
+  /// Captured write records in chronological order (reader copies; use
+  /// [clearWriteLog] to drain). Empty when capture was off or no writes
+  /// were recorded yet.
+  List<OplWriteRecord> get writeLog => <OplWriteRecord>[
+        for (var i = 0; i < _writeLogCount; i++)
+          _writeRing[(_writeLogStart + i) % writeLogCapacity]!,
+      ];
+
+  /// Number of records currently retained.
+  int get writeLogCount => _writeLogCount;
 
   /// Total frames generated since reset.
   int get frameIndex => _frameIndex;
@@ -244,7 +262,7 @@ final class Opl2Chip {
     _amLfoPhase = 0.0;
     _vibLfoPhase = 0.0;
     _frameIndex = 0;
-    _writeLog.clear();
+    clearWriteLog();
   }
 
   /// Writes one register (address/value masked to 8 bits) and updates the
@@ -253,9 +271,14 @@ final class Opl2Chip {
     final a = address & 0xFF;
     final v = value & 0xFF;
     if (writeLogEnabled) {
-      _writeLog.add(
-        OplWriteRecord(frameIndex: _frameIndex, address: a, value: v),
-      );
+      final record = OplWriteRecord(frameIndex: _frameIndex, address: a, value: v);
+      if (_writeLogCount < writeLogCapacity) {
+        _writeRing[(_writeLogStart + _writeLogCount) % writeLogCapacity] = record;
+        _writeLogCount++;
+      } else {
+        _writeRing[_writeLogStart] = record;
+        _writeLogStart = (_writeLogStart + 1) % writeLogCapacity;
+      }
     }
     _regs[a] = v;
     _decodeWrite(a, v);
@@ -265,7 +288,11 @@ final class Opl2Chip {
   int readRegister(int address) => _regs[address & 0xFF];
 
   /// Clears the write log.
-  void clearWriteLog() => _writeLog.clear();
+  void clearWriteLog() {
+    _writeRing.fillRange(0, writeLogCapacity, null);
+    _writeLogStart = 0;
+    _writeLogCount = 0;
+  }
 
   void _decodeWrite(int a, int v) {
     if (a == 0x08) {

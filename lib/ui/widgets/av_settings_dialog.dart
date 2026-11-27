@@ -602,6 +602,15 @@ class _AvSettingsDialogState extends ConsumerState<AvSettingsDialog>
           isSelected: audio.sciMusicDevice == SciMusicDevice.adLibOpl2,
           onTap: () => notifier.setSciMusicDevice(SciMusicDevice.adLibOpl2),
         ),
+        const SizedBox(height: 8),
+        _buildSciMusicDeviceOption(
+          device: SciMusicDevice.soundBlaster,
+          title: 'Sound Blaster',
+          subtitle: 'OPL2 FM plus digital samples (samples replace MIDI)',
+          icon: Icons.speaker,
+          isSelected: audio.sciMusicDevice == SciMusicDevice.soundBlaster,
+          onTap: () => notifier.setSciMusicDevice(SciMusicDevice.soundBlaster),
+        ),
 
         const SizedBox(height: 20),
         const Divider(color: AgiTheme.egaBorder),

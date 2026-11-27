@@ -84,6 +84,14 @@ void main() {
         AgiAudioSettings.fromJson(unknownJson).sciMusicDevice,
         SciMusicDevice.legacyPsg,
       );
+
+      // Sound Blaster (Stage 8) round-trips by name.
+      const sb = AgiAudioSettings(sciMusicDevice: SciMusicDevice.soundBlaster);
+      expect(sb.toJson()['sciMusicDevice'], 'soundBlaster');
+      expect(
+        AgiAudioSettings.fromJson(sb.toJson()).sciMusicDevice,
+        SciMusicDevice.soundBlaster,
+      );
     });
 
     test('toSynthesizerConfig maps sound modes and DSP correctly', () {

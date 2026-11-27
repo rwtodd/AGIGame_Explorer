@@ -278,6 +278,141 @@ SciAdLibVolumeRenderResult sciAdLibRenderSound(
   );
 }
 
+/// Builds a synthetic late-header [SciMidiTrack] for auditioning one bank
+/// patch with no game resource (Stage 7 inspector patch browser).
+///
+/// Layout: 2 voices requested on each of channels 1-4 (late AdLib mask
+/// 0x04, matching the game header form), each channel's program set to
+/// [patch], CC7 (volume) at 127, pitch bend at center, sustain pedal off,
+/// and pan 16/48/80/112 respectively. Notes 60/64/67/72 enter staggered
+/// every 30 ticks (0/30/60/90) and are all held as a chord to tick 210,
+/// with matching note-offs and a single merged end-of-track at 210.
+/// Events are tick-sorted with all setup events before note-ons at
+/// tick 0.
+///
+/// [patch] must be >= 0 (throws [ArgumentError] otherwise); values beyond
+/// the bank are the driver's ordinary out-of-range fallback.
+SciMidiTrack sciAdLibPatchAuditionTrack(int patch) {
+  if (patch < 0) {
+    throw ArgumentError('patch must be >= 0: $patch');
+  }
+  const channels = [1, 2, 3, 4];
+  const notes = [60, 64, 67, 72];
+  const pans = [16, 48, 80, 112];
+  final channelInits = <SciMidiChannelInit>[
+    for (var ch = 0; ch < 16; ch++)
+      if (ch >= 1 && ch <= 4)
+        SciMidiChannelInit(
+          channel: ch,
+          rawBytes: const [2, 0x04],
+          requestedVoices: 2,
+          playMask: 0x04,
+        )
+      else
+        SciMidiChannelInit(
+          channel: ch,
+          rawBytes: const [0, 0],
+          requestedVoices: 0,
+          playMask: 0,
+        ),
+  ];
+  final events = <SciMidiEvent>[];
+  // Setup for every channel first (all at tick 0, before note-ons).
+  for (var i = 0; i < channels.length; i++) {
+    final ch = channels[i];
+    events.add(SciMidiEvent(
+      tick: 0,
+      kind: SciMidiEventKind.programChange,
+      channel: ch,
+      status: 0xC0 | ch,
+      data1: patch,
+    ));
+    events.add(SciMidiEvent(
+      tick: 0,
+      kind: SciMidiEventKind.controlChange,
+      channel: ch,
+      status: 0xB0 | ch,
+      data1: 0x07,
+      data2: 127,
+    ));
+    events.add(SciMidiEvent(
+      tick: 0,
+      kind: SciMidiEventKind.pitchBend,
+      channel: ch,
+      status: 0xE0 | ch,
+      data1: 0,
+      data2: 64,
+    ));
+    events.add(SciMidiEvent(
+      tick: 0,
+      kind: SciMidiEventKind.controlChange,
+      channel: ch,
+      status: 0xB0 | ch,
+      data1: 0x40,
+      data2: 0,
+    ));
+    events.add(SciMidiEvent(
+      tick: 0,
+      kind: SciMidiEventKind.controlChange,
+      channel: ch,
+      status: 0xB0 | ch,
+      data1: 0x0A,
+      data2: pans[i],
+    ));
+  }
+  for (var i = 0; i < channels.length; i++) {
+    final ch = channels[i];
+    events.add(SciMidiEvent(
+      tick: i * 30,
+      kind: SciMidiEventKind.noteOn,
+      channel: ch,
+      status: 0x90 | ch,
+      data1: notes[i],
+      data2: 100,
+    ));
+  }
+  for (var i = 0; i < channels.length; i++) {
+    final ch = channels[i];
+    events.add(SciMidiEvent(
+      tick: 210,
+      kind: SciMidiEventKind.noteOff,
+      channel: ch,
+      status: 0x80 | ch,
+      data1: notes[i],
+      data2: 0,
+    ));
+  }
+  events.add(const SciMidiEvent(
+    tick: 210,
+    kind: SciMidiEventKind.endOfTrack,
+    channel: -1,
+    status: 0xFC,
+  ));
+  // Tick-sorted, stable by insertion order (setup before note-ons at 0).
+  final order = List<int>.generate(events.length, (i) => i);
+  order.sort((a, b) {
+    final byTick = events[a].tick.compareTo(events[b].tick);
+    return byTick != 0 ? byTick : a.compareTo(b);
+  });
+  final sorted = <SciMidiEvent>[for (final i in order) events[i]];
+  return SciMidiTrack(
+    variant: SciMidiHeaderVariant.late,
+    headerSize: 33,
+    flagsByte: 0,
+    hasDigitalSample: false,
+    sampleFlagSetButNoData: false,
+    sample: null,
+    channels: channelInits,
+    events: sorted,
+    cues: const [],
+    loopTick: null,
+    totalTicks: 210,
+    hasEndOfTrack: true,
+    isTruncated: false,
+    truncatedTail: Uint8List(0),
+  );
+}
+
 /// Encodes a render result as a 49,716 Hz WAV file using its channel count.
 Uint8List sciAdLibRenderToWav(SciAdLibRenderResult result) =>
     WavEncoder.encode(

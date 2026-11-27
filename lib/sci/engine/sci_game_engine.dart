@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
+import 'package:flutter_agigame/audio/opl/sci_adlib_driver.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/core/constants/ega_colors.dart';
 import 'package:flutter_agigame/core/display_profile.dart';
@@ -60,6 +61,17 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
   void setSciMusicDevice(SciMusicDevice device) {
     _sciMusicDevice = device;
     kernel.sciMusicDevice = device;
+    notifyListeners();
+  }
+
+  /// Session debug overrides for the AdLib driver (Stage 7 inspector).
+  /// Forwards to the kernel and notifies listeners.
+  SciAdLibDebugOverrides get sciAdLibDebugOverrides =>
+      kernel.sciAdLibDebugOverrides;
+
+  /// Stores and applies AdLib debug overrides immediately via the kernel.
+  void setSciAdLibDebugOverrides(SciAdLibDebugOverrides overrides) {
+    kernel.setSciAdLibDebugOverrides(overrides);
     notifyListeners();
   }
 

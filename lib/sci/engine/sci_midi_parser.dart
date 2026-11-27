@@ -140,6 +140,8 @@ class SciMidiParser {
       rawHeaderBytes: Uint8List.sublistView(data, offset, offset + headerLen),
       sampleRate: readU16LE(2),
       sampleLength: readU16LE(4),
+      sampleStart: readU16LE(6),
+      sampleEnd: readU16LE(8),
       payloadOffset: offset,
       pcmBytes: size > 10
           ? Uint8List.sublistView(data, offset + 10, offset + size)

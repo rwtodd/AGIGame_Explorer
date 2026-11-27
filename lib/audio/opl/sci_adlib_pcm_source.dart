@@ -17,15 +17,19 @@
 // (ScummVM-style dual-OPL2 enhancement using source pan CCs, not OPL3
 // native panning) and interleaves true L/R samples.
 //
-// Resampler: LINEAR INTERPOLATION from 49716 to outputSampleRate. This
-// is the Stage 6 initial resampler — the plan requires the quality
-// choice be measured later; do not claim more. Output is deterministic
-// and independent of renderInto block sizes. No steady-state allocation
-// (preallocated buffers; growing only at construction/reset).
+// Resampler: measured windowed-sinc (lib/audio/pcm_resampler.dart) from
+// 49716 to outputSampleRate. The measured choice vs linear,
+// passband/spur/CPU numbers, and the ship gate live in
+// tool/measure_resampler.dart output. Identity (49716) is a true
+// bypass and equals the offline renderer sample-for-sample. Output is
+// deterministic and independent of renderInto block sizes. No
+// steady-state allocation (preallocated buffers; growing only at
+// construction/reset).
 
 import 'dart:typed_data';
 
 import 'package:flutter_agigame/audio/opl/opl2_chip.dart';
+import 'package:flutter_agigame/audio/pcm_resampler.dart';
 import 'package:flutter_agigame/audio/opl/sci_adlib_driver.dart';
 import 'package:flutter_agigame/audio/opl/sci_adlib_patch.dart';
 import 'package:flutter_agigame/audio/pcm_source.dart';
@@ -56,6 +60,14 @@ class SciAdLibPcmSource extends PcmSource {
   final bool stereoDualOpl2;
   int _masterVolume;
 
+  /// Current session debug overrides (Stage 7 inspector only). Kept here
+  /// so [reset]/[seekToFrame] can re-apply them after the driver is
+  /// rebuilt. Never persisted.
+  late SciAdLibDebugOverrides _debugOverrides;
+
+  /// Write-log capture flag, carried across chip rebuilds in [reset].
+  bool _writeLogEnabled = false;
+
   late final SciAdlibProfile _profile;
   late final Set<int> _mask;
   late final List<_FilteredEvent> _filtered;
@@ -83,6 +95,27 @@ class SciAdLibPcmSource extends PcmSource {
   final Int16List _nativeBufRight = Int16List(_kNativeBlockFrames);
   Int16List _discard = Int16List(0);
 
+  /// Measured sinc resampler; null (identity bypass) iff
+  /// outputSampleRate == kOpl2SampleRate.
+  late final PcmResampler? _resampler;
+
+  /// Kernel half-width W in native samples; 0 when identity.
+  late final int _halfWidth;
+
+  /// Last [_halfWidth] native samples before [_bufStart], per channel.
+  /// Proof: evaluation reads only [i0-halfWidth+1, i0+halfWidth] with
+  /// i0 = floor(pos) and pos advance ~1.1/output; after
+  /// _ensureAvail(i0+halfWidth) the current block starts at
+  /// _bufStart > i0+halfWidth-1024. Any index below _bufStart is
+  /// therefore >= _bufStart-(1024-halfWidth) ... bounded: worst back
+  /// reach is i0-halfWidth+1 >= _bufStart-halfWidth+1 (since
+  /// _bufStart <= i0+halfWidth and block alignment). In all cases the
+  /// needed span is within [ _bufStart-halfWidth, _generated ); halfWidth
+  /// (<=38) <= 1024 block, so one previous-block tail suffices and
+  /// generation advances at most one block past i0+halfWidth.
+  late final Int16List _hist;
+  late final Int16List _histRight;
+
   double get _step => kOpl2SampleRate / outputSampleRate.toDouble();
 
   SciAdLibPcmSource(
@@ -93,8 +126,10 @@ class SciAdLibPcmSource extends PcmSource {
     SciAdlibProfile? profile,
     this.tailTicks = 30,
     this.stereoDualOpl2 = false,
+    SciAdLibDebugOverrides debugOverrides = const SciAdLibDebugOverrides.empty(),
   })  : _masterVolume = masterVolume.clamp(0, 15),
         profile = profile {
+    _debugOverrides = debugOverrides;
     if (tailTicks < 0) {
       throw ArgumentError('tailTicks must be >= 0: $tailTicks');
     }
@@ -117,6 +152,18 @@ class SciAdLibPcmSource extends PcmSource {
     _endFrameNative = _frameForTick(_endTick);
     _totalNativeFrames = _frameForTick(_endTick + tailTicks);
     _totalFrames = _frameForTickAtRate(_endTick + tailTicks, outputSampleRate);
+    if (outputSampleRate == kOpl2SampleRate) {
+      _resampler = null;
+      _halfWidth = 0;
+      _hist = Int16List(0);
+      _histRight = Int16List(0);
+    } else {
+      final r = PcmResampler(kOpl2SampleRate, outputSampleRate);
+      _resampler = r;
+      _halfWidth = r.halfWidth;
+      _hist = Int16List(_halfWidth);
+      _histRight = Int16List(_halfWidth);
+    }
     reset();
   }
 
@@ -147,6 +194,10 @@ class SciAdLibPcmSource extends PcmSource {
     _prevLast = 0;
     _prevValidRight = false;
     _prevLastRight = 0;
+    for (var i = 0; i < _hist.length; i++) {
+      _hist[i] = 0;
+      _histRight[i] = 0;
+    }
     _chip = Opl2Chip();
     if (stereoDualOpl2) {
       _chipRight = Opl2Chip();
@@ -163,9 +214,12 @@ class SciAdLibPcmSource extends PcmSource {
         profile: _profile,
       );
     }
+    _chip.writeLogEnabled = _writeLogEnabled;
+    _chipRight?.writeLogEnabled = _writeLogEnabled;
     _driver.open();
     _driver.setMasterVolume(_masterVolume);
     _driver.initTrack(track);
+    _driver.applyDebugOverrides(_debugOverrides);
   }
 
   @override
@@ -197,6 +251,9 @@ class SciAdLibPcmSource extends PcmSource {
     if (n <= 0) return 0;
     final step = _step;
     final identity = step == 1.0;
+    // Hoisted out of the per-frame loop (bound once per render block).
+    int readLeft(int idx) => _readResampled(idx);
+    int readRight(int idx) => _readResampled(idx, right: true);
     for (var i = 0; i < n; i++) {
       final pos = (_position + i) * step;
       final int sample;
@@ -211,36 +268,18 @@ class SciAdLibPcmSource extends PcmSource {
       } else {
         final double p = pos;
         final int i0 = p.floor();
-        final int i1 = i0 + 1;
+        final r = _resampler!;
         if (_totalNativeFrames == 0) {
           sample = 0;
           sampleRight = 0;
         } else {
-          _ensureAvail(i1 < _totalNativeFrames ? i1 : _totalNativeFrames - 1);
-          int s0;
-          int s1;
-          int r0;
-          int r1;
-          if (i0 >= _totalNativeFrames) {
-            s0 = _readNative(_totalNativeFrames - 1);
-            s1 = s0;
-            r0 = _readNative(_totalNativeFrames - 1, right: true);
-            r1 = r0;
-          } else {
-            s0 = _readNative(i0);
-            r0 = _readNative(i0, right: true);
-            if (i1 >= _totalNativeFrames) {
-              s1 = s0;
-              r1 = r0;
-            } else {
-              s1 = _readNative(i1);
-              r1 = _readNative(i1, right: true);
-            }
-          }
-          final frac = p - i0;
-          sample = (s0 + (s1 - s0) * frac).round().clamp(-32768, 32767);
+          _ensureAvail(
+              i0 + _halfWidth < _totalNativeFrames
+                  ? i0 + _halfWidth
+                  : _totalNativeFrames - 1);
+          sample = r.evaluateInt16(readLeft, p);
           sampleRight = stereoDualOpl2
-              ? (r0 + (r1 - r0) * frac).round().clamp(-32768, 32767)
+              ? r.evaluateInt16(readRight, p)
               : sample;
         }
       }
@@ -268,6 +307,26 @@ class SciAdLibPcmSource extends PcmSource {
     return _nativeBuf[idx - _bufStart];
   }
 
+  /// Random-access native read for the sinc evaluator: 0 outside
+  /// [0, _totalNativeFrames). In-range reads hit the current block or
+  /// [_bufStart-_halfWidth, _bufStart) history; callers must
+  /// [_ensureAvail] to i0+halfWidth first (see [_halfWidth] proof).
+  /// Reads at/after _generated (past-end lookahead) are 0.
+  int _readResampled(int idx, {bool right = false}) {
+    if (idx < 0 || idx >= _totalNativeFrames) return 0;
+    if (idx >= _generated) return 0;
+    if (idx >= _bufStart) {
+      return right
+          ? _nativeBufRight[idx - _bufStart]
+          : _nativeBuf[idx - _bufStart];
+    }
+    final h = right ? _histRight : _hist;
+    if (h.isEmpty) return 0;
+    final hi = idx - (_bufStart - _halfWidth);
+    if (hi < 0 || hi >= _halfWidth) return 0;
+    return h[hi];
+  }
+
   void _ensureAvail(int idx) {
     if (_totalNativeFrames == 0) return;
     if (idx >= _generated) {
@@ -286,6 +345,33 @@ class SciAdLibPcmSource extends PcmSource {
       if (stereoDualOpl2) {
         _prevLastRight = _nativeBufRight[_bufLen - 1];
         _prevValidRight = true;
+      }
+      // Retain last [_halfWidth] samples of the outgoing block as
+      // history for the next block (see [_halfWidth] proof). Short
+      // blocks (< W) only occur as the final partial block, after
+      // which no further generation happens; the shift still keeps
+      // the invariant for completeness.
+      if (_halfWidth > 0) {
+        if (_bufLen >= _halfWidth) {
+          _hist.setRange(0, _halfWidth,
+              _nativeBuf, _bufLen - _halfWidth);
+          if (stereoDualOpl2) {
+            _histRight.setRange(0, _halfWidth,
+                _nativeBufRight, _bufLen - _halfWidth);
+          } else {
+            _histRight.setRange(0, _halfWidth, _hist);
+          }
+        } else {
+          final keep = _halfWidth - _bufLen;
+          _hist.setRange(0, keep, _hist, _bufLen);
+          _hist.setRange(keep, _halfWidth, _nativeBuf, 0);
+          if (stereoDualOpl2) {
+            _histRight.setRange(0, keep, _histRight, _bufLen);
+            _histRight.setRange(keep, _halfWidth, _nativeBufRight, 0);
+          } else {
+            _histRight.setRange(0, _halfWidth, _hist);
+          }
+        }
       }
     }
     _bufStart = _generated;
@@ -339,6 +425,50 @@ class SciAdLibPcmSource extends PcmSource {
   /// Left-chip snapshot; in stereo-dual mode the right chip is not
   /// separately exposed here.
   OplDebugSnapshot debugSnapshot() => _chip.snapshot();
+
+  /// Left snapshot plus the right snapshot in stereo-dual mode (one
+  /// entry for mono, two for stereo).
+  List<OplDebugSnapshot> debugSnapshots() => <OplDebugSnapshot>[
+        _chip.snapshot(),
+        if (stereoDualOpl2 && _chipRight != null) _chipRight!.snapshot(),
+      ];
+
+  /// Current session debug overrides.
+  SciAdLibDebugOverrides get debugOverrides => _debugOverrides;
+
+  /// Delegates to the driver so changes are audible on the next render
+  /// advance.
+  void applyDebugOverrides(SciAdLibDebugOverrides overrides) {
+    _debugOverrides = overrides;
+    _driver.applyDebugOverrides(overrides);
+  }
+
+  /// The driver, for the Stage 7 debug inspector only. Raw register
+  /// access stays inside the driver; this getter exists so the
+  /// inspector can read channel/voice state.
+  SciAdLibDriver get debugDriver => _driver;
+
+  /// Whether write-log capture is on (both chips).
+  bool get writeLogEnabled => _writeLogEnabled;
+
+  /// Enables/disables write-log capture on both chips (current source).
+  set writeLogEnabled(bool value) {
+    _writeLogEnabled = value;
+    _chip.writeLogEnabled = value;
+    _chipRight?.writeLogEnabled = value;
+  }
+
+  /// Captured write records, left chip then right chip in stereo mode.
+  List<OplWriteRecord> get writeLogs => <OplWriteRecord>[
+        ..._chip.writeLog,
+        if (stereoDualOpl2 && _chipRight != null) ..._chipRight!.writeLog,
+      ];
+
+  /// Drains the write log on both chips.
+  void clearWriteLogs() {
+    _chip.clearWriteLog();
+    _chipRight?.clearWriteLog();
+  }
 
   @override
   void dispose() {}

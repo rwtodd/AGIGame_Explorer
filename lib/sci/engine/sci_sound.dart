@@ -18,19 +18,24 @@ import 'package:flutter_agigame/sci/engine/sci_midi_parser.dart';
 import 'package:flutter_agigame/sci/engine/sci_midi_track.dart';
 import 'package:flutter_agigame/sci/engine/sci_types.dart';
 
-/// SCI music-output device selected by the user (Stage 6b).
+/// SCI music-output device selected by the user (Stage 6b; Sound
+/// Blaster added in Stage 8).
 ///
-/// Only the two values below exist in this stage; `auto`,
-/// Sound Blaster, and MT-32 are later stages and deliberately not
-/// modelled here yet. The legacy device keeps today's translated
-/// PC-speaker/Tandy-ish playback through [AgiSoundPlayer]; the AdLib
-/// device renders the lossless track through the OPL2 driver instead.
+/// The legacy device keeps today's translated PC-speaker/Tandy-ish
+/// playback through [AgiSoundPlayer]; the AdLib device renders the
+/// lossless track through the OPL2 driver instead; Sound Blaster is
+/// OPL2 FM plus digital samples.
 enum SciMusicDevice {
   /// Historical translated playback (default; see [Sci0SoundParser]).
   legacyPsg,
 
   /// Sierra AdLib / OPL2 FM playback via the patch-bank driver.
   adLibOpl2,
+
+  /// Sound Blaster: AdLib OPL2 FM plus digital samples. A playable
+  /// sample replaces the MIDI/FM rendition of a sample-flagged sound
+  /// (ScummVM's rule); non-sample sounds play as FM.
+  soundBlaster,
 }
 
 /// SCI0 `Sound` object `state` values (ScummVM `SoundStatus`).

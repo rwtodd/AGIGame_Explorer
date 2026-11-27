@@ -1,9 +1,9 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **stages 0–6, ScummVM-style dual-OPL2 stereo, and measured
-calibration rounds 1–2 landed 2026-11-26. AdLib remains opt-in with
-legacy PSG as default; the next major planned work is stage 7 debug UI
-and the remaining stage 8 sample/resampler work.**
+Status: **stages 0–8, ScummVM-style dual-OPL2 stereo, and measured
+calibration rounds 1–2 landed 2026-11-27. AdLib and Sound Blaster
+remain opt-in with legacy PSG as default; the next major planned work
+is stage 9 AGI FM presets.**
 Date: 2026-11-22.
 
 Progress: post-stage-6 calibration against ScummVM/Nuked reference
@@ -109,9 +109,9 @@ Related existing design: [sound_system_design.md](sound_system_design.md),
 4. Implement stage 7's debug audio surface: selected device, bank
    provenance/fallback reason, OPL snapshot/write-log views,
    channel/voice activity, and basic master/pan controls.
-5. Finish remaining stage 8 work not already covered by the dual-OPL2
-   stereo landing: digital-sample playback/format validation and a
-   measured resampler-quality pass (linear is still the labelled choice).
+5. ~~Finish remaining stage 8 work: digital-sample playback/format
+   validation and a measured resampler-quality pass.~~ Done
+   2026-11-27 (see Stage 8 landed note).
 6. Before normal play or corpus tests, make sure no calibration
    `PATCH.003`/`SOUND.*` files remain in real game folders; both ScummVM
    and this engine intentionally honor loose patches ahead of volumes.
@@ -707,6 +707,22 @@ source, selected patch, physical voice/note, and decoded operator values;
 changing channel gain/pan is audible on the next relevant note without
 restarting the game.
 
+**Landed 2026-11-27:** `SciAdLibDebugOverrides` (session-only gain steps,
+pan/patch overrides, mute/solo, stereo width) on the driver, retained by
+`SciAdLibPcmSource` across reset/seek and applied by the kernel to active
+and newly started sources; 4096-record bounded write-log capture on both
+chips; `sciAdLibPatchAuditionTrack` synthetic chord audition; sidebar SCI
+device section with stereo-width slider; and the SCI inspector **Audio**
+tab (explicit Capture only — no timers, no snapshot work in build) with
+sound-slot/bank/source status, left/right register + operator grids,
+patch browser with dialog-owned audition player, live channel controls,
+and write-trace capture. Because the inspector pauses the engine,
+audibility of live changes is heard after closing it; the sidebar is the
+during-play path. Empty overrides reproduce the pre-Stage-7 register
+trace. Tests: 28 new across driver/chip/source/kernel/audition/widget;
+`test/audio/` + `test/sci/` green (620), `test/ui/` green except the
+pre-existing AI Assist failure.
+
 ### Stage 8 — Sound Blaster completion (stereo and digital samples)
 
 - Parse and play the SCI0 unsigned 8-bit sample channel through the mixer,
@@ -722,6 +738,25 @@ restarting the game.
 **Exit gate:** a known SCI0 digital-sample sound (including SQ3's sample
 case) is audible at the recorded rate, FM-only sounds are unchanged, and a
 stereo A/B check documents which model shipped.
+
+**Landed 2026-11-27:** `SciDigitalSamplePcmSource` plays the unsigned
+8-bit sample (SCI0 44-byte header; SCI1 descriptor start/end window) at
+its recorded rate. Third device `SciMusicDevice.soundBlaster` = OPL2 FM
++ digital samples. ScummVM SCI0 rule: a sample *replaces* the MIDI
+rendition (never mixed) under Sound Blaster, and under every device
+when the MIDI rendition is empty (SQ3 sound 100, QFG2 sound 754 — the
+only sample-only sounds in the local corpus; 65 sampled sounds total
+across KQ1-SCI/SQ3/QFG2). Slot finish timing follows the sample
+duration when the sample rendition plays. Stereo model shipped:
+ScummVM-style dual-OPL2 (landed pre-stage-8), labelled as such.
+Resampler: measured choice landed — windowed-sinc (4-term
+Blackman-Harris, 32 crossings/side, `fc=0.97·minNyquist`,
+`tool/measure_resampler.dart`) replaces linear at non-identity rates:
+spur −73 dB vs −7 dB and passband −0.11 dB vs −4.82 dB at 0.9×Nyquist
+for 49716→44100, ~3% of one core stereo; identity rate remains a true
+bypass equal to the offline renderer. FM-only/default-device behavior
+unchanged (665 audio+SCI tests green). Listening check of sample SFX
+under Sound Blaster in SQ3/KQ1-SCI still wants the user's ears.
 
 ### Stage 9 — AGI FM presets and noise
 

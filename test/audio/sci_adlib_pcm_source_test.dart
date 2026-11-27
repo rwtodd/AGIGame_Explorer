@@ -135,6 +135,24 @@ void main() {
       }
     });
 
+    test('non-identity determinism straddling native 1024 blocks', () {
+      final track = sustainedA4Track();
+      final bank = makeSineBank();
+      final ref = drainSource(
+          SciAdLibPcmSource(track, bank, outputSampleRate: 44100), 1023);
+      for (final block in [1, 1025, 2048]) {
+        final actual = drainSource(
+            SciAdLibPcmSource(track, bank, outputSampleRate: 44100), block);
+        expect(actual, equals(ref), reason: 'block $block');
+      }
+      // 48000 pair exercises a different step/history alignment.
+      final ref48 = drainSource(
+          SciAdLibPcmSource(track, bank, outputSampleRate: 48000), 777);
+      final alt48 = drainSource(
+          SciAdLibPcmSource(track, bank, outputSampleRate: 48000), 4096);
+      expect(alt48, equals(ref48));
+    });
+
     test('44100 totalFrames, non-silent, pitch, finished', () {
       final track = sustainedA4Track();
       final bank = makeSineBank();

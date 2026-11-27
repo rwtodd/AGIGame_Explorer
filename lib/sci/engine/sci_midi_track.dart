@@ -219,6 +219,14 @@ class SciMidiSample {
   /// header bytes are present.
   final int? sampleLength;
 
+  /// SCI1 descriptor start word (10-byte header offset 6); null for
+  /// SCI0 samples (which play from the start) and when truncated.
+  final int? sampleStart;
+
+  /// SCI1 descriptor end word (10-byte header offset 8); null for
+  /// SCI0 samples (which play to the end) and when truncated.
+  final int? sampleEnd;
+
   /// Absolute byte offset of the sample payload (the 44-byte header) within
   /// the original resource.
   final int payloadOffset;
@@ -232,10 +240,62 @@ class SciMidiSample {
     required this.sampleLength,
     required this.payloadOffset,
     required this.pcmBytes,
+    this.sampleStart,
+    this.sampleEnd,
   });
 
   /// Whether the whole 44-byte header is present.
   bool get hasCompleteHeader => rawHeaderBytes.length >= 44;
+
+  /// Number of PCM bytes the ScummVM playback window covers: [sampleLength]
+  /// when it names a positive length, clamped to the payload that is
+  /// actually present.
+  int get _windowBase {
+    final declared = sampleLength;
+    final base = (declared != null && declared > 0) ? declared : pcmBytes.length;
+    return base > pcmBytes.length ? pcmBytes.length : base;
+  }
+
+  /// First PCM byte of the playable window (SCI1 start word, else 0),
+  /// clamped into the payload.
+  int get effectiveStart {
+    final start = sampleStart ?? 0;
+    if (start < 0) return 0;
+    return start > _windowBase ? _windowBase : start;
+  }
+
+  /// Number of trailing PCM bytes excluded by the SCI1 end word, using
+  /// ScummVM's `base - end` convention (an end word of 0, or one that
+  /// does not fall inside the window, excludes nothing).
+  int get _endPart {
+    final end = sampleEnd;
+    final base = _windowBase;
+    if (end == null || end <= 0 || end >= base) return 0;
+    return base - end;
+  }
+
+  /// Length in PCM bytes of the playable window, clamped to be >= 0.
+  /// Pure and total: never throws.
+  int get playableLength {
+    final length = _windowBase - effectiveStart - _endPart;
+    return length < 0 ? 0 : length;
+  }
+
+  /// Absolute PCM offset of the playable window within [pcmBytes].
+  int get playableOffset => effectiveStart;
+
+  /// Whether this sample can be rendered: a positive rate and at least
+  /// one playable PCM byte.
+  bool get isPlayable => sampleRate != null && sampleRate! > 0 && playableLength > 0;
+
+  /// Playable duration in 60 Hz SCI ticks, rounded up; 0 when the sample
+  /// is not playable. Pure and total: never throws.
+  int get durationTicks {
+    final rate = sampleRate;
+    final length = playableLength;
+    if (rate == null || rate <= 0 || length <= 0) return 0;
+    return ((length * 60 + rate - 1) ~/ rate);
+  }
 
   @override
   String toString() =>
@@ -312,6 +372,12 @@ class SciMidiTrack {
     required this.isTruncated,
     required this.truncatedTail,
   });
+
+  /// True when the track carries at least one audible note-on
+  /// (velocity > 0). A sample-only sound has none; ScummVM then plays its
+  /// digital sample instead of the (silent) MIDI rendition.
+  bool get hasAudibleNotes =>
+      events.any((e) => e.kind == SciMidiEventKind.noteOn && e.data2 > 0);
 
   /// Channels selected by the ScummVM-style filter for [device]: the play
   /// bit must match, channel 15 is always selected, and channel 9 is

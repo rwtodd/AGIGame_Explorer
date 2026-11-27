@@ -6,6 +6,8 @@ import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sierra_game_session.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_game_engine.dart';
+import 'package:flutter_agigame/sci/engine/sci_sound.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
 import 'package:flutter_agigame/ui/providers/settings_provider.dart';
 import 'package:flutter_agigame/ui/widgets/agi_picture_canvas.dart';
@@ -104,6 +106,14 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
   void _safeSetSoundMode(AgiSoundMode mode) {
     try {
       ref.read(settingsProvider.notifier).setSoundMode(mode);
+    } catch (_) {
+      // Safe fallback if mounted without ProviderScope in unit tests
+    }
+  }
+
+  void _safeSetSciMusicDevice(SciMusicDevice device) {
+    try {
+      ref.read(settingsProvider.notifier).setSciMusicDevice(device);
     } catch (_) {
       // Safe fallback if mounted without ProviderScope in unit tests
     }
@@ -399,6 +409,12 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (session is SciGameEngine) ...[
+          _buildSciMusicDeviceSection(session),
+          const SizedBox(height: 18),
+          const Divider(color: AgiTheme.egaBorder, height: 1),
+          const SizedBox(height: 14),
+        ],
         _buildSectionTitle('OUTPUT MODE'),
         const SizedBox(height: 6),
 
@@ -479,6 +495,164 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
         const SizedBox(height: 16),
         _buildTestSoundButton(),
       ],
+    );
+  }
+
+  /// SCI music device selector (Stage 6b setting, Stage 7 live surface).
+  ///
+  /// Tapping a device persists via [SettingsProvider] and applies to the
+  /// next sound start. When AdLib is selected, a stereo-width slider edits
+  /// the session debug overrides (leaving all other overrides intact).
+  Widget _buildSciMusicDeviceSection(SciGameEngine session) {
+    final device = session.sciMusicDevice;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionTitle('SCI MUSIC DEVICE'),
+        const SizedBox(height: 6),
+        _buildSciDeviceTile(
+          title: 'Legacy PSG',
+          subtitle: 'Translated PC speaker / Tandy playback',
+          icon: Icons.speaker,
+          isSelected: device == SciMusicDevice.legacyPsg,
+          onTap: () {
+            session.setSciMusicDevice(SciMusicDevice.legacyPsg);
+            _safeSetSciMusicDevice(SciMusicDevice.legacyPsg);
+          },
+        ),
+        const SizedBox(height: 6),
+        _buildSciDeviceTile(
+          title: 'AdLib OPL2',
+          subtitle: 'Sierra FM playback via patch bank (dual-OPL2 stereo)',
+          icon: Icons.music_note,
+          isSelected: device == SciMusicDevice.adLibOpl2,
+          onTap: () {
+            session.setSciMusicDevice(SciMusicDevice.adLibOpl2);
+            _safeSetSciMusicDevice(SciMusicDevice.adLibOpl2);
+          },
+        ),
+        const SizedBox(height: 6),
+        _buildSciDeviceTile(
+          title: 'Sound Blaster',
+          subtitle: 'OPL2 FM plus digital samples (samples replace MIDI)',
+          icon: Icons.speaker,
+          isSelected: device == SciMusicDevice.soundBlaster,
+          onTap: () {
+            session.setSciMusicDevice(SciMusicDevice.soundBlaster);
+            _safeSetSciMusicDevice(SciMusicDevice.soundBlaster);
+          },
+        ),
+        if (device == SciMusicDevice.adLibOpl2 ||
+            device == SciMusicDevice.soundBlaster) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.graphic_eq, size: 16, color: AgiTheme.egaCyan),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Stereo Width (debug)',
+                  style: TextStyle(
+                    fontFamily: 'Courier',
+                    fontSize: 11.5,
+                    color: AgiTheme.egaWhite,
+                  ),
+                ),
+              ),
+              Text(
+                '${(session.sciAdLibDebugOverrides.stereoWidth * 100).round()}%',
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: AgiTheme.egaCyan,
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: AgiTheme.egaCyan,
+              inactiveTrackColor: const Color(0xFF27354A),
+              thumbColor: AgiTheme.egaCyan,
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            ),
+            child: Slider(
+              value: session.sciAdLibDebugOverrides.stereoWidth,
+              min: 0.0,
+              max: 1.0,
+              divisions: 20,
+              onChanged: (val) {
+                session.setSciAdLibDebugOverrides(
+                  session.sciAdLibDebugOverrides.copyWith(stereoWidth: val),
+                );
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSciDeviceTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF131D31),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isSelected ? AgiTheme.egaCyan : const Color(0xFF27354A),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isSelected ? AgiTheme.egaCyan : AgiTheme.egaMuted,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontFamily: 'Courier',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12.5,
+                      color: isSelected ? AgiTheme.egaWhite : const Color(0xFFCBD5E1),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontFamily: 'Courier',
+                      fontSize: 10.5,
+                      color: AgiTheme.egaMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle, size: 16, color: AgiTheme.egaCyan),
+          ],
+        ),
+      ),
     );
   }
 

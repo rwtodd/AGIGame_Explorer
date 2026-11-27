@@ -95,6 +95,174 @@ final class DualOpl2ChipRegisterSink implements StereoOplRegisterSink {
   }
 }
 
+/// Session-only debug overrides for the SCI AdLib driver (Stage 7).
+///
+/// These are live-inspector controls only: never persisted and never
+/// applied unless explicitly set through
+/// [SciAdLibDriver.applyDebugOverrides]. With every field at its default
+/// ([SciAdLibDebugOverrides.empty]) the driver behaves byte-for-byte like
+/// the pre-Stage-7 driver.
+final class SciAdLibDebugOverrides {
+  /// Stereo width 0..1 (1.0 = full pan spread, 0.0 = center). Normalized
+  /// to 0..1 at construction.
+  final double stereoWidth;
+
+  /// Per-channel velocity offset in velocity-domain steps (additive to
+  /// the SCI0 velocity result), clamped to -32..+16. Channels outside
+  /// 0..15 are dropped.
+  final Map<int, int> gainSteps;
+
+  /// Per-channel pan override 0..127 (64 = center). Channels outside
+  /// 0..15 are dropped.
+  final Map<int, int> panOverrides;
+
+  /// Per-channel patch override, values must be >= 0 (clamped at 0).
+  /// Channels outside 0..15 are dropped. Overrides the tracked program
+  /// change for that channel only.
+  final Map<int, int> patchOverrides;
+
+  /// Channels forced silent (velocity treated as 0).
+  final Set<int> mutedChannels;
+
+  /// When non-empty, only these channels are audible; all others are
+  /// treated as silent.
+  final Set<int> soloChannels;
+
+  /// Canonical empty overrides (no debug behavior). Const.
+  const SciAdLibDebugOverrides.empty()
+      : stereoWidth = 1.0,
+        gainSteps = const {},
+        panOverrides = const {},
+        patchOverrides = const {},
+        mutedChannels = const {},
+        soloChannels = const {};
+
+  factory SciAdLibDebugOverrides({
+    double stereoWidth = 1.0,
+    Map<int, int>? gainSteps,
+    Map<int, int>? panOverrides,
+    Map<int, int>? patchOverrides,
+    Set<int>? mutedChannels,
+    Set<int>? soloChannels,
+  }) {
+    return SciAdLibDebugOverrides._(
+      stereoWidth: stereoWidth.clamp(0.0, 1.0),
+      gainSteps: _normIntMap(gainSteps, -32, 16),
+      panOverrides: _normIntMap(panOverrides, 0, 127),
+      patchOverrides: _normIntMap(patchOverrides, 0, 1 << 30, noLowerClamp: true),
+      mutedChannels: _normChannels(mutedChannels),
+      soloChannels: _normChannels(soloChannels),
+    );
+  }
+
+  const SciAdLibDebugOverrides._({
+    required this.stereoWidth,
+    required this.gainSteps,
+    required this.panOverrides,
+    required this.patchOverrides,
+    required this.mutedChannels,
+    required this.soloChannels,
+  });
+
+  static Map<int, int> _normIntMap(
+    Map<int, int>? input,
+    int min,
+    int max, {
+    bool noLowerClamp = false,
+  }) {
+    if (input == null || input.isEmpty) return const {};
+    final out = <int, int>{};
+    for (final e in input.entries) {
+      if (e.key < 0 || e.key > 15) continue;
+      var v = e.value;
+      if (v > max) v = max;
+      if (!noLowerClamp && v < min) v = min;
+      if (noLowerClamp && v < 0) v = 0;
+      out[e.key] = v;
+    }
+    return Map<int, int>.unmodifiable(out);
+  }
+
+  static Set<int> _normChannels(Set<int>? input) {
+    if (input == null || input.isEmpty) return const {};
+    return Set<int>.unmodifiable(input.where((c) => c >= 0 && c <= 15));
+  }
+
+  /// True when every field is at its default (no debug behavior).
+  bool get isEmpty =>
+      stereoWidth == 1.0 &&
+      gainSteps.isEmpty &&
+      panOverrides.isEmpty &&
+      patchOverrides.isEmpty &&
+      mutedChannels.isEmpty &&
+      soloChannels.isEmpty;
+
+  /// Copy with the given fields replaced (normalized). Fields not passed
+  /// keep their current values.
+  SciAdLibDebugOverrides copyWith({
+    double? stereoWidth,
+    Map<int, int>? gainSteps,
+    Map<int, int>? panOverrides,
+    Map<int, int>? patchOverrides,
+    Set<int>? mutedChannels,
+    Set<int>? soloChannels,
+  }) {
+    return SciAdLibDebugOverrides(
+      stereoWidth: stereoWidth ?? this.stereoWidth,
+      gainSteps: gainSteps ?? this.gainSteps,
+      panOverrides: panOverrides ?? this.panOverrides,
+      patchOverrides: patchOverrides ?? this.patchOverrides,
+      mutedChannels: mutedChannels ?? this.mutedChannels,
+      soloChannels: soloChannels ?? this.soloChannels,
+    );
+  }
+
+  bool _sameValues(SciAdLibDebugOverrides other) {
+    if (stereoWidth != other.stereoWidth) return false;
+    if (gainSteps.length != other.gainSteps.length ||
+        !gainSteps.keys.every((k) => other.gainSteps[k] == gainSteps[k])) {
+      return false;
+    }
+    if (panOverrides.length != other.panOverrides.length ||
+        !panOverrides.keys.every((k) => other.panOverrides[k] == panOverrides[k])) {
+      return false;
+    }
+    if (patchOverrides.length != other.patchOverrides.length ||
+        !patchOverrides.keys.every((k) => other.patchOverrides[k] == patchOverrides[k])) {
+      return false;
+    }
+    if (mutedChannels.length != other.mutedChannels.length ||
+        !mutedChannels.containsAll(other.mutedChannels)) {
+      return false;
+    }
+    if (soloChannels.length != other.soloChannels.length ||
+        !soloChannels.containsAll(other.soloChannels)) {
+      return false;
+    }
+    return true;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SciAdLibDebugOverrides && _sameValues(other);
+
+  @override
+  int get hashCode => Object.hash(
+        stereoWidth,
+        Object.hashAllUnordered(
+          gainSteps.entries.map((e) => Object.hash(e.key, e.value)),
+        ),
+        Object.hashAllUnordered(
+          panOverrides.entries.map((e) => Object.hash(e.key, e.value)),
+        ),
+        Object.hashAllUnordered(
+          patchOverrides.entries.map((e) => Object.hash(e.key, e.value)),
+        ),
+        Object.hashAllUnordered(mutedChannels),
+        Object.hashAllUnordered(soloChannels),
+      );
+}
+
 /// SCI0 driver profile: decides the physical voice cap.
 enum SciAdlibProfile {
   /// Early SCI0 games: 8 voices.
@@ -177,6 +345,7 @@ final class SciAdLibDriver {
 
   int _masterVolume = 15;
   bool _playEnabled = true;
+  SciAdLibDebugOverrides _debugOverrides = const SciAdLibDebugOverrides.empty();
 
   SciAdLibDriver({
     required this.bank,
@@ -243,6 +412,42 @@ final class SciAdLibDriver {
   /// Whether [channel] responds to note velocity.
   bool channelEnableVelocity(int channel) =>
       _channels[channel].enableVelocity;
+
+  /// Current session debug overrides (Stage 7 inspector only).
+  SciAdLibDebugOverrides get debugOverrides => _debugOverrides;
+
+  /// Effective patch for [channel]: debug override when present, else the
+  /// tracked channel patch.
+  int effectivePatch(int channel) =>
+      _debugOverrides.patchOverrides[channel] ?? _channels[channel].patch;
+
+  /// Effective pan for [channel]: debug override when present, else the
+  /// tracked channel pan (64 = center). Not yet contracted by stereo
+  /// width; contraction happens in velocity register programming.
+  int effectivePan(int channel) =>
+      _debugOverrides.panOverrides[channel] ?? _channels[channel].pan;
+
+  /// Applies session debug overrides immediately: voices whose effective
+  /// patch changed are reprogrammed to the new patch (operator registers
+  /// plus pitch/velocity rewrite; rewriting operator registers does not
+  /// restart the envelope or phase on its own), and every sounding note
+  /// is renewed so gain/pan/mute/solo changes are audible on the next
+  /// render advance without restarting the game. [open] and [initTrack]
+  /// never clear these overrides.
+  void applyDebugOverrides(SciAdLibDebugOverrides overrides) {
+    if (overrides == _debugOverrides) return;
+    _debugOverrides = overrides;
+    for (var i = 0; i < kOpl2Channels; i++) {
+      if (_voices[i].note == -1) continue;
+      final channel = _voices[i].channel;
+      if (channel < 0 || channel > 15) continue;
+      final patch = effectivePatch(channel);
+      if (patch != _voices[i].patch && _playEnabled) {
+        _setPatch(i, patch);
+      }
+      _setNote(i, _voices[i].note, true);
+    }
+  }
 
   /// Resets all channel/voice state to reference defaults and runs the
   /// open register sequence (0xBD=0, 0x08=0, 0x01=0x20).
@@ -548,7 +753,7 @@ final class SciAdLibDriver {
 
   void _voiceOn(int voice, int note, int velocity, int tick) {
     final channel = _voices[voice].channel;
-    final patch = _channels[channel].patch;
+    final patch = effectivePatch(channel);
     _voices[voice].startTick = tick;
 
     if (patch != _voices[voice].patch && _playEnabled) {
@@ -670,10 +875,17 @@ final class SciAdLibDriver {
   /// velocity (note velocity when enabled, otherwise the inverse of the
   /// operator total level), scaled by 15.
   int _calcVelocity(int voice, int op) {
+    final channel = _voices[voice].channel;
+    // Debug mute/solo forces silence before any gain is considered, so a
+    // gain boost can never revive a note silenced only by mute/solo.
+    if (channel >= 0 && channel < 16 && !_debugOverrides.isEmpty) {
+      if (_debugOverrides.mutedChannels.contains(channel)) return 0;
+      final solo = _debugOverrides.soloChannels;
+      if (solo.isNotEmpty && !solo.contains(channel)) return 0;
+    }
     var velocity = _masterVolume;
     if (velocity > 0) velocity += 3;
     if (velocity > 15) velocity = 15;
-    final channel = _voices[voice].channel;
     final instrument = _instrumentFor(_voices[voice].patch);
     final totalLevel =
         op == 1 ? instrument.operator1.totalLevel : instrument.operator0.totalLevel;
@@ -683,7 +895,15 @@ final class SciAdLibDriver {
     final insVelocity = noteVelocity
         ? _voices[voice].velocity
         : 63 - totalLevel;
-    return velocity * insVelocity ~/ 15;
+    var result = velocity * insVelocity ~/ 15;
+    // Gain never revives a naturally silent note (master/CC velocity 0).
+    if (result > 0 && channel >= 0 && channel < 16) {
+      final gain = _debugOverrides.gainSteps[channel];
+      if (gain != null && gain != 0) {
+        result = (result + gain).clamp(0, 63);
+      }
+    }
+    return result;
   }
 
   void _setVelocity(int voice) {
@@ -744,8 +964,13 @@ final class SciAdLibDriver {
     if (!_playEnabled) velocity = 0;
     final channel = _voices[voice].channel;
     var pan = 64;
-    if (channel >= 0 && channel < 16) pan = _channels[channel].pan;
+    if (channel >= 0 && channel < 16) pan = effectivePan(channel);
     pan = pan.clamp(0, 127);
+    // Debug stereo width contracts pan around center before scaling.
+    final width = _debugOverrides.stereoWidth;
+    if (width != 1.0) {
+      pan = (64 + (pan - 64) * width).round().clamp(0, 127);
+    }
     var leftVelocity = velocity;
     var rightVelocity = velocity;
     if (pan < 64) {
