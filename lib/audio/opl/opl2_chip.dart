@@ -615,12 +615,14 @@ final class Opl2Chip {
       final eff = 4 * _dr[idx] + rateOffset;
       level += _decayRateDbPerSample(eff);
       final slDb = _sl[idx] * 3.0;
-      if (level >= slDb && _egType[idx]) {
+      if (level >= slDb) {
         level = slDb;
-        _seg[idx] = _segSustain; // hold at sustain level
+        // EG-type on (sustain): hold at SL for as long as the key is on.
+        // EG-type off (percussive): DR takes the envelope to SL, then RR
+        // takes over even while KON remains 1 (piano-like decay).
+        _seg[idx] = _egType[idx] ? _segSustain : _segRelease;
       }
-      // EG-type off (percussive): decay continues past SL toward the
-      // silence floor below instead of holding at SL.
+      // Percussive release continues toward the silence floor below.
       if (level >= _silenceDb) {
         level = _silenceDb;
         _seg[idx] = _segSilent;

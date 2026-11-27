@@ -377,6 +377,40 @@ void main() {
     expect(rms(out, 40000, 49716), lessThan(50));
   });
 
+  // Percussive (EG-type=0): DR takes the envelope to SL, then RR takes
+  // over even while the key stays on. With fast DR (12), SL=0 (0 dB) and
+  // slow RR (1), the note must still be clearly audible 100-200 ms after
+  // the instant attack; the old DR-continued behavior (DR=12, ~7k dB/s)
+  // would be essentially silent within ~15 ms.
+  test('percussive EG-type=0: fast DR to SL then slower RR stays audible',
+      () {
+    final chip = Opl2Chip();
+    programChannel(chip,
+        carAr: 15,
+        carDr: 12,
+        carSl: 0,
+        carRr: 1,
+        egType: false,
+        modTl: 63,
+        modAr: 15,
+        modDr: 15,
+        connection: 1);
+    final out = Int16List(49716); // 1 s key-on, never released
+    chip.generate(out, out.length);
+    final early = rms(out, 200, 1200);
+    expect(early, greaterThan(1000));
+    // 100-200 ms after attack: RR=1 (eff=6, ~3.5 dB/s) leaves the
+    // envelope within ~1 dB of peak, so RMS stays near the early level.
+    final late = rms(out, 5000, 10000);
+    expect(late, greaterThan(1000));
+    expect(late, greaterThan(early * 0.5));
+    // Envelope continues to fall at the RR slope, not the DR slope:
+    // a later window is measurably quieter than the early one.
+    final later = rms(out, 30000, 40000);
+    expect(later, lessThan(late));
+    expect(later, greaterThan(100));
+  });
+
   test('total level: higher TL is strictly quieter (monotonic)', () {
     double level(int tl) {
       final chip = Opl2Chip();
