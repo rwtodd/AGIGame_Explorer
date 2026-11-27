@@ -72,6 +72,18 @@ enum PcmPlaybackMode {
 
   /// Enhanced modern synthesizer with selectable waveforms, stereo separation, and reverb.
   enhanced,
+
+  /// FM synthesis via the AGI FM adapter (project-authored OPL presets).
+  fmPresets,
+}
+
+/// Where the AGI FM adapter gets its noise channel from.
+enum AgiFmNoiseSource {
+  /// SN76489 noise rendered by the existing Tandy renderer.
+  tandy,
+
+  /// No noise channel is mixed in.
+  off,
 }
 
 /// Available waveform shapes for the Enhanced synthesis mode.
@@ -130,6 +142,25 @@ class SynthesizerConfig {
   /// Stereo pan position for Noise channel.
   final double noisePan;
 
+  /// FM preset identifier used when [mode] is
+  /// [PcmPlaybackMode.fmPresets] (default 'neutralKeys').
+  final String fmPresetId;
+
+  /// FM channel gain (default 1.0, clamped 0..2 at use).
+  final double fmGain;
+
+  /// FM-path noise gain (default 1.0, clamped 0..2 at use).
+  final double fmNoiseGain;
+
+  /// Noise source for the FM path (default tandy).
+  final AgiFmNoiseSource fmNoiseSource;
+
+  /// Per-voice gains for the AGI FM adapter (default 1.0 each,
+  /// clamped 0..2 at use; 0 silences that voice).
+  final double voice1Gain;
+  final double voice2Gain;
+  final double voice3Gain;
+
   const SynthesizerConfig({
     this.sampleRate = 44100,
     this.mode = PcmPlaybackMode.tandy3VoiceNoise,
@@ -143,6 +174,13 @@ class SynthesizerConfig {
     this.voice2Pan = 0.65,
     this.voice3Pan = 0.50,
     this.noisePan = 0.50,
+    this.fmPresetId = 'neutralKeys',
+    this.fmGain = 1.0,
+    this.fmNoiseGain = 1.0,
+    this.fmNoiseSource = AgiFmNoiseSource.tandy,
+    this.voice1Gain = 1.0,
+    this.voice2Gain = 1.0,
+    this.voice3Gain = 1.0,
   });
 
   /// Factory for default Tandy 1000 / PCjr mode.
@@ -183,6 +221,20 @@ class SynthesizerConfig {
         noisePan: 0.5,
       );
 
+  /// Factory for AGI FM adapter mode.
+  factory SynthesizerConfig.fm({
+    int sampleRate = 44100,
+    String fmPresetId = 'neutralKeys',
+  }) =>
+      SynthesizerConfig(
+        sampleRate: sampleRate,
+        mode: PcmPlaybackMode.fmPresets,
+        waveform: WaveformType.square,
+        masterVolume: 0.75,
+        enableReverb: false,
+        fmPresetId: fmPresetId,
+      );
+
   SynthesizerConfig copyWith({
     int? sampleRate,
     PcmPlaybackMode? mode,
@@ -196,6 +248,13 @@ class SynthesizerConfig {
     double? voice2Pan,
     double? voice3Pan,
     double? noisePan,
+    String? fmPresetId,
+    double? fmGain,
+    double? fmNoiseGain,
+    AgiFmNoiseSource? fmNoiseSource,
+    double? voice1Gain,
+    double? voice2Gain,
+    double? voice3Gain,
   }) {
     return SynthesizerConfig(
       sampleRate: sampleRate ?? this.sampleRate,
@@ -210,6 +269,13 @@ class SynthesizerConfig {
       voice2Pan: voice2Pan ?? this.voice2Pan,
       voice3Pan: voice3Pan ?? this.voice3Pan,
       noisePan: noisePan ?? this.noisePan,
+      fmPresetId: fmPresetId ?? this.fmPresetId,
+      fmGain: fmGain ?? this.fmGain,
+      fmNoiseGain: fmNoiseGain ?? this.fmNoiseGain,
+      fmNoiseSource: fmNoiseSource ?? this.fmNoiseSource,
+      voice1Gain: voice1Gain ?? this.voice1Gain,
+      voice2Gain: voice2Gain ?? this.voice2Gain,
+      voice3Gain: voice3Gain ?? this.voice3Gain,
     );
   }
 }

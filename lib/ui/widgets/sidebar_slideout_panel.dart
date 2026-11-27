@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_agigame/audio/agi_fm_adapter.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sierra_game_session.dart';
@@ -125,6 +126,14 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
     } catch (_) {
       // Safe fallback if mounted without ProviderScope in unit tests
     }
+  }
+
+  /// Applies a synthesizer config the same way every other synth setting
+  /// does: live to the session and persisted via the settings notifier
+  /// (which also syncs the FM fields from the config).
+  void _applySynthConfig(SynthesizerConfig config) {
+    _effectiveSession?.setSynthesizerConfig(config);
+    _safeSetSynthesizerConfig(config);
   }
 
   /// Synthesizes and plays a short preview arpeggio/melody using the active synthesizer config.
@@ -468,6 +477,19 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
             _safeSetSoundMode(AgiSoundMode.enhanced);
           },
         ),
+        const SizedBox(height: 6),
+
+        _buildSoundModeTile(
+          mode: AgiSoundMode.fm,
+          title: 'FM Presets (OPL2)',
+          subtitle: 'Modern FM enhancement: project-authored FM instruments + Tandy noise (%v22 = 3)',
+          icon: Icons.graphic_eq,
+          isSelected: currentMode == AgiSoundMode.fm,
+          onTap: () {
+            session.setSoundMode(AgiSoundMode.fm);
+            _safeSetSoundMode(AgiSoundMode.fm);
+          },
+        ),
 
         if (currentMode == AgiSoundMode.enhanced) ...[
           const SizedBox(height: 16),
@@ -482,6 +504,62 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           _buildSectionTitle('DSP ROOM REVERB'),
           const SizedBox(height: 8),
           _buildReverbControls(synthConfig),
+        ],
+
+        if (currentMode == AgiSoundMode.fm) ...[
+          const SizedBox(height: 16),
+          const Divider(color: AgiTheme.egaBorder, height: 1),
+          const SizedBox(height: 14),
+
+          _buildSectionTitle('FM PRESETS'),
+          const SizedBox(height: 8),
+          _buildFmPresetSelector(synthConfig),
+
+          const SizedBox(height: 12),
+          _buildFmGainSlider(
+            label: 'FM Gain',
+            value: synthConfig.fmGain,
+            onChanged: (val) =>
+                _applySynthConfig(synthConfig.copyWith(fmGain: val)),
+          ),
+          _buildFmGainSlider(
+            label: 'Noise Gain',
+            value: synthConfig.fmNoiseGain,
+            onChanged: (val) =>
+                _applySynthConfig(synthConfig.copyWith(fmNoiseGain: val)),
+          ),
+          _buildFmNoiseSourceSelector(synthConfig),
+
+          const SizedBox(height: 12),
+          _buildSectionTitle('FM VOICES'),
+          const SizedBox(height: 6),
+          _buildFmVoiceRow(
+            index: 0,
+            gain: synthConfig.voice1Gain,
+            pan: synthConfig.voice1Pan,
+            onGain: (val) =>
+                _applySynthConfig(synthConfig.copyWith(voice1Gain: val)),
+            onPan: (val) =>
+                _applySynthConfig(synthConfig.copyWith(voice1Pan: val)),
+          ),
+          _buildFmVoiceRow(
+            index: 1,
+            gain: synthConfig.voice2Gain,
+            pan: synthConfig.voice2Pan,
+            onGain: (val) =>
+                _applySynthConfig(synthConfig.copyWith(voice2Gain: val)),
+            onPan: (val) =>
+                _applySynthConfig(synthConfig.copyWith(voice2Pan: val)),
+          ),
+          _buildFmVoiceRow(
+            index: 2,
+            gain: synthConfig.voice3Gain,
+            pan: synthConfig.voice3Pan,
+            onGain: (val) =>
+                _applySynthConfig(synthConfig.copyWith(voice3Gain: val)),
+            onPan: (val) =>
+                _applySynthConfig(synthConfig.copyWith(voice3Pan: val)),
+          ),
         ],
 
         const SizedBox(height: 18),
@@ -897,6 +975,255 @@ class _SidebarSlideoutPanelState extends ConsumerState<SidebarSlideoutPanel> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFmPresetSelector(SynthesizerConfig config) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: kAgiFmPresets.map((preset) {
+        final isSelected = config.fmPresetId == preset.id;
+        return ChoiceChip(
+          label: Text(
+            preset.displayName,
+            style: TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? Colors.black : AgiTheme.egaWhite,
+            ),
+          ),
+          selected: isSelected,
+          selectedColor: AgiTheme.egaCyan,
+          backgroundColor: const Color(0xFF131D31),
+          side: BorderSide(
+            color: isSelected ? AgiTheme.egaCyan : const Color(0xFF27354A),
+          ),
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          onSelected: (selected) {
+            if (selected) {
+              _applySynthConfig(config.copyWith(fmPresetId: preset.id));
+            }
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildFmGainSlider({
+    required String label,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 84,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11.5,
+              color: AgiTheme.egaWhite,
+            ),
+          ),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: AgiTheme.egaCyan,
+              inactiveTrackColor: const Color(0xFF27354A),
+              thumbColor: AgiTheme.egaCyan,
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            ),
+            child: Slider(
+              value: value.clamp(0.0, 2.0),
+              min: 0.0,
+              max: 2.0,
+              divisions: 40,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 40,
+          child: Text(
+            '${value.toStringAsFixed(2)}x',
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              fontFamily: 'Courier',
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
+              color: AgiTheme.egaCyan,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFmNoiseSourceSelector(SynthesizerConfig config) {
+    const options = [
+      (AgiFmNoiseSource.tandy, 'Tandy noise'),
+      (AgiFmNoiseSource.off, 'Off'),
+    ];
+    return Row(
+      children: [
+        const SizedBox(
+          width: 84,
+          child: Text(
+            'Noise',
+            style: TextStyle(
+              fontFamily: 'Courier',
+              fontSize: 11.5,
+              color: AgiTheme.egaWhite,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: options.map((opt) {
+              final isSelected = config.fmNoiseSource == opt.$1;
+              return ChoiceChip(
+                label: Text(
+                  opt.$2,
+                  style: TextStyle(
+                    fontFamily: 'Courier',
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? Colors.black : AgiTheme.egaWhite,
+                  ),
+                ),
+                selected: isSelected,
+                selectedColor: AgiTheme.egaCyan,
+                backgroundColor: const Color(0xFF131D31),
+                side: BorderSide(
+                  color: isSelected ? AgiTheme.egaCyan : const Color(0xFF27354A),
+                ),
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                onSelected: (selected) {
+                  if (selected) {
+                    _applySynthConfig(
+                        config.copyWith(fmNoiseSource: opt.$1));
+                  }
+                },
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// One compact per-voice row: gain slider (0..2) stacked over a pan
+  /// slider (0..1) with L-C-R ticks.
+  Widget _buildFmVoiceRow({
+    required int index,
+    required double gain,
+    required double pan,
+    required ValueChanged<double> onGain,
+    required ValueChanged<double> onPan,
+  }) {
+    final panLabel = pan < 0.34
+        ? 'L'
+        : pan > 0.66
+            ? 'R'
+            : 'C';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 28,
+              child: Text(
+                'V${index + 1}',
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11.5,
+                  color: AgiTheme.egaCyan,
+                ),
+              ),
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: AgiTheme.egaCyan,
+                  inactiveTrackColor: const Color(0xFF27354A),
+                  thumbColor: AgiTheme.egaCyan,
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                ),
+                child: Slider(
+                  value: gain.clamp(0.0, 2.0),
+                  min: 0.0,
+                  max: 2.0,
+                  divisions: 40,
+                  onChanged: onGain,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 40,
+              child: Text(
+                '${gain.toStringAsFixed(2)}x',
+                textAlign: TextAlign.end,
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontSize: 11,
+                  color: AgiTheme.egaMuted,
+                ),
+              ),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            const SizedBox(width: 28),
+            const Text('L', style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: AgiTheme.egaCyan,
+                  inactiveTrackColor: const Color(0xFF27354A),
+                  thumbColor: AgiTheme.egaCyan,
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                ),
+                child: Slider(
+                  value: pan.clamp(0.0, 1.0),
+                  min: 0.0,
+                  max: 1.0,
+                  divisions: 20,
+                  onChanged: onPan,
+                ),
+              ),
+            ),
+            const Text('R', style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 16,
+              child: Text(
+                panLabel,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Courier',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: AgiTheme.egaCyan,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

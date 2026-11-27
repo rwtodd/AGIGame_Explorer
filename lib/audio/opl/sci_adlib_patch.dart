@@ -227,12 +227,83 @@ final class SciAdlibInstrument {
     );
   }
 
+  /// Project-authored instrument from decoded fields.
+  ///
+  /// Synthesizes a coherent 28-byte [rawBytes] record by encoding the
+  /// fields with the same record layout [SciAdlibInstrument.fromRecord]
+  /// decodes, so `fromRecord(fromFields(...).rawBytes)` round-trips
+  /// field-for-field. Field ranges are masked to the record widths
+  /// (kbScaleLevel & 0x3, frequencyMult & 0xf, attack/decay/sustain/
+  /// release & 0xf, totalLevel & 0x3f, feedback & 0x7, waveforms & 0x3);
+  /// envelopeType/amplitudeMod/vibrato/kbScaleRate are stored raw.
+  /// The algorithm flag uses the first-class inverse convention: the
+  /// stored record byte is 0 when [SciAdlibModulator.algorithm] is 1
+  /// and 1 when it is 0.
+  factory SciAdlibInstrument.fromFields({
+    required SciAdlibOperator operator0,
+    required SciAdlibOperator operator1,
+    required SciAdlibModulator modulator,
+  }) {
+    final raw = Uint8List(kSciAdlibRecordSize);
+
+    void writeOperator(int b, SciAdlibOperator op) {
+      raw[b] = op.kbScaleLevel & 0x3;
+      raw[b + 1] = op.frequencyMult & 0xf;
+      raw[b + 3] = op.attackRate & 0xf;
+      raw[b + 4] = op.sustainLevel & 0xf;
+      raw[b + 5] = op.envelopeType & 0xff;
+      raw[b + 6] = op.decayRate & 0xf;
+      raw[b + 7] = op.releaseRate & 0xf;
+      raw[b + 8] = op.totalLevel & 0x3f;
+      raw[b + 9] = op.amplitudeMod & 0xff;
+      raw[b + 10] = op.vibrato & 0xff;
+      raw[b + 11] = op.kbScaleRate & 0xff;
+    }
+
+    writeOperator(0, operator0);
+    writeOperator(13, operator1);
+    // Modulator-owned bytes of operator 0's block; operator 1's
+    // corresponding positions (15 and 25) stay 0.
+    raw[2] = modulator.feedback & 0x7;
+    raw[12] = modulator.algorithm == 1 ? 0 : 1;
+    raw[26] = operator0.waveForm & 0x3;
+    raw[27] = operator1.waveForm & 0x3;
+    return SciAdlibInstrument._(
+      operator0: _maskedOperator(operator0),
+      operator1: _maskedOperator(operator1),
+      modulator: SciAdlibModulator(
+        feedback: modulator.feedback & 0x7,
+        algorithm: modulator.algorithm == 1 ? 1 : 0,
+      ),
+      rawBytes: raw,
+    );
+  }
+
   /// Deterministic multi-line debug rendering for tests and debug UI.
   String debugString() =>
       'op0[${operator0.debugString()}] '
       'op1[${operator1.debugString()}] '
       'mod[${modulator.debugString()}] '
       'raw[${rawBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}]';
+
+  /// Normalizes an operator into the exact values [fromRecord] would
+  /// decode from the encoded bytes, so field equality round-trips.
+  static SciAdlibOperator _maskedOperator(SciAdlibOperator op) {
+    return SciAdlibOperator(
+      kbScaleLevel: op.kbScaleLevel & 0x3,
+      frequencyMult: op.frequencyMult & 0xf,
+      attackRate: op.attackRate & 0xf,
+      sustainLevel: op.sustainLevel & 0xf,
+      envelopeType: op.envelopeType & 0xff,
+      decayRate: op.decayRate & 0xf,
+      releaseRate: op.releaseRate & 0xf,
+      totalLevel: op.totalLevel & 0x3f,
+      amplitudeMod: op.amplitudeMod & 0xff,
+      vibrato: op.vibrato & 0xff,
+      kbScaleRate: op.kbScaleRate & 0xff,
+      waveForm: op.waveForm & 0x3,
+    );
+  }
 }
 
 /// Immutable parsed SCI0 AdLib bank: the exact instruments present in the

@@ -79,6 +79,12 @@ class AgiDisplaySettings {
   }
 }
 
+/// Default per-voice pans for AGI audio (matches [SynthesizerConfig]).
+const List<double> kDefaultVoicePans = [0.35, 0.65, 0.50];
+
+/// Default per-voice gains (unity).
+const List<double> kDefaultVoiceGains = [1.0, 1.0, 1.0];
+
 /// User audio preferences for sound synthesis and DSP effects.
 class AgiAudioSettings {
   final AgiSoundMode soundMode;
@@ -90,6 +96,24 @@ class AgiAudioSettings {
   /// SCI music-output device (legacy PSG by default; AdLib is opt-in).
   final SciMusicDevice sciMusicDevice;
 
+  /// AGI FM adapter preset identifier (default 'neutralKeys').
+  final String fmPresetId;
+
+  /// AGI FM channel gain (default 1.0).
+  final double fmGain;
+
+  /// AGI FM-path noise gain (default 1.0).
+  final double fmNoiseGain;
+
+  /// AGI FM noise source (default tandy).
+  final AgiFmNoiseSource fmNoiseSource;
+
+  /// Per-AGI-voice gains (length 3, default unity).
+  final List<double> voiceGains;
+
+  /// Per-AGI-voice pans (length 3, default [kDefaultVoicePans]).
+  final List<double> voicePans;
+
   const AgiAudioSettings({
     this.soundMode = AgiSoundMode.pcJr,
     this.waveform = WaveformType.square,
@@ -97,6 +121,12 @@ class AgiAudioSettings {
     this.reverbMix = 0.0,
     this.masterVolume = 0.75,
     this.sciMusicDevice = SciMusicDevice.legacyPsg,
+    this.fmPresetId = 'neutralKeys',
+    this.fmGain = 1.0,
+    this.fmNoiseGain = 1.0,
+    this.fmNoiseSource = AgiFmNoiseSource.tandy,
+    this.voiceGains = kDefaultVoiceGains,
+    this.voicePans = kDefaultVoicePans,
   });
 
   AgiAudioSettings copyWith({
@@ -106,6 +136,12 @@ class AgiAudioSettings {
     double? reverbMix,
     double? masterVolume,
     SciMusicDevice? sciMusicDevice,
+    String? fmPresetId,
+    double? fmGain,
+    double? fmNoiseGain,
+    AgiFmNoiseSource? fmNoiseSource,
+    List<double>? voiceGains,
+    List<double>? voicePans,
   }) {
     return AgiAudioSettings(
       soundMode: soundMode ?? this.soundMode,
@@ -114,6 +150,12 @@ class AgiAudioSettings {
       reverbMix: reverbMix ?? this.reverbMix,
       masterVolume: masterVolume ?? this.masterVolume,
       sciMusicDevice: sciMusicDevice ?? this.sciMusicDevice,
+      fmPresetId: fmPresetId ?? this.fmPresetId,
+      fmGain: fmGain ?? this.fmGain,
+      fmNoiseGain: fmNoiseGain ?? this.fmNoiseGain,
+      fmNoiseSource: fmNoiseSource ?? this.fmNoiseSource,
+      voiceGains: voiceGains ?? this.voiceGains,
+      voicePans: voicePans ?? this.voicePans,
     );
   }
 
@@ -121,15 +163,29 @@ class AgiAudioSettings {
     final mode = switch (soundMode) {
       AgiSoundMode.ibmPc => PcmPlaybackMode.ibmPcSingleChannel,
       AgiSoundMode.enhanced => PcmPlaybackMode.enhanced,
+      AgiSoundMode.fm => PcmPlaybackMode.fmPresets,
       AgiSoundMode.pcJr || AgiSoundMode.off => PcmPlaybackMode.tandy3VoiceNoise,
     };
 
+    // FM fields are passed through for every mode so a preview
+    // surface can render FM from the same config; non-FM renderers
+    // simply ignore them.
     return SynthesizerConfig(
       mode: mode,
       waveform: waveform,
       enableReverb: enableReverb && reverbMix > 0.0,
       reverbMix: reverbMix,
       masterVolume: masterVolume,
+      voice1Pan: voicePans[0],
+      voice2Pan: voicePans[1],
+      voice3Pan: voicePans[2],
+      fmPresetId: fmPresetId,
+      fmGain: fmGain,
+      fmNoiseGain: fmNoiseGain,
+      fmNoiseSource: fmNoiseSource,
+      voice1Gain: voiceGains[0],
+      voice2Gain: voiceGains[1],
+      voice3Gain: voiceGains[2],
     );
   }
 
@@ -140,6 +196,12 @@ class AgiAudioSettings {
         'reverbMix': reverbMix,
         'masterVolume': masterVolume,
         'sciMusicDevice': sciMusicDevice.name,
+        'fmPresetId': fmPresetId,
+        'fmGain': fmGain,
+        'fmNoiseGain': fmNoiseGain,
+        'fmNoiseSource': fmNoiseSource.name,
+        'voiceGains': voiceGains,
+        'voicePans': voicePans,
       };
 
   factory AgiAudioSettings.fromJson(Map<String, dynamic>? json) {
@@ -174,6 +236,30 @@ class AgiAudioSettings {
       );
     }
 
+    // FM fields (Stage 9): missing keys (pre-Stage-9 files) and short
+    // or malformed lists fall back to defaults; unknown enum names
+    // fall back to tandy.
+    final fmNoiseSourceStr = json['fmNoiseSource'] as String?;
+    final fmNoiseSource = fmNoiseSourceStr == null
+        ? AgiFmNoiseSource.tandy
+        : AgiFmNoiseSource.values.firstWhere(
+            (d) => d.name == fmNoiseSourceStr,
+            orElse: () => AgiFmNoiseSource.tandy,
+          );
+
+    List<double> parseList(Object? value, List<double> defaults) {
+      if (value is! List) return List<double>.from(defaults);
+      final out = <double>[];
+      for (var i = 0; i < 3; i++) {
+        if (i < value.length && value[i] is num) {
+          out.add((value[i] as num).toDouble());
+        } else {
+          out.add(defaults[i]);
+        }
+      }
+      return out;
+    }
+
     return AgiAudioSettings(
       soundMode: soundMode,
       waveform: waveform,
@@ -181,6 +267,12 @@ class AgiAudioSettings {
       reverbMix: (json['reverbMix'] as num?)?.toDouble() ?? 0.0,
       masterVolume: (json['masterVolume'] as num?)?.toDouble() ?? 0.75,
       sciMusicDevice: sciMusicDevice,
+      fmPresetId: json['fmPresetId'] as String? ?? 'neutralKeys',
+      fmGain: (json['fmGain'] as num?)?.toDouble() ?? 1.0,
+      fmNoiseGain: (json['fmNoiseGain'] as num?)?.toDouble() ?? 1.0,
+      fmNoiseSource: fmNoiseSource,
+      voiceGains: parseList(json['voiceGains'], kDefaultVoiceGains),
+      voicePans: parseList(json['voicePans'], kDefaultVoicePans),
     );
   }
 }

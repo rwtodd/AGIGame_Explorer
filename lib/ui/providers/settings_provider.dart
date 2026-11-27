@@ -168,6 +168,8 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
       soundMode = AgiSoundMode.pcJr;
     } else if (config.mode == PcmPlaybackMode.enhanced) {
       soundMode = AgiSoundMode.enhanced;
+    } else if (config.mode == PcmPlaybackMode.fmPresets) {
+      soundMode = AgiSoundMode.fm;
     }
 
     state = state.copyWith(
@@ -177,7 +179,67 @@ class SettingsNotifier extends Notifier<AgiUserSettings> {
         enableReverb: config.enableReverb,
         reverbMix: config.reverbMix,
         masterVolume: config.masterVolume,
+        fmPresetId: config.fmPresetId,
+        fmGain: config.fmGain,
+        fmNoiseGain: config.fmNoiseGain,
+        fmNoiseSource: config.fmNoiseSource,
+        voiceGains: [config.voice1Gain, config.voice2Gain, config.voice3Gain],
+        voicePans: [config.voice1Pan, config.voice2Pan, config.voice3Pan],
       ),
+    );
+    _saveSettings();
+  }
+
+  /// Updates the AGI FM preset.
+  void setFmPreset(String presetId) {
+    state = state.copyWith(
+      audio: state.audio.copyWith(fmPresetId: presetId),
+    );
+    _saveSettings();
+  }
+
+  /// Updates the AGI FM channel gain.
+  void setFmGain(double gain) {
+    state = state.copyWith(
+      audio: state.audio.copyWith(fmGain: gain),
+    );
+    _saveSettings();
+  }
+
+  /// Updates the AGI FM-path noise gain.
+  void setFmNoiseGain(double gain) {
+    state = state.copyWith(
+      audio: state.audio.copyWith(fmNoiseGain: gain),
+    );
+    _saveSettings();
+  }
+
+  /// Updates the AGI FM noise source.
+  void setFmNoiseSource(AgiFmNoiseSource source) {
+    state = state.copyWith(
+      audio: state.audio.copyWith(fmNoiseSource: source),
+    );
+    _saveSettings();
+  }
+
+  /// Updates one AGI voice gain (index 0..2).
+  void setVoiceGain(int index, double gain) {
+    final gains = List<double>.from(state.audio.voiceGains);
+    if (index < 0 || index >= gains.length) return;
+    gains[index] = gain;
+    state = state.copyWith(
+      audio: state.audio.copyWith(voiceGains: gains),
+    );
+    _saveSettings();
+  }
+
+  /// Updates one AGI voice pan (index 0..2).
+  void setVoicePan(int index, double pan) {
+    final pans = List<double>.from(state.audio.voicePans);
+    if (index < 0 || index >= pans.length) return;
+    pans[index] = pan;
+    state = state.copyWith(
+      audio: state.audio.copyWith(voicePans: pans),
     );
     _saveSettings();
   }

@@ -2715,11 +2715,13 @@ class SciKernel {
       case _sndPolyphony:
         // A YM3812 is a 9-voice device; the legacy translation reports
         // its voice count per sound mode (unchanged).
+        // fmPresets is an AGI-only mode: the SCI kernel never holds
+        // it, so it falls into the legacy 3-voice branch below.
         final poly = _fmDevice
             ? 9
             : (soundMode == PcmPlaybackMode.ibmPcSingleChannel
                 ? 1
-                : (soundMode == PcmPlaybackMode.tandy3VoiceNoise ? 3 : 16));
+                : (soundMode == PcmPlaybackMode.enhanced ? 16 : 3));
         return SciReg.fromInt(poly);
       case _sndStopAll:
         soundPlayer?.stop();

@@ -1,9 +1,9 @@
 # SCI AdLib / Sound Blaster and future MT-32 audio plan
 
-Status: **stages 0–8, ScummVM-style dual-OPL2 stereo, and measured
-calibration rounds 1–2 landed 2026-11-27. AdLib and Sound Blaster
-remain opt-in with legacy PSG as default; the next major planned work
-is stage 9 AGI FM presets.**
+Status: **stages 0–9, ScummVM-style dual-OPL2 stereo, and measured
+calibration rounds 1–2 landed 2026-11-27. AdLib, Sound Blaster, and
+AGI FM presets remain opt-in with legacy defaults; the next major
+planned work is stage 10 (default decision + MT-32 plan).**
 Date: 2026-11-22.
 
 Progress: post-stage-6 calibration against ScummVM/Nuked reference
@@ -773,6 +773,25 @@ under Sound Blaster in SQ3/KQ1-SCI still wants the user's ears.
 **Exit gate:** an AGI title fanfare, a noise-heavy effect, and a three-voice
 music track retain timing, relative dynamics, and completion flags in both
 Tandy and FM modes.
+
+**Landed 2026-11-27:** `AgiFmPcmSource` in
+`lib/audio/agi_fm_adapter.dart` renders the 3 AGI voices on fixed OPL
+channels 0/1/2 (dual-OPL2, carrier-TL pan, SCI-driver-independent)
+with 5 project-authored presets (neutralKeys, brightBrass, softOrgan
+— additive 2x second carrier, bassLeadSplit, nearSquare), selected as
+the new `AgiSoundMode.fm` / `PcmPlaybackMode.fmPresets` output mode so
+start/stop/muted/completion-flag behavior rides the existing
+`AgiSoundPlayer.play` path unchanged. Attenuation maps at 2 dB/step
+into OPL TL (modulator at half offset); same-pitch attenuation changes
+update levels without retriggering, pitch changes are legato; SN76489
+Tandy noise mixed in by default (`fmNoiseSource`), preset trims apply
+to FM only. Controls live in the sidebar (preset, FM/noise gains,
+per-voice gain/pan), AV dialog (preset + gains), and Sound Browser
+(FM render method incl. WAV export via the same source). Corpus check:
+KQ1-AGI three-voice + noise fixtures render non-silent, FM RMS ~0.29×
+Tandy (within the 0.25–4× gate); audition WAVs under
+`/tmp/agi_fm_audition/`. Preset voicing still wants the user's ears
+and likely a tuning round.
 
 ### Stage 10 — Default change and MT-32 readiness
 

@@ -6,25 +6,74 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_agigame/audio/agi_fm_adapter.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/csound_builder.dart';
 import 'package:flutter_agigame/audio/midi_builder.dart';
 import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/ui/core/theme.dart';
+import 'package:flutter_agigame/ui/models/user_settings.dart';
 import 'package:flutter_agigame/ui/providers/game_launcher_provider.dart';
+import 'package:flutter_agigame/ui/providers/settings_provider.dart';
 
 /// Available rendering and export methods for AGI sounds.
 enum SoundRenderMethod {
   tandy3VoiceNoise(label: 'Tandy 3-Voice + Noise', isPcm: true),
   ibmPcSingleChannel(label: 'IBM PC Single Speaker', isPcm: true),
   enhanced(label: 'Enhanced Synthesizer', isPcm: true),
+  fmPresets(label: 'FM Presets (OPL2)', isPcm: true),
   midiFile(label: 'Standard MIDI File (SMF)', isPcm: false),
   csoundScore(label: 'CSound Score & Orchestra', isPcm: false);
 
   final String label;
   final bool isPcm;
   const SoundRenderMethod({required this.label, required this.isPcm});
+}
+
+/// Builds the playback/export config for one browser render method.
+/// Exposed for tests so the method-to-config mapping can be asserted
+/// without driving the screen.
+SynthesizerConfig buildSoundBrowserConfig({
+  required SoundRenderMethod method,
+  WaveformType waveform = WaveformType.pulseWidthModulation,
+  bool enableReverb = false,
+  double reverbMix = 0.28,
+  double masterVolume = 0.8,
+  String fmPresetId = 'neutralKeys',
+  double fmGain = 1.0,
+  double fmNoiseGain = 1.0,
+  AgiFmNoiseSource fmNoiseSource = AgiFmNoiseSource.tandy,
+  List<double> voiceGains = kDefaultVoiceGains,
+  List<double> voicePans = kDefaultVoicePans,
+}) {
+  final mode = switch (method) {
+    SoundRenderMethod.ibmPcSingleChannel =>
+      PcmPlaybackMode.ibmPcSingleChannel,
+    SoundRenderMethod.enhanced => PcmPlaybackMode.enhanced,
+    SoundRenderMethod.fmPresets => PcmPlaybackMode.fmPresets,
+    SoundRenderMethod.tandy3VoiceNoise ||
+    SoundRenderMethod.midiFile ||
+    SoundRenderMethod.csoundScore =>
+      PcmPlaybackMode.tandy3VoiceNoise,
+  };
+  return SynthesizerConfig(
+    mode: mode,
+    waveform: waveform,
+    enableReverb: enableReverb,
+    reverbMix: reverbMix,
+    masterVolume: masterVolume,
+    fmPresetId: fmPresetId,
+    fmGain: fmGain,
+    fmNoiseGain: fmNoiseGain,
+    fmNoiseSource: fmNoiseSource,
+    voice1Gain: voiceGains[0],
+    voice2Gain: voiceGains[1],
+    voice3Gain: voiceGains[2],
+    voice1Pan: voicePans[0],
+    voice2Pan: voicePans[1],
+    voice3Pan: voicePans[2],
+  );
 }
 
 class SoundBrowserScreen extends ConsumerStatefulWidget {
@@ -47,6 +96,14 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
   WaveformType _waveform = WaveformType.pulseWidthModulation;
   bool _enableReverb = false;
   double _reverbMix = 0.28;
+  // Browser-local FM state (initialized from settings in initState,
+  // never written back to global settings from the browser).
+  String _fmPresetId = 'neutralKeys';
+  double _fmGain = 1.0;
+  double _fmNoiseGain = 1.0;
+  AgiFmNoiseSource _fmNoiseSource = AgiFmNoiseSource.tandy;
+  List<double> _voiceGains = List<double>.from(kDefaultVoiceGains);
+  List<double> _voicePans = List<double>.from(kDefaultVoicePans);
   double _zoomScale = 6.0; // pixels per tick
   double _volume = 0.8;
   bool _isLooping = false;
@@ -76,6 +133,20 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
     _positionSubscription = _player.positionStream.listen((pos) {
       _positionNotifier.value = pos;
     });
+
+    // Initialize browser-local FM state from global settings once
+    // (local copy only; the browser never writes back to settings).
+    try {
+      final audio = ref.read(settingsProvider).audio;
+      _fmPresetId = audio.fmPresetId;
+      _fmGain = audio.fmGain;
+      _fmNoiseGain = audio.fmNoiseGain;
+      _fmNoiseSource = audio.fmNoiseSource;
+      _voiceGains = List<double>.from(audio.voiceGains);
+      _voicePans = List<double>.from(audio.voicePans);
+    } catch (_) {
+      // No settings provider in this mount; keep the defaults.
+    }
 
     final loader = ref.read(launcherProvider).loader;
     if (loader != null) {
@@ -129,26 +200,18 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
   }
 
   SynthesizerConfig _buildCurrentConfig() {
-    PcmPlaybackMode mode;
-    switch (_selectedMethod) {
-      case SoundRenderMethod.ibmPcSingleChannel:
-        mode = PcmPlaybackMode.ibmPcSingleChannel;
-        break;
-      case SoundRenderMethod.enhanced:
-        mode = PcmPlaybackMode.enhanced;
-        break;
-      case SoundRenderMethod.tandy3VoiceNoise:
-      default:
-        mode = PcmPlaybackMode.tandy3VoiceNoise;
-        break;
-    }
-
-    return SynthesizerConfig(
-      mode: mode,
+    return buildSoundBrowserConfig(
+      method: _selectedMethod,
       waveform: _waveform,
       enableReverb: _enableReverb,
       reverbMix: _reverbMix,
       masterVolume: _volume,
+      fmPresetId: _fmPresetId,
+      fmGain: _fmGain,
+      fmNoiseGain: _fmNoiseGain,
+      fmNoiseSource: _fmNoiseSource,
+      voiceGains: _voiceGains,
+      voicePans: _voicePans,
     );
   }
 
@@ -191,6 +254,7 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
       case SoundRenderMethod.tandy3VoiceNoise:
       case SoundRenderMethod.ibmPcSingleChannel:
       case SoundRenderMethod.enhanced:
+      case SoundRenderMethod.fmPresets:
         await _exportWav();
         break;
       case SoundRenderMethod.midiFile:
@@ -903,6 +967,71 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
                 ],
               ),
             ],
+          ] else if (_selectedMethod == SoundRenderMethod.fmPresets) ...[
+            const Text('FM Preset:', style: TextStyle(color: AgiTheme.egaMuted, fontSize: 11)),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF21262D),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AgiTheme.egaBorder),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: agiFmPresetForId(_fmPresetId).id,
+                  isExpanded: true,
+                  dropdownColor: AgiTheme.egaCardSurface,
+                  style: const TextStyle(color: AgiTheme.egaAmber, fontSize: 12),
+                  items: kAgiFmPresets.map((preset) {
+                    return DropdownMenuItem<String>(
+                      value: preset.id,
+                      child: Text(preset.displayName),
+                    );
+                  }).toList(),
+                  onChanged: (v) {
+                    if (v != null) setState(() => _fmPresetId = v);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildFmSlider(
+              label: 'FM Gain:',
+              value: _fmGain,
+              onChanged: (v) => setState(() => _fmGain = v),
+            ),
+            _buildFmSlider(
+              label: 'Noise Gain:',
+              value: _fmNoiseGain,
+              onChanged: (v) => setState(() => _fmNoiseGain = v),
+            ),
+            Row(
+              children: [
+                const Text('Noise:', style: TextStyle(color: AgiTheme.egaMuted, fontSize: 11)),
+                const Spacer(),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<AgiFmNoiseSource>(
+                    value: _fmNoiseSource,
+                    dropdownColor: AgiTheme.egaCardSurface,
+                    style: const TextStyle(color: AgiTheme.egaAmber, fontSize: 11),
+                    items: const [
+                      DropdownMenuItem(
+                          value: AgiFmNoiseSource.tandy, child: Text('Tandy noise')),
+                      DropdownMenuItem(
+                          value: AgiFmNoiseSource.off, child: Text('Off')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _fmNoiseSource = v);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text('Per-Voice (gain / pan):',
+                style: TextStyle(color: AgiTheme.egaMuted, fontSize: 11)),
+            for (var i = 0; i < 3; i++) _buildFmVoiceRow(i),
           ] else if (_selectedMethod == SoundRenderMethod.midiFile) ...[
             Container(
               padding: const EdgeInsets.all(8),
@@ -933,6 +1062,112 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
     );
   }
 
+  Widget _buildFmSlider({
+    required String label,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        Text(label, style: const TextStyle(color: AgiTheme.egaMuted, fontSize: 11)),
+        const SizedBox(width: 6),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+            ),
+            child: Slider(
+              value: value.clamp(0.0, 2.0),
+              min: 0.0,
+              max: 2.0,
+              activeColor: AgiTheme.egaAmber,
+              inactiveColor: AgiTheme.egaBorder,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        Text('${value.toStringAsFixed(2)}x',
+            style: const TextStyle(color: AgiTheme.egaMuted, fontSize: 10)),
+      ],
+    );
+  }
+
+  /// Compact per-voice row matching the sidebar layout: gain slider
+  /// (0..2) stacked over a pan slider (0..1) with L-C-R ticks.
+  Widget _buildFmVoiceRow(int index) {
+    final pan = _voicePans[index];
+    final panLabel = pan < 0.34 ? 'L' : pan > 0.66 ? 'R' : 'C';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 24,
+              child: Text('V${index + 1}',
+                  style: const TextStyle(
+                      color: AgiTheme.egaCyan,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11)),
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                ),
+                child: Slider(
+                  value: _voiceGains[index].clamp(0.0, 2.0),
+                  min: 0.0,
+                  max: 2.0,
+                  activeColor: AgiTheme.egaAmber,
+                  inactiveColor: AgiTheme.egaBorder,
+                  onChanged: (v) => setState(() => _voiceGains[index] = v),
+                ),
+              ),
+            ),
+            Text('${_voiceGains[index].toStringAsFixed(2)}x',
+                style: const TextStyle(color: AgiTheme.egaMuted, fontSize: 10)),
+          ],
+        ),
+        Row(
+          children: [
+            const SizedBox(width: 24),
+            const Text('L', style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                ),
+                child: Slider(
+                  value: pan.clamp(0.0, 1.0),
+                  min: 0.0,
+                  max: 1.0,
+                  activeColor: AgiTheme.egaAmber,
+                  inactiveColor: AgiTheme.egaBorder,
+                  onChanged: (v) => setState(() => _voicePans[index] = v),
+                ),
+              ),
+            ),
+            const Text('R', style: TextStyle(fontSize: 10, color: AgiTheme.egaMuted)),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 14,
+              child: Text(panLabel,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: AgiTheme.egaCyan,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildExportCard(AgiSound? snd) {
     String exportLabel;
     IconData exportIcon;
@@ -949,6 +1184,7 @@ class _SoundBrowserScreenState extends ConsumerState<SoundBrowserScreen> {
       case SoundRenderMethod.tandy3VoiceNoise:
       case SoundRenderMethod.ibmPcSingleChannel:
       case SoundRenderMethod.enhanced:
+      case SoundRenderMethod.fmPresets:
         exportLabel = 'Export WAV Audio (.wav)';
         exportIcon = Icons.file_download;
         break;

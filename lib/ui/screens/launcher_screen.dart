@@ -894,6 +894,8 @@ class _LauncherScreenState extends ConsumerState<LauncherScreen> {
           return 'Enhanced ($wave + $rev% Rev)';
         }
         return 'Enhanced ($wave)';
+      case AgiSoundMode.fm:
+        return 'FM (${audio.fmPresetId})';
     }
   }
 

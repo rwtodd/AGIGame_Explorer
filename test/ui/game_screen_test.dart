@@ -153,11 +153,15 @@ void main() {
       expect(find.text('PWM'), findsOneWidget);
 
       // Select Sawtooth waveform
+      await tester.ensureVisible(find.text('Sawtooth'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Sawtooth'));
       await tester.pumpAndSettle();
       expect(engine.synthesizerConfig.waveform.name, equals('sawtooth'));
 
       // Switch to IBM PC Speaker
+      await tester.ensureVisible(find.text('IBM PC Speaker'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('IBM PC Speaker'));
       await tester.pumpAndSettle();
 
@@ -165,6 +169,8 @@ void main() {
       expect(engine.memory.getVar(22), equals(1)); // %v22 = 1 voice
 
       // Switch to Sound Off
+      await tester.ensureVisible(find.text('Sound Off'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Sound Off'));
       await tester.pumpAndSettle();
 

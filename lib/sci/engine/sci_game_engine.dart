@@ -324,6 +324,16 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
         );
         soundPlayer.unmute();
         break;
+      case AgiSoundMode.fm:
+        // AGI FM is never selected for SCI: it maps to the Tandy
+        // legacy config (SCI device choice stays SciMusicDevice-only).
+        kernel.soundMode = PcmPlaybackMode.tandy3VoiceNoise;
+        kernel.synthesizerConfig = kernel.synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.tandy3VoiceNoise,
+          enableReverb: false,
+        );
+        soundPlayer.unmute();
+        break;
     }
     notifyListeners();
   }
@@ -359,6 +369,10 @@ class SciGameEngine extends ChangeNotifier implements SierraGameSession {
         _soundMode = AgiSoundMode.ibmPc;
         kernel.soundMode = PcmPlaybackMode.ibmPcSingleChannel;
       } else if (config.mode == PcmPlaybackMode.tandy3VoiceNoise) {
+        _soundMode = AgiSoundMode.pcJr;
+        kernel.soundMode = PcmPlaybackMode.tandy3VoiceNoise;
+      } else if (config.mode == PcmPlaybackMode.fmPresets) {
+        // AGI FM never drives the SCI kernel: map to the Tandy legacy.
         _soundMode = AgiSoundMode.pcJr;
         kernel.soundMode = PcmPlaybackMode.tandy3VoiceNoise;
       } else {

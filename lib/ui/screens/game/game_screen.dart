@@ -1004,6 +1004,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                       soundColor = AgiTheme.egaMagenta;
                       soundLabel = 'Sound: Enhanced Mode';
                       break;
+                    case AgiSoundMode.fm:
+                      soundIcon = Icons.graphic_eq;
+                      soundColor = AgiTheme.egaMagenta;
+                      soundLabel = 'Sound: FM Presets';
+                      break;
                   }
                 }
 

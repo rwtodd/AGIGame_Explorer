@@ -204,6 +204,8 @@ class Sci0SoundParser {
     // Target channels from header masks. Tandy and Enhanced share the Tandy
     // bits; PC speaker uses its own bits. maskMatches reproduces the old
     // late (mask byte) / early (low 3 device bits) checks exactly.
+    // fmPresets is an AGI-only mode and never reaches this SCI path;
+    // it intentionally selects the Tandy channel bits here.
     final device = mode == PcmPlaybackMode.ibmPcSingleChannel
         ? SciMidiDevice.pcSpeaker
         : SciMidiDevice.tandyPcJr;

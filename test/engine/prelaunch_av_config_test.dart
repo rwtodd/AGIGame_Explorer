@@ -76,5 +76,25 @@ void main() {
       expect(engine.synthesizerConfig.enableReverb, isTrue);
       expect(engine.synthesizerConfig.reverbMix, 0.45);
     });
+
+    test('AgiGameEngine FM mode maps both directions', () {
+      final soundPlayer = AgiSoundPlayer();
+      addTearDown(() => soundPlayer.dispose());
+
+      final engine = AgiGameEngine(soundPlayer: soundPlayer);
+      addTearDown(() => engine.dispose());
+
+      engine.setSoundMode(AgiSoundMode.fm);
+      expect(engine.soundMode, AgiSoundMode.fm);
+      expect(engine.synthesizerConfig.mode, PcmPlaybackMode.fmPresets);
+      expect(engine.synthesizerConfig.enableReverb, isFalse);
+      expect(engine.memory.getVar(22), 3);
+      expect(engine.memory.getFlag(9), isTrue);
+
+      engine.setSynthesizerConfig(
+        const SynthesizerConfig(mode: PcmPlaybackMode.fmPresets),
+      );
+      expect(engine.soundMode, AgiSoundMode.fm);
+    });
   });
 }

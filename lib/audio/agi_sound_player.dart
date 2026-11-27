@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter_agigame/audio/agi_pcm_source.dart';
+import 'package:flutter_agigame/audio/agi_fm_adapter.dart';
 import 'package:flutter_agigame/audio/audio_output_sink.dart';
 import 'package:flutter_agigame/audio/mac_audio_queue_sink.dart';
 import 'package:flutter_agigame/audio/windows_wave_out_sink.dart';
@@ -206,8 +206,11 @@ class AgiSoundPlayer {
     _sink.stop();
     _sink.flush();
 
+    // Muted playback never reaches this branch, so no FM source is
+    // built on the timer path. Non-muted builds whichever source the
+    // configured mode selects (FM adapter vs Tandy renderer).
     if (!muted) {
-      final source = AgiPcmSource(sound, config: _currentConfig);
+      final source = createAgiPcmSource(sound, _currentConfig);
       final totalFrames = source.totalFrames ?? 0;
       _sourceTotalFrames = totalFrames;
 

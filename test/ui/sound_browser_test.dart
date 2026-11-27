@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/audio_output_sink.dart';
+import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/core/errors/agi_exceptions.dart';
 import 'package:flutter_agigame/loader/dir_entry.dart';
 import 'package:flutter_agigame/loader/game_metadata.dart';
@@ -181,6 +182,50 @@ void main() {
     expect(mockPlayer.isStopped, true);
   });
 
+  testWidgets('SoundBrowserScreen FM method shows preset and gain controls',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AgiTheme.darkTheme,
+          home: SoundBrowserScreen(
+            initialSoundNumber: 0,
+            soundPlayer: mockPlayer,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Select the FM method from the renderer dropdown.
+    await tester.tap(find.text('Tandy 3-Voice + Noise'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('FM Presets (OPL2)').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('FM Preset:'), findsOneWidget);
+    expect(find.text('FM Gain:'), findsOneWidget);
+    expect(find.text('Noise Gain:'), findsOneWidget);
+    expect(find.text('V1'), findsOneWidget);
+    expect(find.text('V2'), findsOneWidget);
+    expect(find.text('V3'), findsOneWidget);
+    // FM is PCM: playback stays enabled and WAV export stays available.
+    expect(find.text('Play'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Export WAV Audio (.wav)'),
+      100,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Export WAV Audio (.wav)'), findsOneWidget);
+  });
+
   testWidgets('SoundBrowserScreen disables play when MIDI or CSound method is selected', (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1.0;
@@ -220,5 +265,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Export CSound (.sco)'), findsOneWidget);
+  });
+
+  test('buildSoundBrowserConfig maps methods to playback modes', () {
+    final fm = buildSoundBrowserConfig(
+      method: SoundRenderMethod.fmPresets,
+      fmPresetId: 'nearSquare',
+      fmGain: 1.5,
+      fmNoiseGain: 0.5,
+      fmNoiseSource: AgiFmNoiseSource.off,
+      voiceGains: const [0.5, 1.0, 1.5],
+      voicePans: const [0.0, 0.5, 1.0],
+    );
+    expect(fm.mode, PcmPlaybackMode.fmPresets);
+    expect(fm.fmPresetId, 'nearSquare');
+    expect(fm.fmGain, 1.5);
+    expect(fm.fmNoiseGain, 0.5);
+    expect(fm.fmNoiseSource, AgiFmNoiseSource.off);
+    expect(fm.voice1Gain, 0.5);
+    expect(fm.voice2Gain, 1.0);
+    expect(fm.voice3Gain, 1.5);
+    expect(fm.voice1Pan, 0.0);
+    expect(fm.voice2Pan, 0.5);
+    expect(fm.voice3Pan, 1.0);
+
+    // Non-PCM export methods keep the Tandy config (unchanged).
+    expect(
+        buildSoundBrowserConfig(method: SoundRenderMethod.midiFile).mode,
+        PcmPlaybackMode.tandy3VoiceNoise);
+    expect(
+        buildSoundBrowserConfig(method: SoundRenderMethod.csoundScore).mode,
+        PcmPlaybackMode.tandy3VoiceNoise);
+    expect(
+        buildSoundBrowserConfig(method: SoundRenderMethod.enhanced).mode,
+        PcmPlaybackMode.enhanced);
   });
 }

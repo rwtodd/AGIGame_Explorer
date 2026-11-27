@@ -94,6 +94,74 @@ void main() {
       );
     });
 
+    test('FM settings round-trip by name and map through to config', () {
+      const original = AgiAudioSettings(
+        soundMode: AgiSoundMode.fm,
+        fmPresetId: 'nearSquare',
+        fmGain: 1.5,
+        fmNoiseGain: 0.6,
+        fmNoiseSource: AgiFmNoiseSource.off,
+        voiceGains: [1.2, 0.8, 0.5],
+        voicePans: [0.2, 0.8, 0.4],
+      );
+      final json = original.toJson();
+      expect(json['soundMode'], 'fm');
+      expect(json['fmPresetId'], 'nearSquare');
+      expect(json['fmNoiseSource'], 'off');
+
+      final restored = AgiAudioSettings.fromJson(json);
+      expect(restored.soundMode, AgiSoundMode.fm);
+      expect(restored.fmPresetId, 'nearSquare');
+      expect(restored.fmGain, 1.5);
+      expect(restored.fmNoiseGain, 0.6);
+      expect(restored.fmNoiseSource, AgiFmNoiseSource.off);
+      expect(restored.voiceGains, [1.2, 0.8, 0.5]);
+      expect(restored.voicePans, [0.2, 0.8, 0.4]);
+
+      final config = restored.toSynthesizerConfig();
+      expect(config.mode, PcmPlaybackMode.fmPresets);
+      expect(config.fmPresetId, 'nearSquare');
+      expect(config.fmGain, 1.5);
+      expect(config.fmNoiseGain, 0.6);
+      expect(config.fmNoiseSource, AgiFmNoiseSource.off);
+      expect(config.voice1Gain, 1.2);
+      expect(config.voice2Gain, 0.8);
+      expect(config.voice3Gain, 0.5);
+      expect(config.voice1Pan, 0.2);
+      expect(config.voice2Pan, 0.8);
+      expect(config.voice3Pan, 0.4);
+    });
+
+    test('pre-Stage-9 JSON (no FM keys) loads FM defaults', () {
+      final legacyJson = <String, dynamic>{
+        'soundMode': 'pcJr',
+        'waveform': 'square',
+        'enableReverb': false,
+        'reverbMix': 0.0,
+        'masterVolume': 0.75,
+      };
+      final restored = AgiAudioSettings.fromJson(legacyJson);
+      expect(restored.fmPresetId, 'neutralKeys');
+      expect(restored.fmGain, 1.0);
+      expect(restored.fmNoiseGain, 1.0);
+      expect(restored.fmNoiseSource, AgiFmNoiseSource.tandy);
+      expect(restored.voiceGains, [1.0, 1.0, 1.0]);
+      expect(restored.voicePans, [0.35, 0.65, 0.50]);
+    });
+
+    test('unknown FM values and short lists are tolerant', () {
+      final json = <String, dynamic>{
+        'fmNoiseSource': 'adLibOpl3',
+        'voiceGains': [0.5],
+        'voicePans': 'nonsense',
+      };
+      final restored = AgiAudioSettings.fromJson(json);
+      expect(restored.fmNoiseSource, AgiFmNoiseSource.tandy);
+      expect(restored.voiceGains[0], 0.5);
+      expect(restored.voiceGains[1], 1.0);
+      expect(restored.voicePans, [0.35, 0.65, 0.50]);
+    });
+
     test('toSynthesizerConfig maps sound modes and DSP correctly', () {
       const ibmSettings = AgiAudioSettings(soundMode: AgiSoundMode.ibmPc);
       expect(ibmSettings.toSynthesizerConfig().mode, PcmPlaybackMode.ibmPcSingleChannel);

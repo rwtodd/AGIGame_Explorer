@@ -1431,6 +1431,15 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
           enableReverb: _synthesizerConfig.reverbMix > 0.0,
         );
         break;
+      case AgiSoundMode.fm:
+        memory.setFlag(9); // %f9 = sound on
+        memory.setVar(22, 3); // %v22 = 3 voices
+        soundPlayer.unmute();
+        _synthesizerConfig = _synthesizerConfig.copyWith(
+          mode: PcmPlaybackMode.fmPresets,
+          enableReverb: false,
+        );
+        break;
     }
     notifyListeners();
   }
@@ -1445,6 +1454,9 @@ class AgiGameEngine extends ChangeNotifier implements AgiInterpreterDelegate, Si
         memory.setVar(22, 1);
       } else if (config.mode == PcmPlaybackMode.tandy3VoiceNoise) {
         _soundMode = AgiSoundMode.pcJr;
+        memory.setVar(22, 3);
+      } else if (config.mode == PcmPlaybackMode.fmPresets) {
+        _soundMode = AgiSoundMode.fm;
         memory.setVar(22, 3);
       } else {
         _soundMode = AgiSoundMode.enhanced;

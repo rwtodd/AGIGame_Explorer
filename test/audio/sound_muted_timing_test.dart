@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_agigame/audio/agi_sound_player.dart';
 import 'package:flutter_agigame/audio/audio_output_sink.dart';
+import 'package:flutter_agigame/audio/pcm_synthesizer.dart';
 import 'package:flutter_agigame/domain/sound.dart';
 import 'package:flutter_agigame/engine/agi_game_engine.dart';
 import 'package:flutter_agigame/loader/resource_loader.dart';
@@ -97,6 +98,90 @@ void main() {
       }
 
       engine.dispose();
+    });
+
+    test('AgiGameEngine onSound completes under pcJr and fm', () async {
+      final path = Directory('reference_games/kings-quest-4-agi').existsSync()
+          ? 'reference_games/kings-quest-4-agi'
+          : '/Users/rtodd/src/flutter_agigame/reference_games/kings-quest-4-agi';
+      if (skipIfPathMissing(path)) return;
+
+      final loader = await AgiResourceLoader.fromDirectory(path);
+      for (final mode in [AgiSoundMode.pcJr, AgiSoundMode.fm]) {
+        final testSink = NullAudioSink();
+        final testPlayer = AgiSoundPlayer(sink: testSink);
+        final engine = AgiGameEngine(
+          resourceLoader: loader,
+          soundPlayer: testPlayer,
+          speedHz: 20.0,
+        );
+
+        engine.setSoundMode(mode);
+        expect(engine.isSoundOn, isTrue);
+
+        engine.onSound(1, 229);
+        expect(engine.memory.getFlag(229), isFalse);
+
+        // Drive the streaming player to completion: every queued
+        // frame counts as consumed, then the player fires onFinished
+        // and the engine sets the completion flag.
+        testSink.simulateFramesPlayed(1 << 30);
+        for (var i = 0; i < 50 && !engine.memory.getFlag(229); i++) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        expect(engine.memory.getFlag(229), isTrue, reason: 'mode $mode');
+
+        testPlayer.dispose();
+        engine.dispose();
+      }
+    });
+
+    test('muted FM playback completes via the timer path', () async {
+      final sound = AgiSound(
+        voices: [
+          ToneChannel(notes: const [
+            AgiNote(startTime: 0, frequencyCount: 440, attenuation: 0, duration: 12),
+          ]),
+        ],
+      );
+
+      var finishedCalled = false;
+      player.onFinished = () {
+        finishedCalled = true;
+      };
+
+      await player.play(
+        sound,
+        config: const SynthesizerConfig(mode: PcmPlaybackMode.fmPresets),
+        muted: true,
+      );
+      expect(player.isPlaying, isTrue);
+      expect(player.isMuted, isTrue);
+      expect(finishedCalled, isFalse);
+
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      expect(finishedCalled, isTrue);
+      expect(player.isStopped, isTrue);
+    });
+
+    test('non-muted FM playback starts and streams into the sink', () async {
+      final sound = AgiSound(
+        voices: [
+          ToneChannel(notes: const [
+            AgiNote(startTime: 0, frequencyCount: 254, attenuation: 0, duration: 60),
+          ]),
+        ],
+      );
+
+      await player.play(
+        sound,
+        config: const SynthesizerConfig(mode: PcmPlaybackMode.fmPresets),
+      );
+
+      expect(player.isPlaying, isTrue);
+      expect(sink.queuedBuffers, isNotEmpty);
+      player.stop();
     });
 
     test('AgiSoundPlayer dispose is safe and idempotent, stop/play after dispose does not throw', () async {
