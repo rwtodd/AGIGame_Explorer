@@ -94,6 +94,23 @@ double measuredFreqHz(Int16List b) {
   return (c.length - 1) * kOpl2SampleRate / span;
 }
 
+/// Peak-amplitude estimate at one exact frequency over a window, via the
+/// Goertzel recurrence (rectangular window). Best used at frequencies
+/// computed from the documented phase increment (exact harmonics), and over
+/// windows spanning many periods.
+double goertzelAmp(Int16List b, int start, int end, double freqHz) {
+  final w = 2 * math.pi * freqHz / kOpl2SampleRate;
+  final cw = math.cos(w);
+  var s0 = 0.0, s1 = 0.0, s2 = 0.0;
+  for (var i = start; i < end; i++) {
+    s0 = b[i] + 2 * cw * s1 - s2;
+    s2 = s1;
+    s1 = s0;
+  }
+  final power = s1 * s1 + s2 * s2 - 2 * cw * s1 * s2;
+  return math.sqrt(power / ((end - start) * (end - start) / 4.0));
+}
+
 void main() {
   test('reset silence after reset', () {
     final chip = Opl2Chip();
@@ -178,15 +195,17 @@ void main() {
   test('envelope: attack rises, decay falls, sustain holds, release falls',
       () {
     final chip = Opl2Chip();
-    // Slow attack (AR=0) for ordering, moderate decay to an audible sustain.
+    // Slowish attack (AR=5, eff=22, tau~=5370 samples, -3 dB at ~133 ms),
+    // slow measured decay (DR=2, ~7 dB/s), audible sustain at SL=4.
+    // With the measured curves AR=0 would not finish its attack in 1 s.
     programChannel(chip,
-        carAr: 0, carDr: 2, carSl: 4, egType: true, carRr: 10,
+        carAr: 5, carDr: 2, carSl: 4, egType: true, carRr: 10,
         modTl: 63, modAr: 15, modDr: 15, modRr: 15);
     final out = Int16List(49716); // 1s key-on
     chip.generate(out, 49716);
     final early = rms(out, 500, 2000);
-    final peakWin = rms(out, 3000, 6000);
-    final mid = rms(out, 15000, 20000);
+    final peakWin = rms(out, 25000, 30000);
+    final mid = rms(out, 35000, 40000);
     final late = rms(out, 40000, 49716);
     expect(peakWin, greaterThan(early));
     // Decay: peak window louder than later windows.
@@ -194,6 +213,83 @@ void main() {
     // Sustain holds roughly level (not silent, not decaying away).
     expect(late, greaterThan(100));
     expect(late, greaterThan(mid * 0.5));
+  });
+
+  // Envelope anchors measured black-box against a Nuked OPL reference
+  // capture (PQ2 sound 1, 2026-11-26). Setup shared by the three anchor
+  // tests: block 4 / fnum 0x200 / KSR off gives ksn=9, rateOffset=2, so
+  // eff = 4*rate + 2. Additive connection, silent modulator, sine wave.
+  // Decay anchor: DR=2 (eff=10) decays at ~7 dB/s (formula 1.24*2^(eff/4)).
+  test('anchor: decay at eff=10 is ~7 dB/s', () {
+    final chip = Opl2Chip();
+    programChannel(chip,
+        fnum: 0x200, block: 4, modTl: 63, carTl: 0, carAr: 15, carDr: 2,
+        carSl: 15, carRr: 15, modAr: 15, modDr: 15, modRr: 15,
+        connection: 1, egType: true);
+    final out = Int16List(49716); // 1 s
+    chip.generate(out, out.length);
+    // Windows 0.5 s apart, long enough for stable RMS at 388 Hz.
+    final start = rms(out, 2000, 7000);
+    final end = rms(out, 26858, 31858);
+    expect(start, greaterThan(1000));
+    final dropDb = 20 * math.log(start / end) / math.ln10;
+    // Expect ~3.5 dB over 0.5 s, +/-35%.
+    expect(dropDb, inInclusiveRange(3.5 * 0.65, 3.5 * 1.35));
+  });
+
+  // Attack anchor: AR=6 (eff=26) reaches -3 dB of peak in ~67 ms
+  // (tau~=2685 samples, t(-3dB)=1.23*tau) and -20 dB in <=20 ms
+  // (measured: -20/-6/-3 dB at ~10/44/67 ms, ratio ~6.7).
+  test('anchor: attack at eff=26 reaches -3 dB in 45..95 ms, -20 dB <=20 ms',
+      () {
+    final chip = Opl2Chip();
+    programChannel(chip,
+        fnum: 0x200, block: 4, modTl: 63, carTl: 0, carAr: 6, carDr: 0,
+        carSl: 15, carRr: 15, modAr: 15, modDr: 15, modRr: 15,
+        connection: 1, egType: true);
+    final out = Int16List(12000); // ~0.24 s
+    chip.generate(out, out.length);
+    const win = 128; // one period at 388 Hz
+    final peak = rms(out, 8000, 11000);
+    expect(peak, greaterThan(1000));
+    double timeTo(double db) {
+      final target = peak * math.pow(10, db / 20.0).toDouble();
+      for (var s = 0; s + win <= out.length; s += 32) {
+        if (rms(out, s, s + win) >= target) {
+          return s * 1000.0 / kOpl2SampleRate;
+        }
+      }
+      return -1.0;
+    }
+
+    final t3 = timeTo(-3.0);
+    final t20 = timeTo(-20.0);
+    expect(t3, greaterThan(0));
+    expect(t20, greaterThan(0));
+    expect(t3, inInclusiveRange(45.0, 95.0));
+    expect(t20, lessThanOrEqualTo(20.0));
+  });
+
+  // Release anchor: RR=6 (eff=26) shares the decay curve,
+  // ~112 dB/s nominal (~11 dB per 100 ms).
+  test('anchor: release at eff=26 falls 5..20 dB per 100 ms', () {
+    final chip = Opl2Chip();
+    programChannel(chip,
+        fnum: 0x200, block: 4, modTl: 63, carTl: 0, carAr: 15, carDr: 2,
+        carSl: 15, carRr: 6, modAr: 15, modDr: 15, modRr: 15,
+        connection: 1, egType: true);
+    final on = Int16List(49716); // 1 s key-on (decay at ~7 dB/s)
+    chip.generate(on, on.length);
+    chip.writeRegister(0xB0, 0x10); // block 4, key off
+    final off = Int16List(4972); // 0.1 s release
+    chip.generate(off, off.length);
+    // Window just before key-off vs window ~90 ms after.
+    final before = rms(on, 49716 - 2000, 49716);
+    final after = rms(off, 2500, 4500);
+    expect(before, greaterThan(1000));
+    expect(after, greaterThan(10));
+    final dropDb = 20 * math.log(before / after) / math.ln10;
+    expect(dropDb, inInclusiveRange(5.0, 20.0));
   });
 
   test('percussive envelope decays to silence without key-off', () {
@@ -233,7 +329,7 @@ void main() {
     // Peak within ~1/16 period of T/4.
     expect(peakOffset, closeTo(0.25, 0.0625));
     final peakVal = slice[peakIdx].abs();
-    expect(peakVal, greaterThan(5000));
+    expect(peakVal, greaterThan(3000));
     // Symmetric points either side of the peak (T/4 +- T/16) are
     // approximately equal for a true sine; a sawtooth-shaped waveform
     // (unmirrored quarter table) differs by >50% of peak here.
@@ -258,7 +354,7 @@ void main() {
 
     final lo = steadyRms(2, 3);
     final hi = steadyRms(6, 3);
-    expect(lo, greaterThan(1000));
+    expect(lo, greaterThan(300));
     // 4 block steps at 6 dB/octave => ~24 dB down, clearly lower.
     expect(hi, lessThan(lo * 0.3));
     // KSL=0: no key scaling, RMS approximately equal across blocks.
@@ -356,6 +452,63 @@ void main() {
       4972,
     );
     expect(fmAddDiff, greaterThan(10));
+  });
+
+  // FM pitch integrity + harmonic richness (synthetic patch43-like program,
+  // fitted black-box to a 2026-11-26 PQ2 capture): both ops MULT=0 (0.5x),
+  // feedback=7, mod TL=28 (mod amp ~=0.089), carrier TL=3, fast attack, EG
+  // sustain. Deviation is lookup-only PM (4 cycles full-scale, ~2.2 rad
+  // index here), so the spectrum is a harmonic stack at the carrier, not a
+  // shifted sideband. The old accumulating implementation rendered a
+  // dominant ~440 Hz component with a near-absent fundamental here.
+  test('FM keeps carrier pitch and harmonic stack (patch43-like)', () {
+    const fnum = 0x300;
+    const block = 5;
+    final chip = Opl2Chip();
+    programChannel(chip,
+        fnum: fnum, block: block, modMult: 0, carMult: 0, modTl: 28,
+        carTl: 3, modAr: 15, carAr: 15, modDr: 0, carDr: 0, modSl: 0,
+        carSl: 0, feedback: 7, connection: 0, egType: true);
+    // Expected carrier from the documented phase increment:
+    // f = fnum * SR / 2^(20-block) * MULTscale(0) ~= 582.6 Hz.
+    final expected = fnum * kOpl2SampleRate / (1 << (20 - block)) * 0.5;
+    final out = Int16List(49716);
+    chip.generate(out, out.length);
+    // Post-attack sustained window.
+    final h1 = goertzelAmp(out, 20000, 40000, expected);
+    // Fundamental is a strong bin at the carrier frequency.
+    expect(h1, greaterThan(100));
+    // No dominant wrong sideband: fundamental dwarfs non-harmonic bins.
+    final wrong = goertzelAmp(out, 20000, 40000, 441.0);
+    final half = goertzelAmp(out, 20000, 40000, expected * 1.5);
+    expect(h1, greaterThan(wrong * 5));
+    expect(h1, greaterThan(half * 5));
+    // Harmonic richness: H2 is within the measured stack (H2/H1 ~= 1.3),
+    // far above a lone sine (the old bug's output).
+    final h2 = goertzelAmp(out, 20000, 40000, expected * 2);
+    expect(h2 / h1, greaterThan(0.4));
+  });
+
+  // PM must not drift or shift pitch over time: zero-crossing rate in an
+  // early and a late post-attack window agree within 2%, and equal
+  // 2x the carrier (with ~2.2 rad index the PM phase is non-monotonic,
+  // giving two zero crossings per carrier period). The accumulating bug
+  // settled at ~437 Hz in this same setup.
+  test('FM pitch does not drift (early vs late windows)', () {
+    const fnum = 0x300;
+    const block = 5;
+    final chip = Opl2Chip();
+    programChannel(chip,
+        fnum: fnum, block: block, modMult: 0, carMult: 0, modTl: 28,
+        carTl: 3, modAr: 15, carAr: 15, modDr: 0, carDr: 0, modSl: 0,
+        carSl: 0, feedback: 7, connection: 0, egType: true);
+    final expected = fnum * kOpl2SampleRate / (1 << (20 - block)) * 0.5;
+    final out = Int16List(49716);
+    chip.generate(out, out.length);
+    final early = measuredFreqHz(Int16List.sublistView(out, 5000, 20000));
+    final late = measuredFreqHz(Int16List.sublistView(out, 20000, 40000));
+    expect(late, closeTo(early, early * 0.02));
+    expect(late, closeTo(expected * 2, expected * 2 * 0.03));
   });
 
   test('AM modulates amplitude over time; VIB varies instantaneous rate', () {

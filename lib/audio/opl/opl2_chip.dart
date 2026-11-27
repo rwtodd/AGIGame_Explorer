@@ -53,6 +53,14 @@ const List<double> _multScale = [
   0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15,
 ];
 
+/// FM phase-deviation scale, in 20-bit phase units per unit modulator
+/// output: 4 cycles full-scale ((1<<22) = 4 * 2^20). Fitted black-box to a
+/// PQ2 patch 43 capture (ScummVM/Nuked, 2026-11-26): PM fit gave peak
+/// deviation ~2.1 rad at modulator amplitude ~0.089 (TL=28), i.e. full-scale
+/// deviation ~24 rad ~ 3.8 cycles; 4 cycles adopted. Applies only to the
+/// waveform lookup phase, never the phase accumulator.
+const int _fmDeviationScale = 1 << 22;
+
 /// Feedback gains (dimensionless, includes the pi factor documented in the
 /// datasheet: pi/32, pi/16, pi/8, pi/4, pi/2, pi, 2pi).
 const List<double> _feedbackGains = [
@@ -114,6 +122,9 @@ final class Opl2Chip {
   // Per-operator live state (SoA, size 18).
   final Int32List _phase = Int32List(kOpl2Operators);
   final Float64List _envDb = Float64List(kOpl2Operators);
+  // Attack envelope amplitude (linear, 0..1); _envDb is derived from it
+  // during the attack segment.
+  final Float64List _envAmp = Float64List(kOpl2Operators);
   final Int32List _seg = Int32List(kOpl2Operators);
   final Float64List _prevOut = Float64List(kOpl2Operators);
   final Float64List _prevPrevOut = Float64List(kOpl2Operators);
@@ -184,6 +195,7 @@ final class Opl2Chip {
       _wave[i] = 0;
       _phase[i] = 0;
       _envDb[i] = _silenceDb;
+      _envAmp[i] = 0.0;
       _seg[i] = _segSilent;
       _prevOut[i] = 0.0;
       _prevPrevOut[i] = 0.0;
@@ -316,10 +328,12 @@ final class Opl2Chip {
     for (final idx in [m, c]) {
       _phase[idx] = 0;
       _envDb[idx] = _silenceDb;
+      // Linear attack amplitude starts from the current attenuation.
+      _envAmp[idx] = math.pow(10.0, -_silenceDb / 20.0).toDouble();
       _prevOut[idx] = 0.0;
       _prevPrevOut[idx] = 0.0;
-      // Rapid/instant attack (datasheet: AR=15 with high key-scale rates)
-      // is handled at envelope advance time via the effective-rate check.
+      // Instant attack (eff >= 60) is handled at envelope advance time
+      // via the effective-rate check.
       _seg[idx] = _segAttack;
     }
   }
@@ -391,8 +405,10 @@ final class Opl2Chip {
   ///
   /// No allocation in steady state: only preallocated typed arrays are
   /// touched; modulation/LFO state is scalar locals. Mixing sums all 9
-  /// channels with a documented headroom of 0.42 full-scale per voice and
-  /// hard saturating clip (never wraps).
+  /// channels with a documented headroom of ~0.137 full-scale per voice
+  /// (4500/32768) and hard saturating clip (never wraps). Chosen from
+  /// measured renders to keep dense 9-voice passages below saturation
+  /// while single voices stay healthy.
   void generate(Int16List output, int frameCount) {
     if (output.length < frameCount) {
       throw ArgumentError('output length ${output.length} < frameCount '
@@ -420,7 +436,8 @@ final class Opl2Chip {
         final ci = ch * 2 + 1;
 
         // Feedback (operator 0 self-modulation): average of previous two
-        // outputs scaled by the pi-based gain, as a phase offset.
+        // outputs scaled by the pi-based gain, as a phase deviation applied
+        // to the lookup only (phase units).
         var fbPhase = 0.0;
         if (fb != 0) {
           final avg = 0.5 * (_prevOut[mi] + _prevPrevOut[mi]);
@@ -428,20 +445,21 @@ final class Opl2Chip {
         }
         final modOut = _operatorOutput(mi, fnum, block, fbPhase, amSin, vibSin);
 
-        // FM connection: carrier phase += modulator output (phase units,
-        // quarter-cycle full-scale approximation). Additive: sum both.
+        // FM connection: carrier lookup phase is deviated by the modulator
+        // output (4 cycles full-scale, [_fmDeviationScale]); deviation never
+        // touches the accumulator. Additive: sum both.
         final carrier = _operatorOutput(
           ci,
           fnum,
           block,
-          conn == 0 ? modOut * (1 << (_phaseBits - 2)) : 0.0,
+          conn == 0 ? modOut * _fmDeviationScale : 0.0,
           amSin,
           vibSin,
         );
         mix += conn == 0 ? carrier : modOut + carrier;
       }
 
-      final s = (mix * 14000.0).round();
+      final s = (mix * 4500.0).round();
       output[n] = s > 32767
           ? 32767
           : (s < -32768 ? -32768 : s);
@@ -466,7 +484,10 @@ final class Opl2Chip {
       final cents = _vibDepth ? 14.0 : 7.0;
       inc = (inc * math.pow(2.0, cents / 1200.0 * vibSin)).round();
     }
-    _phase[idx] = (_phase[idx] + inc + fmPhase.round()) & _phaseMask;
+    // Advance the accumulator by the increment ONLY; fmPhase is a lookup
+    // deviation and must never accumulate (that would turn PM into FM).
+    _phase[idx] = (_phase[idx] + inc) & _phaseMask;
+    final lookupPhase = (_phase[idx] + fmPhase.round()) & _phaseMask;
 
     // Envelope advance, then attenuation combining (log domain).
     _advanceEnvelope(idx, fnum, block);
@@ -483,7 +504,7 @@ final class Opl2Chip {
     if (ampTableIdx >= _ampTableLen) ampTableIdx = _ampTableLen - 1;
     final amp = _ampTable[ampTableIdx];
 
-    final out = _waveValue(idx, amp);
+    final out = _waveValue(idx, amp, lookupPhase);
     // History for feedback (operator 0 only; harmless for carriers).
     _prevPrevOut[idx] = _prevOut[idx];
     _prevOut[idx] = out;
@@ -516,8 +537,7 @@ final class Opl2Chip {
     return att < 0.0 ? 0.0 : att;
   }
 
-  double _waveValue(int idx, double amp) {
-    final phase = _phase[idx];
+  double _waveValue(int idx, double amp, int phase) {
     final wave = _wave[idx];
     final quarter = phase >> (_phaseBits - 2); // 0..3
     const half = _phaseMask >> 1;
@@ -555,13 +575,28 @@ final class Opl2Chip {
     if (seg == _segAttack) {
       final eff = 4 * _ar[idx] + rateOffset;
       if (eff >= 60) {
-        // Rapid/instant attack (datasheet AR=15 high-ksn behavior).
+        // Instant attack (measured fast attack at AR=15 high-ksn rates).
         level = 0.0;
+        _envAmp[idx] = 1.0;
       } else {
+        // Amplitude-domain exponential approach: A(t) = 1 - exp(-t/tau).
+        // Measured 440 Hz band envelope (PQ2 patch 19 op1, AR=6 KSR=0,
+        // note 69 -> eff=26): -20 dB at ~10 ms, -6 dB at ~44 ms,
+        // -3 dB at ~67 ms (ratio t(-3)/t(-20) ~= 6.7). The prior
+        // geometric-in-dB attack gave ratio ~2.2 and -3 dB in ~29 ms;
+        // the amplitude-domain approach gives ratio ~11.7 in theory
+        // (measurement windows smear ratios toward 1) and fits far
+        // better. tau(eff) = 243000 * 2^(-eff/4); eff=26 -> tau ~2685
+        // samples (~54 ms) -> t(-3 dB) = 1.23*tau ~66 ms.
         final tau = _attackTau(eff);
         final k = 1.0 - math.exp(-1.0 / tau);
-        level -= k * level; // exponential approach (fast start, slowing)
-        if (level < 0.0) level = 0.0;
+        var amp = _envAmp[idx];
+        amp += (1.0 - amp) * k;
+        if (amp > 1.0) amp = 1.0;
+        _envAmp[idx] = amp;
+        level = amp <= 0.0
+            ? _silenceDb
+            : -8.686 * math.log(amp); // -20*log10(amp)
         if (level <= 0.01) {
           level = 0.0;
           seg = _segDecay;
@@ -601,7 +636,8 @@ final class Opl2Chip {
 
     if (seg == _segRelease) {
       final eff = 4 * _rr[idx] + rateOffset;
-      level += _decayRateDbPerSample(eff) * 1.5;
+      // Release uses the same rate curve as decay (no separate factor).
+      level += _decayRateDbPerSample(eff);
       if (level >= _silenceDb) {
         level = _silenceDb;
         _seg[idx] = _segSilent;
@@ -610,24 +646,40 @@ final class Opl2Chip {
     }
   }
 
-  /// Attack time constant in samples, fitted to the datasheet attack-time
-  /// vs. effective-rate curve (rate 15 ~= a few ms, slower for lower rates).
-  /// Approximation: tau = 160 * 2^((15-eff)/4) samples.
+  /// Attack time constant in samples for the amplitude-domain approach
+  /// A(t) = 1 - exp(-t/tau).
+  ///
+  /// Black-box measurement against a Nuked OPL reference capture,
+  /// 2026-11-26 (PQ2 patch 19 op1, AR=6 KSR=0, note 69 -> eff=26,
+  /// 440 Hz band envelope): -20 dB at ~10 ms, -6 dB at ~44 ms,
+  /// -3 dB at ~67 ms (t(-3)/t(-20) ~= 6.7). Amplitude-domain approach
+  /// gives ratio ~11.7 in theory and fits far better than the prior
+  /// geometric-in-dB attack (ratio ~2.2, -3 dB in ~29 ms). With this
+  /// shape t(-3 dB) = 1.23*tau, so tau(26) ~= 54 ms ~= 2685 samples.
+  /// tau doubles every 4 eff steps downward, i.e.
+  /// tau(eff) = 243000 * 2^(-eff/4) samples (2685 at eff=26).
+  /// This is a measured anchor, not a datasheet table.
   double _attackTau(int eff) {
     var e = eff;
     if (e < 0) e = 0;
-    if (e > 32) e = 32;
-    return 160.0 * math.pow(2.0, (15 - e) / 4.0).toDouble();
+    if (e > 75) e = 75;
+    return 243000.0 * math.pow(2.0, -e / 4.0).toDouble();
   }
 
-  /// Decay/release ramp in dB per sample. Approximation fitted to the
-  /// datasheet decay times: ~240 dB/s at effective rate 15 down to ~18 dB/s
-  /// at rate 0, doubling every 4 effective-rate steps.
+  /// Decay/release ramp in dB per sample.
+  ///
+  /// Black-box measurement against a Nuked OPL reference capture,
+  /// 2026-11-26 (PQ2 sound 1 through a ScummVM Nuked driver): decay and
+  /// release share one curve, dbPerSec(eff) = 1.24 * 2^(eff/4), anchored
+  /// so dbPerSec(10) ~= 7 dB/s (measured carrier-fundamental decay for
+  /// DR=2, ksn offset 2). Sanity: eff=26 ~= 112 dB/s (release fit ~72
+  /// dB/s, within tolerance), eff=0 ~= 1.2 dB/s, eff=60 ~= 40,000 dB/s
+  /// (near-instant). Measured anchors, not datasheet tables.
   double _decayRateDbPerSample(int eff) {
     var e = eff;
     if (e < 0) e = 0;
-    if (e > 32) e = 32;
-    final dbPerSec = 240.0 * math.pow(2.0, (e - 15) / 4.0).toDouble();
+    if (e > 75) e = 75;
+    final dbPerSec = 1.24 * math.pow(2.0, e / 4.0).toDouble();
     return dbPerSec / kOpl2SampleRate;
   }
 }

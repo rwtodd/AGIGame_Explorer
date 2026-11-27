@@ -270,7 +270,7 @@ void main() {
       var buf = Int16List(4096);
       source.renderInto(buf, 2048);
       final loudPeak = peakOf(buf);
-      expect(loudPeak, greaterThan(10000));
+      expect(loudPeak, greaterThan(3000));
 
       // SCI master volume 0 attenuates the driver output strongly
       // (residual peak stays well below a few percent of loudPeak),
