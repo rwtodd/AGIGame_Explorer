@@ -348,6 +348,18 @@ void main() {
     expect((pre - post).abs(), lessThan(peakVal * 0.15));
   });
 
+  // Log-step KSL fit (v3 calibration capture 2026-11-26/27): att =
+  // slope * max(0, coord-1.0), coord = (block-1)+log2(rep/256),
+  // rep = ((fnum>>6)<<6)+32, slopes [0,3,1.5,6]. Replicated here so
+  // expectations derive from the fitted formula, not magic RMS values.
+  double kslAtt(int ksl, int fnum, int block) {
+    const slopes = [0.0, 3.0, 1.5, 6.0];
+    final rep = ((fnum >> 6) << 6) + 32;
+    final coord = (block - 1) + math.log(rep / 256.0) / math.ln2;
+    final att = slopes[ksl] * (coord - 1.0);
+    return att < 0.0 ? 0.0 : att;
+  }
+
   test('key scale: KSL=3 attenuates higher block; KSL=0 does not', () {
     double steadyRms(int block, int ksl) {
       final chip = Opl2Chip();
@@ -365,18 +377,28 @@ void main() {
     final lo = steadyRms(2, 3);
     final hi = steadyRms(6, 3);
     expect(lo, greaterThan(300));
-    // 4 block steps at 6 dB/octave => ~24 dB down, clearly lower.
+    // Expected drop from the log-step formula at fnum 0x200 (top=8,
+    // rep=544): att(6)-att(2) ~= 24 dB => ratio ~= 0.06. The 0.3 bound
+    // leaves room for amp-table quantization (0.25 dB) and windowing.
+    final expectedDrop =
+        kslAtt(3, 0x200, 6) - kslAtt(3, 0x200, 2);
+    expect(expectedDrop, greaterThan(20));
     expect(hi, lessThan(lo * 0.3));
+    final dropDb = 20 * math.log(lo / hi) / math.ln10;
+    expect(dropDb, inInclusiveRange(expectedDrop * 0.75, expectedDrop * 1.25));
     // KSL=0: no key scaling, RMS approximately equal across blocks.
     final lo0 = steadyRms(2, 0);
     final hi0 = steadyRms(6, 0);
     final ratio = hi0 / lo0;
     expect(ratio, greaterThan(0.9));
     expect(ratio, lessThan(1.1));
-    // Calibration order (2026-11-26, programs 39-42): slopes are 1 and 2
-    // swapped (KSL=1 ~3 dB/oct, KSL=2 ~1.5 dB/oct) with pivot 2.0. At a
-    // mid/high note (block 6, octave 6.5, 4.5 above pivot):
-    // KSL2 (6.75 dB) > KSL1 (13.5 dB) > KSL3 (27 dB).
+    // Calibration order (2026-11-26, programs 39-42; log-step fit
+    // 2026-11-26/27): slopes are 1 and 2 swapped (KSL=1 ~3 dB/oct,
+    // KSL=2 ~1.5 dB/oct). At block 6 / fnum 0x200 coord ~= 6.09, so
+    // KSL2 (~7.6 dB) > KSL1 (~15.3 dB) > KSL3 (~30.5 dB) in attenuation;
+    // KSL0 loudest, then KSL2, then KSL1, then KSL3.
+    expect(kslAtt(2, 0x200, 6), lessThan(kslAtt(1, 0x200, 6)));
+    expect(kslAtt(1, 0x200, 6), lessThan(kslAtt(3, 0x200, 6)));
     final hiK0 = steadyRms(6, 0);
     final hiK1 = steadyRms(6, 1);
     final hiK2 = steadyRms(6, 2);
@@ -384,12 +406,61 @@ void main() {
     expect(hiK0, greaterThan(hiK2));
     expect(hiK2, greaterThan(hiK1));
     expect(hiK1, greaterThan(hiK3));
-    // Near/below pivot (block 1, octave 1.5 < 2.0): KSL3 has ~no
-    // attenuation, so it nearly equals the KSL0 level (within a few dB).
+    // Near pivot (block 1 / fnum 0x200: coord ~= 1.09, att ~= 0.5 dB for
+    // KSL3 under the coord-1.0 pivot): KSL3 nearly equals KSL0 (within
+    // a few dB), unlike the high-block case above.
+    expect(kslAtt(3, 0x200, 1), lessThan(1.0));
     final pivotK0 = steadyRms(1, 0);
     final pivotK3 = steadyRms(1, 3);
     expect(pivotK3, greaterThan(pivotK0 * 0.7));
     expect(pivotK3, lessThan(pivotK0 * 1.05));
+  });
+
+  // Within-octave rise: old linear term (block + fnum/1024) was ~flat
+  // inside a block then cliffed at the next block; the measured log-step
+  // fit rises within the block, stepping at fnum>>6 boundaries. Notes
+  // 60 and 71 share block 4 under the driver pitch setup
+  // (block=floor(note/12)-1), so KSL3 RMS at 71 must be materially below
+  // 60. Expected drop derived from kslAtt with the same fnum the driver
+  // computes (440*2^((note-69)/12), fnum=round(freq*2^(20-block)/SR)).
+  test('key scale: within-octave rise, note 71 below note 60 (KSL3)', () {
+    (int, int) driverPitch(int note) {
+      var block = (note ~/ 12) - 1;
+      if (block < 0) block = 0;
+      if (block > 7) block = 7;
+      final freq = 440 * math.pow(2, (note - 69) / 12);
+      var fnum = (freq * math.pow(2, 20 - block) / kOpl2SampleRate).round();
+      while (fnum > 1023 && block < 7) {
+        block++;
+        fnum >>= 1;
+      }
+      return (fnum, block);
+    }
+
+    double steadyRmsAt(int note, int ksl) {
+      final (fnum, block) = driverPitch(note);
+      final chip = Opl2Chip();
+      programChannel(chip,
+          fnum: fnum, block: block, modTl: 63, carKsl: ksl, carTl: 0,
+          carAr: 15, carDr: 0, carSl: 0, modAr: 15, modDr: 0, modSl: 0,
+          connection: 1);
+      final out = Int16List(49716 * 2);
+      chip.generate(out, out.length);
+      return rms(out, 50000, 49716 * 2);
+    }
+
+    final (f60, b60) = driverPitch(60);
+    final (f71, b71) = driverPitch(71);
+    expect(b60, b71); // same block, within-octave comparison
+    final expectedDrop = kslAtt(3, f71, b71) - kslAtt(3, f60, b60);
+    // Old linear model gave ~= 1.8 dB here; the fit gives ~= 5.6 dB.
+    expect(expectedDrop, greaterThan(4.0));
+    final r60 = steadyRmsAt(60, 3);
+    final r71 = steadyRmsAt(71, 3);
+    expect(r60, greaterThan(200));
+    expect(r71, lessThan(r60 * 0.75)); // materially lower, not flat
+    final dropDb = 20 * math.log(r60 / r71) / math.ln10;
+    expect(dropDb, inInclusiveRange(expectedDrop * 0.6, expectedDrop * 1.4));
   });
 
   test('percussive envelope decays past SL to silence (mid SL)', () {

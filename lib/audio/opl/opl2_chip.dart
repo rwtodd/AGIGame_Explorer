@@ -80,6 +80,45 @@ const List<double> _feedbackGains = [
   4 * math.pi,
 ];
 
+/// Key-scale attenuation slopes in dB per octave for KSL = 0..3. Measured
+/// black-box on calibration programs 39-42 (notes 36..96, all C's,
+/// fnum=345) against a ScummVM/Nuked capture (2026-11-26): KSL=1
+/// attenuates ~3.1 dB/octave, KSL=2 ~1.65 dB/octave, KSL=3 ~6.2 dB/octave.
+/// Values 1 and 2 are swapped relative to the naive datasheet order, so
+/// the table is [0, 3.0, 1.5, 6.0], not [0, 1.5, 3.0, 6.0].
+const List<double> _kslSlopesDbPerOctave = [0.0, 3.0, 1.5, 6.0];
+
+/// Precomputed key-scale attenuation table fitted from the v3 calibration
+/// capture (late_test_v3.flac vs our render, 2026-11-26/27): KSL semitone
+/// ladders (notes 60..72, driver fnum with block=floor(note/12)-1).
+/// The old linear term `block + fnum/1024` barely moved within a block
+/// then cliffed ~4 dB at the block boundary (max error 5.5 dB KSL3,
+/// 2.0 dB KSL1). The reference rises in steps aligned to `fnum>>6`
+/// boundaries, fitted as att = slope * max(0, coord - 1.0) with
+/// coord = (block-1) + log2(rep/256) and rep = ((fnum>>6)<<6)+32
+/// (max error 0.30 dB for register KSL=1 slope 3, 1.77 dB for KSL=3
+/// slope 6, residual at the first two semitones likely transition
+/// contamination). Flattened index ((ksl*8)+block)*16 + (fnum>>6).
+/// [dart:math] log is used only here, never per sample.
+final Float64List _kslTable = _buildKslTable();
+
+Float64List _buildKslTable() {
+  final table = Float64List(4 * 8 * 16);
+  final ln2 = math.log(2.0);
+  for (var ksl = 0; ksl < 4; ksl++) {
+    final slope = _kslSlopesDbPerOctave[ksl];
+    for (var block = 0; block < 8; block++) {
+      for (var top = 0; top < 16; top++) {
+        final rep = (top << 6) + 32;
+        final coord = (block - 1) + math.log(rep / 256.0) / ln2;
+        final att = slope * (coord - 1.0);
+        table[((ksl * 8) + block) * 16 + top] = att < 0.0 ? 0.0 : att;
+      }
+    }
+  }
+  return table;
+}
+
 /// Modulator offsets indexed by channel (datasheet channel->operator map).
 const List<int> _modOffsets = [0, 1, 2, 8, 9, 10, 16, 17, 18];
 
@@ -527,26 +566,20 @@ final class Opl2Chip {
     return (fnum * doubledMult << block) ~/ 2;
   }
 
-  /// Key-scale attenuation slopes in dB per octave for KSL = 0..3. Measured
-  /// black-box on calibration programs 39-42 (notes 36..96, all C's,
-  /// fnum=345) against a ScummVM/Nuked capture (2026-11-26): KSL=1
-  /// attenuates ~3.1 dB/octave, KSL=2 ~1.65 dB/octave, KSL=3 ~6.2 dB/octave.
-  /// Values 1 and 2 are swapped relative to the naive datasheet order, so
-  /// the table is [0, 3.0, 1.5, 6.0], not [0, 1.5, 3.0, 6.0].
-  static const List<double> _kslSlopesDbPerOctave = [0.0, 3.0, 1.5, 6.0];
-
-  /// Approximation of the documented key-scale level curve (not a copy of
-  /// any emulator table): attenuation fits
-  /// att = slope * max(0, (block + fnum/1024) - 2.0) on the calibration
-  /// capture (pivot 2.0 fit within ~0.3 dB at both ends for KSL=3);
-  /// never negative.
+  /// Key-scale attenuation lookup into the precomputed log-step table
+  /// [_kslTable] (see its fit note). Never negative; indices are clamped
+  /// defensively like the amp-table lookup in [_operatorOutput].
   double _kslDb(int idx, int fnum, int block) {
-    final ksl = _ksl[idx];
-    if (ksl == 0) return 0.0;
-    final slope = _kslSlopesDbPerOctave[ksl];
-    final octave = block + fnum / 1024.0; // ~0 (lowest) .. ~8 (highest)
-    final att = slope * (octave - 2.0);
-    return att < 0.0 ? 0.0 : att;
+    var ksl = _ksl[idx];
+    if (ksl < 0) ksl = 0;
+    if (ksl > 3) ksl = 3;
+    var b = block;
+    if (b < 0) b = 0;
+    if (b > 7) b = 7;
+    var top = fnum >> 6;
+    if (top < 0) top = 0;
+    if (top > 15) top = 15;
+    return _kslTable[((ksl * 8) + b) * 16 + top];
   }
 
   double _waveValue(int idx, double amp, int phase) {
